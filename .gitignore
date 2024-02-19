@@ -1,0 +1,16 @@
+# Binaries
+bin/
+
+# Build
+out/
+build/
+.cache/
+compile_commands.json
+[Ee]ngine/[Aa]ssets/[Ss]haders/*.spv
+
+# Visual Studio
+.vscode/
+.vs/
+
+# JetBrains
+.idea/

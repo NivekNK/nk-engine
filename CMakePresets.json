@@ -1,0 +1,62 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "Win32-Base",
+            "description": "Target Windows with Clang and Ninja Generator.",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang.exe",
+                "CMAKE_CXX_COMPILER": "clang++.exe"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "Win32-Debug",
+            "displayName": "Windows Debug",
+            "description": "Target Windows (64-bit) with Clang and Ninja Generator. (Debug)",
+            "inherits": "Win32-Base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "BUILD_SHARED_LIBS": "ON"
+            }
+        },
+        {
+            "name": "Win32-RelWithDebInfo",
+            "displayName": "Windows RelWithDebInfo",
+            "description": "Target Windows (64-bit) with Clang and Ninja Generator. (RelWithDebInfo)",
+            "inherits": "Win32-Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "Win32-Release",
+            "displayName": "Windows Release",
+            "description": "Target Windows (64-bit) with Clang and Ninja Generator. (Release)",
+            "inherits": "Win32-Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "(Test) Windows Debug",
+            "description": "",
+            "displayName": "",
+            "configurePreset": "Win32-Debug"
+        }
+    ]
+}
