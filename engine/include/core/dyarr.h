@@ -1,14 +1,9 @@
 #pragma once
 
 #include "memory/allocator.h"
-#include "core/result.h"
+#include "core/iterator.h"
 
 namespace nk {
-    enum class DyarrError {
-        EmptyDyarr,
-        IndexBiggerThanLength,
-    };
-
     template <typename T>
     class Dyarr {
     public:
@@ -24,6 +19,9 @@ namespace nk {
             if (m_capacity > 0) {
                 m_allocator->free_lot(T, m_data, m_capacity);
             }
+
+            if (m_own_allocator)
+                delete m_allocator;
         }
 
         Dyarr(const Dyarr&) = delete;
@@ -32,36 +30,71 @@ namespace nk {
         Dyarr(Dyarr&& other) noexcept;
         Dyarr& operator=(Dyarr&& right) noexcept;
 
-        void init(Allocator* allocator, const u64 initial_capacity, const u64 initial_length = 0) {
+        void init(Allocator* allocator, const u64 initial_capacity) {
+            Assert(allocator != nullptr);
+
             m_data = nullptr;
-            m_length = initial_length;
+            m_length = 0;
             m_capacity = 0;
             m_allocator = allocator;
+            m_own_allocator = false;
+            if (initial_capacity > 0)
+                grow(initial_capacity);
+        }
+
+        void init_own(Allocator* allocator, const u64 initial_capacity) {
+            Assert(allocator != nullptr);
+
+            m_data = nullptr;
+            m_length = 0;
+            m_capacity = 0;
+            m_allocator = allocator;
+            m_own_allocator = true;
             if (initial_capacity > 0)
                 grow(initial_capacity);
         }
 
         void init_list(Allocator* allocator, std::initializer_list<T> data) {
+            Assert(allocator != nullptr);
+
             m_data = nullptr;
             m_length = data.size();
             m_capacity = 0;
             m_allocator = allocator;
+            m_own_allocator = false;
             if (m_length > 0)
                 grow(m_length);
             std::uninitialized_move(data.begin(), data.end(), m_data);
         }
 
-        Result<T&, DyarrError> operator[](const u64 index);
-        Result<const T&, DyarrError> operator[](const u64 index) const;
+        void init_list_own(Allocator* allocator, std::initializer_list<T> data) {
+            Assert(allocator != nullptr);
 
-        Result<T&, DyarrError> head();
-        Result<const T&, DyarrError> head() const;
+            m_data = nullptr;
+            m_length = data.size();
+            m_capacity = 0;
+            m_allocator = allocator;
+            m_own_allocator = true;
+            if (m_length > 0)
+                grow(m_length);
+            std::uninitialized_move(data.begin(), data.end(), m_data);
+        }
 
-        Result<T&, DyarrError> tail();
-        Result<const T&, DyarrError> tail() const;
+        using OptRefValue = std::optional<std::reference_wrapper<T>>;
+        using ConstOptRefValue = std::optional<std::reference_wrapper<const T>>;
+
+        OptRefValue operator[](const u64 index);
+        ConstOptRefValue operator[](const u64 index) const;
+
+        OptRefValue first();
+        ConstOptRefValue first() const;
+
+        OptRefValue last();
+        ConstOptRefValue last() const;
 
         void grow(u64 capacity);
         void clear();
+        void free();
 
         void push(const T& element);
         T& push_use();
@@ -69,8 +102,8 @@ namespace nk {
         void insert(const T& element, const u64 index);
         T& insert_use(const u64 index);
 
-        void remove_tail();
-        void remove_swap_with_tail_at(const u64 index);
+        void remove_last();
+        void remove_swap_with_last_at(const u64 index);
         void remove_at(const u64 index);
 
         void set_length(const u64 length);
@@ -81,11 +114,18 @@ namespace nk {
         inline bool empty() const { return m_length == 0; }
         inline T* data() { return m_data; }
 
+        NK_DEFINE_ITERATOR(T, std::forward_iterator_tag);
+        Iterator begin() { return Iterator{&m_data[0]}; }
+        Iterator end() { return Iterator{&m_data[m_length]}; }
+        Iterator begin() const { return Iterator{&m_data[0]}; }
+        Iterator end() const { return Iterator{&m_data[m_length]}; }
+
     private:
         T* m_data;
         u64 m_length;
         u64 m_capacity;
         Allocator* m_allocator;
+        bool m_own_allocator;
     };
 
     template <typename T>
@@ -117,51 +157,51 @@ namespace nk {
     }
 
     template <typename T>
-    Result<T&, DyarrError> Dyarr<T>::operator[](const u64 index) {
+    Dyarr<T>::OptRefValue Dyarr<T>::operator[](const u64 index) {
         ErrorLogIf(index >= m_length, "At index: {} when there is only {} length.", index, m_length);
         if (index >= m_length)
-            return Err(DyarrError::IndexBiggerThanLength);
-        return Ok(m_data[index]);
+            return std::nullopt;
+        return std::ref(m_data[index]);
     }
 
     template <typename T>
-    Result<const T&, DyarrError> Dyarr<T>::operator[](const u64 index) const {
+    Dyarr<T>::ConstOptRefValue Dyarr<T>::operator[](const u64 index) const {
         ErrorLogIf(index >= m_length, "At index: {} when there is only {} length.", index, m_length);
         if (index >= m_length)
-            return Err(DyarrError::IndexBiggerThanLength);
-        return Ok(m_data[index]);
+            return std::nullopt;
+        return std::cref(m_data[index]);
     }
 
     template <typename T>
-    Result<T&, DyarrError> Dyarr<T>::head() {
-        ErrorLogIf(m_length <= 0, "Trying to get head when Dyarr is empty.");
+    Dyarr<T>::OptRefValue Dyarr<T>::first() {
+        ErrorLogIf(m_length <= 0, "Trying to get first when Dyarr is empty.");
         if (m_length <= 0)
-            return Err(DyarrError::EmptyDyarr);
-        return Ok(m_data[0]);
+            return std::nullopt;
+        return std::ref(m_data[0]);
     }
 
     template <typename T>
-    Result<const T&, DyarrError> Dyarr<T>::head() const {
-        ErrorLogIf(m_length <= 0, "Trying to get head when Dyarr is empty.");
+    Dyarr<T>::ConstOptRefValue Dyarr<T>::first() const {
+        ErrorLogIf(m_length <= 0, "Trying to get first when Dyarr is empty.");
         if (m_length <= 0)
-            return Err(DyarrError::EmptyDyarr);
-        return Ok(m_data[0]);
+            return std::nullopt;
+        return std::cref(m_data[0]);
     }
 
     template <typename T>
-    Result<T&, DyarrError> Dyarr<T>::tail() {
-        ErrorLogIf(m_length <= 0, "Trying to get tail when Dyarr is empty.");
+    Dyarr<T>::OptRefValue Dyarr<T>::last() {
+        ErrorLogIf(m_length <= 0, "Trying to get last when Dyarr is empty.");
         if (m_length <= 0)
-            return Err(DyarrError::EmptyDyarr);
-        return Ok(m_data[m_length - 1]);
+            return std::nullopt;
+        return std::ref(m_data[m_length - 1]);
     }
 
     template <typename T>
-    Result<const T&, DyarrError> Dyarr<T>::tail() const {
-        ErrorLogIf(m_length <= 0, "Trying to get tail when Dyarr is empty.");
+    Dyarr<T>::ConstOptRefValue Dyarr<T>::last() const {
+        ErrorLogIf(m_length <= 0, "Trying to get last when Dyarr is empty.");
         if (m_length <= 0)
-            return Err(DyarrError::EmptyDyarr);
-        return Ok(m_data[m_length - 1]);
+            return std::nullopt;
+        return std::cref(m_data[m_length - 1]);
     }
 
     template <typename T>
@@ -185,6 +225,17 @@ namespace nk {
     template <typename T>
     void Dyarr<T>::clear() {
         m_length = 0;
+    }
+
+    template <typename T>
+    void Dyarr<T>::free() {
+        if (m_capacity <= 0)
+            return;
+
+        m_allocator->free_lot(T, m_data, m_capacity);
+        m_capacity = 0;
+        m_length = 0;
+        m_data = nullptr;
     }
 
     template <typename T>
@@ -240,15 +291,15 @@ namespace nk {
     }
 
     template <typename T>
-    void Dyarr<T>::remove_tail() {
+    void Dyarr<T>::remove_last() {
         WarnLogIf(m_length <= 0, "Trying to pop empty Dyarr.");
         if (m_length > 0)
             m_length--;
     }
 
     template <typename T>
-    void Dyarr<T>::remove_swap_with_tail_at(const u64 index) {
-        ErrorLogIf(index >= m_length, "Trying to remove and swap with tail at index: {} when there is only {} length.", index, m_length);
+    void Dyarr<T>::remove_swap_with_last_at(const u64 index) {
+        ErrorLogIf(index >= m_length, "Trying to remove and swap with last at index: {} when there is only {} length.", index, m_length);
         if (index >= m_length)
             return;
 

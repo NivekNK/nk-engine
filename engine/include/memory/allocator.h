@@ -3,6 +3,23 @@
 #include "memory/memory_type.h"
 
 namespace nk {
+    /**
+     *  # How to implement a Allocator
+     *
+     *  ```cpp
+     *  class MyAllocator : public Allocator {
+     *  public:
+     *      MyAllocator() : Allocator() {}
+     *      virtual ~MyAllocator() override;
+     *
+     *      MyAllocator(MyAllocator&&);
+     *      MyAllocator& operator=(MyAllocator&&);
+     *
+     *      virtual void* allocate_raw_impl(const u64 size_bytes, const u64 alignment) override;
+     *      virtual void free_raw_impl(void* const ptr, const u64 size_bytes) override;
+     *  }
+     *  ```
+     */
     class Allocator {
     public:
         Allocator()
@@ -63,7 +80,7 @@ namespace nk {
 #else
         template <typename T>
         inline void free_t_impl(T* ptr) {
-            free_raw_impl(ptr);
+            free_raw_impl(ptr, sizeof(T));
         }
 #endif
 
@@ -75,7 +92,7 @@ namespace nk {
 #else
         template <typename T>
         inline void free_lot_impl(T* ptr, const u64 lot) {
-            free_raw_impl(ptr);
+            free_raw_impl(ptr, sizeof(T) * lot);
         }
 #endif
 
@@ -109,7 +126,7 @@ namespace nk {
             }
 
             ptr->~V();
-            free_raw_impl(ptr);
+            free_raw_impl(ptr, sizeof(T));
         }
 #endif
 
@@ -123,17 +140,19 @@ namespace nk {
             const u64 size_bytes, const u64 alignment, str file, const u32 line);
         void memory_manager_free_raw_impl(
             void* const ptr, const u64 size_bytes, str file, const u32 line);
+
+        virtual cstr to_string() const = 0;
 #endif
 
         virtual void* allocate_raw_impl(const u64 size_bytes, const u64 alignment) = 0;
-        virtual void free_raw_impl(void* const ptr) = 0;
+        virtual void free_raw_impl(void* const ptr, const u64 size_bytes) = 0;
 
     protected:
 #if !defined(NK_RELEASE)
-        void allocator_init_impl(
+        void private_allocator_init_impl(
             const u64 size_bytes, void* const start, str name, const MemoryTypeValue memory_type);
 #else
-        void allocator_init_impl(const u64 size_bytes, void* const start);
+        void private_allocator_init_impl(const u64 size_bytes, void* const start);
 #endif
 
         u64 m_size_bytes;
@@ -148,15 +167,29 @@ namespace nk {
 #endif
     };
 
+// TODO: Maybe a constexpr? for name.
 #if !defined(NK_RELEASE)
-    #define allocator_init(size_bytes, start, name, memory_type) \
-        allocator_init_impl(size_bytes, start, name, memory_type)
+    #define NK_DEFINE_ALLOCATOR_INIT(allocator, ...) \
+        virtual cstr to_string() const override { return #allocator; } \
+        void allocator_init_impl(str name, const MemoryTypeValue memory_type __VA_OPT__(, ) __VA_ARGS__)
+#else
+    #define NK_DEFINE_ALLOCATOR_INIT(allocator, ...) \
+        void allocator_init_impl(__VA_ARGS__)
+#endif
+
+#if !defined(NK_RELEASE)
+    #define allocator_init(name, memory_type, ...) \
+        allocator_init_impl(name, memory_type __VA_OPT__(, ) __VA_ARGS__)
+    #define private_allocator_init(size_bytes, start, name, memory_type) \
+        private_allocator_init_impl(size_bytes, start, name, memory_type)
     #define allocate_raw(size_bytes, alignment) \
         memory_manager_allocate_raw_impl(size_bytes, alignment, __FILE__, __LINE__)
     #define allocate_t(T) \
         allocate_t_impl<T>(__FILE__, __LINE__)
     #define allocate_lot(T, lot) \
         allocate_lot_impl<T>(lot, __FILE__, __LINE__)
+    #define allocate_raw_t(T, size_bytes) \
+        allocate_raw_t_impl<T>(size_bytes, __FILE__, __LINE__)
     #define free_raw(ptr, size_bytes) \
         memory_manager_free_raw_impl(ptr, size_bytes, __FILE__, __LINE__)
     #define free_t(T, ptr) \
@@ -167,19 +200,21 @@ namespace nk {
         construct_impl<T>(__FILE__, __LINE__ __VA_OPT__(, ) __VA_ARGS__)
     #define destroy(V, ptr) \
         destroy_impl<V>(ptr, __FILE__, __LINE__)
-    #define allocate_raw_t(T, size_bytes) \
-        allocate_raw_t_impl<T>(size_bytes, __FILE__, __LINE__)
 #else
-    #define allocator_init(size_bytes, start, name, memory_type) \
-        allocator_init_impl(size_bytes, start)
+    #define allocator_init(name, memory_type, ...) \
+        allocator_init_impl(__VA_ARGS__)
+    #define private_allocator_init(size_bytes, start, name, memory_type) \
+        private_allocator_init_impl(size_bytes, start)
     #define allocate_raw(size_bytes, alignment) \
         allocate_raw_impl(size_bytes, alignment)
     #define allocate_t(T) \
         allocate_t_impl<T>()
     #define allocate_lot(T, lot) \
         allocate_lot_impl<T>(lot)
+    #define allocate_raw_t(T, size_bytes) \
+        allocate_raw_t_impl<T>(size_bytes)
     #define free_raw(ptr, size_bytes) \
-        free_raw_impl(ptr)
+        free_raw_impl(ptr, size_bytes)
     #define free_t(T, ptr) \
         free_t_impl<T>(ptr)
     #define free_lot(T, ptr, lot) \
@@ -188,7 +223,5 @@ namespace nk {
         construct_impl<T>(__VA_ARGS__)
     #define destroy(V, ptr) \
         destroy_impl<V>(ptr)
-    #define allocate_raw_t(T, size_bytes) \
-        allocate_raw_t_impl<T>(size_bytes)
 #endif
 }

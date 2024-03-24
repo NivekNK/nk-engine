@@ -1,7 +1,7 @@
 /////////////////////////////////////////////////////////////////////////////////
-// This file is a C++ wrapper around wyhash: 
+// This file is a C++ wrapper around wyhash:
 // https://github.com/wangyi-fudan/wyhash
-// 
+//
 // Copyright (c) 2022 by Alain Espinosa.
 /////////////////////////////////////////////////////////////////////////////////
 // wyhash and wyrand are the ideal 64-bit hash function and PRNG respectively:
@@ -33,7 +33,7 @@
 #ifndef WYHASH_32BIT_MUM
 	// 0: normal version, slow on 32 bit systems
 	// 1: faster on 32 bit systems but produces different results, incompatible with wy2u0k function
-	#define WYHASH_32BIT_MUM 0  
+	#define WYHASH_32BIT_MUM 0
 #endif
 
 // includes
@@ -464,7 +464,7 @@ namespace wy {
 			return hash_imp::wyhash(reinterpret_cast<const uint8_t*>(elem), sizeof(T));
 		}
 	};
-	
+
 	// Partial specializations: number
 	template<> struct hash<uint64_t> : private internal::hash_imp
 	{
@@ -524,7 +524,7 @@ namespace wy {
 	{
 		using hash_string_base::hash_string_base;// Inherit constructors
 	};
-	
+
 	// std::string_view variants
 #if __cpp_lib_string_view
 	template<> struct hash<std::string_view> : public internal::hash_string_base<std::string_view>

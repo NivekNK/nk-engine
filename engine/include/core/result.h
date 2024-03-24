@@ -24,7 +24,7 @@ namespace nk {
     template <typename OkT, typename ErrT>
     class Result {
     public:
-        using VariantT = std::variant<Ok<OkT>, Err<ErrT>>;
+        using variant_t = std::variant<Ok<OkT>, Err<ErrT>>;
 
         constexpr Result(Ok<OkT> value) : variant(std::move(value)) {}
         constexpr Result(Err<ErrT> value) : variant(std::move(value)) {}
@@ -38,7 +38,7 @@ namespace nk {
         constexpr OkT&& take_ok_value() { return std::get<Ok<OkT>>(variant).take_value(); }
         constexpr ErrT&& take_err_value() { return std::get<Err<ErrT>>(variant).take_value(); }
 
-        VariantT variant;
+        variant_t variant;
     };
 
 #define OK(ok)   auto ok = value.ok_value();

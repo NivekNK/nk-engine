@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/dyarr_type.h"
 #include "memory/allocator.h"
 #include "core/iterator.h"
+#include "core/dyarr_type.h"
 
 namespace nk {
     template <typename T>
@@ -54,14 +54,18 @@ namespace nk {
             return *this;
         }
 
-        void init(const u64 length, Allocator* allocator) {
+        void init(Allocator* allocator, const u64 length) {
+            Assert(allocator != nullptr);
+
             m_length = length;
             m_allocator = allocator;
             m_data = m_allocator->allocate_lot(T, m_length);
             m_own_allocator = false;
         }
 
-        void init_own(const u64 length, Allocator* allocator) {
+        void init_own(Allocator* allocator, const u64 length) {
+            Assert(allocator != nullptr);
+
             m_length = length;
             m_allocator = allocator;
             m_data = m_allocator->allocate_lot(T, m_length);
@@ -75,20 +79,69 @@ namespace nk {
             m_own_allocator = false;
         }
 
-        void init_list(Allocator* allocator, std::initializer_list<T> data) {
-            m_length = data.size();
+        void init_list(Allocator* allocator, std::initializer_list<T> list) {
+            Assert(allocator != nullptr);
+
+            m_length = list.size();
             m_allocator = allocator;
             m_data = m_allocator->allocate_lot(T, m_length);
-            std::uninitialized_move(data.begin(), data.end(), m_data);
+            std::uninitialized_move(list.begin(), list.end(), m_data);
             m_own_allocator = false;
         }
 
-        void init_list_own(Allocator* allocator, std::initializer_list<T> data) {
-            m_length = data.size();
+        void init_list_own(Allocator* allocator, std::initializer_list<T> list) {
+            Assert(allocator != nullptr);
+
+            m_length = list.size();
             m_allocator = allocator;
             m_data = m_allocator->allocate_lot(T, m_length);
-            std::uninitialized_move(data.begin(), data.end(), m_data);
+            std::uninitialized_move(list.begin(), list.end(), m_data);
             m_own_allocator = true;
+        }
+
+        using OptRefValue = std::optional<std::reference_wrapper<T>>;
+        using ConstOptRefValue = std::optional<std::reference_wrapper<const T>>;
+
+        OptRefValue operator[](const u64 index) {
+            ErrorLogIf(index >= m_length, "At index: {} when there is only {} length.", index, m_length);
+            if (index >= m_length)
+                return std::nullopt;
+            return std::ref(m_data[index]);
+        }
+
+        ConstOptRefValue operator[](const u64 index) const {
+            ErrorLogIf(index >= m_length, "At index: {} when there is only {} length.", index, m_length);
+            if (index >= m_length)
+                return std::nullopt;
+            return std::cref(m_data[index]);
+        }
+
+        OptRefValue first() {
+            ErrorLogIf(m_length <= 0, "Trying to get first when Dyarr is empty.");
+            if (m_length <= 0)
+                return std::nullopt;
+            return std::ref(m_data[0]);
+        }
+
+        ConstOptRefValue first() const {
+            ErrorLogIf(m_length <= 0, "Trying to get first when Dyarr is empty.");
+            if (m_length <= 0)
+                return std::nullopt;
+            return std::cref(m_data[0]);
+        }
+
+        OptRefValue last() {
+            ErrorLogIf(m_length <= 0, "Trying to get last when Dyarr is empty.");
+            if (m_length <= 0)
+                return std::nullopt;
+            return std::ref(m_data[m_length - 1]);
+        }
+
+        ConstOptRefValue last() const {
+            ErrorLogIf(m_length <= 0, "Trying to get last when Dyarr is empty.");
+            if (m_length <= 0)
+                return std::nullopt;
+            return std::cref(m_data[m_length - 1]);
         }
 
         void clear() {

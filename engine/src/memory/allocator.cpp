@@ -62,19 +62,20 @@ namespace nk {
 #if !defined(NK_RELEASE)
     void* Allocator::memory_manager_allocate_raw_impl(
         const u64 size_bytes, const u64 alignment, str file, const u32 line) {
+        auto memory = allocate_raw_impl(size_bytes, alignment);
         NK_MEMORY_SYSTEM_ALLOCATE(*this, size_bytes, file, line);
-        return allocate_raw_impl(size_bytes, alignment);
+        return memory;
     }
 
     void Allocator::memory_manager_free_raw_impl(
         void* const ptr, const u64 size_bytes, str file, const u32 line) {
+        free_raw_impl(ptr, size_bytes);
         NK_MEMORY_SYSTEM_FREE(*this, size_bytes, file, line);
-        free_raw_impl(ptr);
     }
 #endif
 
 #if !defined(NK_RELEASE)
-    void Allocator::allocator_init_impl(
+    void Allocator::private_allocator_init_impl(
         const u64 size_bytes, void* const start, str name, const MemoryTypeValue memory_type) {
         m_size_bytes = size_bytes;
         m_start = start;
@@ -83,7 +84,7 @@ namespace nk {
         NK_MEMORY_SYSTEM_INSERT(*this);
     }
 #else
-    void Allocator::allocator_init_impl(const u64 size_bytes, void* const start) {
+    void Allocator::private_allocator_init_impl(const u64 size_bytes, void* const start) {
         m_size_bytes = size_bytes;
         m_start = start;
     }

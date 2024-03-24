@@ -13,6 +13,8 @@
 
 // Types
 #include <cstdint>
+#include <algorithm>
+#include <cmath>
 
 // Threading
 #include <mutex>
@@ -34,11 +36,13 @@
 #include <variant>
 
 // Memory manipulation
+#include <cstdlib>
 #include <memory>
 #include <functional>
 #include <initializer_list>
 #include <iterator>
 
+// Utilities
 #include "core/defines.h"
 #include "system/logging_system.h"
 #include "core/assertion.h"

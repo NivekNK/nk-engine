@@ -34,4 +34,7 @@ namespace nk {
     void MemorySystem::report() {
 
     }
+
+    MemorySystem::MemorySystem() {
+    }
 }
