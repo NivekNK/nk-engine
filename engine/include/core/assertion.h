@@ -16,14 +16,14 @@ namespace nk {
             fmt,
             std::make_format_args(std::forward<Args>(args)...));
         message = std::format("{} > Failed '{}'", message, expression);
-        LoggingSystem::get().styled_log("Assert", message.c_str(), -1, 1, 1, file, line);
+        LoggingSystem::get().named_log("Assert", message.c_str(), -1, 1, 1, file, line);
     }
 
     template <typename... Args>
     static void report_assert_failure(
         const cstr expression, const cstr file, const u32 line) {
         str message = std::format("Failed '{}'", expression);
-        LoggingSystem::get().styled_log("Assert", message.c_str(), -1, 1, 1, file, line);
+        LoggingSystem::get().named_log("Assert", message.c_str(), -1, 1, 1, file, line);
     }
 
     static void debug_break() {

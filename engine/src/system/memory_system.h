@@ -2,17 +2,23 @@
 
 #if !defined(NK_RELEASE)
 
-#include "memory/memory_type.h"
-#include "core/dyarr.h"
+    #include "memory/memory_type.h"
+    #include "core/dyarr.h"
 
 namespace nk {
     class Allocator;
+
+    enum class AllocationType {
+        Init,
+        Allocate,
+        Free,
+    };
 
     struct MemorySystemAllocationInfo {
         u64 size_bytes;
         str file;
         u32 line;
-        bool is_allocate;
+        AllocationType type;
     };
 
     struct MemorySystemStats {
@@ -29,17 +35,20 @@ namespace nk {
 
     class MemorySystem {
     public:
-        ~MemorySystem();
-
         static void init();
         static void shutdown();
 
-        void insert(const Allocator& allocator);
-        void allocate_memory(const Allocator& allocator, const u64 size_bytes, str file, const u32 line);
-        void free_memory(const Allocator& allocator, const u64 size_bytes, str file, const u32 line);
-        void report();
+        void expanded_memory_type(u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr);
+        void insert(Allocator& allocator);
+        void update(const Allocator& allocator, const u64 size_bytes, str file, const u32 line, AllocationType type);
+        void log_report(bool detailed);
+
+        inline static bool is_initialized() {
+            return s_instance != nullptr;
+        }
 
         inline static MemorySystem& get() {
+            AssertMsg(s_instance != nullptr, "Trying to get MemorySystem when not initialized!");
             return *s_instance;
         }
 
@@ -47,6 +56,10 @@ namespace nk {
         MemorySystem();
 
         Allocator* m_allocator;
+        Dyarr<MemorySystemStats> m_allocations;
+
+        u64 m_max_memory_type;
+        std::function<cstr(MemoryTypeValue)> m_memory_type_to_cstr;
 
         static MemorySystem* s_instance;
     };
@@ -56,22 +69,28 @@ namespace nk {
         ::nk::MemorySystem::init()
     #define NK_MEMORY_SYSTEM_SHUTDOWN() \
         ::nk::MemorySystem::shutdown()
-    #define NK_MEMORY_SYSTEM_INSERT(allocator) \
-        ::nk::MemorySystem::get().insert(allocator)
-    #define NK_MEMORY_SYSTEM_ALLOCATE(allocator, size_bytes, file, line) \
-        ::nk::MemorySystem::get().allocate_memory(allocator, size_bytes, file, line)
-    #define NK_MEMORY_SYSTEM_FREE(allocator, size_bytes, file, line) \
-        ::nk::MemorySystem::get().free_memory(allocator, size_bytes, file, line)
-    #define NK_MEMORY_SYSTEM_REPORT() \
-        ::nk::MemorySystem::get().report()
+    #define NK_MEMORY_SYSTEM_IS_INITIALIZED() \
+        ::nk::MemorySystem::is_initialized()
+    #define NK_MEMORY_SYSTEM_EXPANDED_MEMORY_TYPE(max_memory_type, memory_type_to_cstr) \
+        if (nk::MemorySystem::is_initialized()) nk::MemorySystem::get().expanded_memory_type(max_memory_type, memory_type_to_cstr)
+    #define NK_MEMORY_SYSTEM_INSERT(allocator)  \
+        if (nk::MemorySystem::is_initialized()) nk::MemorySystem::get().insert(allocator)
+    #define NK_MEMORY_SYSTEM_UPDATE(allocator, size_bytes, file, line, type) \
+        if (nk::MemorySystem::is_initialized()) nk::MemorySystem::get().update(allocator, size_bytes, file, line, type)
+    #define NK_MEMORY_SYSTEM_LOG_REPORT() \
+        if (nk::MemorySystem::is_initialized()) nk::MemorySystem::get().log_report(false)
+    #define NK_MEMORY_SYSTEM_LOG_DETAILED_REPORT() \
+        if (nk::MemorySystem::is_initialized()) nk::MemorySystem::get().log_report(true)
 
 #else
 
     #define NK_MEMORY_SYSTEM_INIT()
     #define NK_MEMORY_SYSTEM_SHUTDOWN()
+    #define NK_MEMORY_SYSTEM_IS_INITIALIZED() false
+    #define NK_MEMORY_SYSTEM_EXPANDED_MEMORY_TYPE(max_memory_type, memory_type_to_cstr)
     #define NK_MEMORY_SYSTEM_INSERT(allocator)
-    #define NK_MEMORY_SYSTEM_ALLOCATE(allocator, size_bytes, file, line)
-    #define NK_MEMORY_SYSTEM_FREE(allocator, size_bytes, file, line)
-    #define NK_MEMORY_SYSTEM_REPORT()
+    #define NK_MEMORY_SYSTEM_UPDATE(allocator, size_bytes, file, line, type)
+    #define NK_MEMORY_SYSTEM_LOG_REPORT()
+    #define NK_MEMORY_SYSTEM_LOG_DETAILED_REPORT()
 
 #endif

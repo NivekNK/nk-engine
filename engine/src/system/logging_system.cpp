@@ -3,11 +3,11 @@
 #include "system/logging_system.h"
 
 namespace nk {
-    void LoggingSystem::styled_log(
+    void LoggingSystem::named_log(
         const cstr log_name,
         const cstr message,
         i8 font, i8 background, i8 style,
-        const cstr file,
+        str file,
         const u32 line) {
         std::scoped_lock lock(m_log_mutex);
 
@@ -15,6 +15,13 @@ namespace nk {
         auto time_t_now = std::chrono::system_clock::to_time_t(now);
         std::tm time_info;
         localtime_s(&time_info, &time_t_now);
+
+        if (m_short_path) {
+            const u64 pos = file.find("nk-engine");
+            if (pos != std::string::npos) {
+                file.erase(0, pos + 10);
+            }
+        }
 
         str formatted_message = std::format(
             "[{:02}:{:02}:{:02}] {}: {} ({}:{})",
@@ -70,5 +77,18 @@ namespace nk {
         }
 
         return code;
+    }
+
+    void LoggingSystem::styled_log(i8 font, i8 background, i8 style, cstr formatted_message) {
+        std::scoped_lock lock(m_log_mutex);
+
+        std::cout << colorize(font, background, style)
+                  << formatted_message
+                  << "\033[0m"
+                  << std::endl;
+
+        if (m_file_output) {
+            // TODO: add file system management.
+        }
     }
 }

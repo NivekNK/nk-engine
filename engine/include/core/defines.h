@@ -34,3 +34,7 @@ namespace nk {
 
 #define TRUE 1
 #define FALSE 0
+
+#define GiB(...) 1073741824 __VA_OPT__(* ) NK_1ST_ARGUMENT(__VA_ARGS__)
+#define MiB(...) 1048576 __VA_OPT__(* ) NK_1ST_ARGUMENT(__VA_ARGS__)
+#define KiB(...) 1024 __VA_OPT__(* ) NK_1ST_ARGUMENT(__VA_ARGS__)

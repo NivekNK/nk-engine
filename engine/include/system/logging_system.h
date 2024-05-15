@@ -41,14 +41,17 @@ namespace nk {
             m_file_output = enabled;
             return *this;
         }
+        inline LoggingSystem& set_short_path(const bool enabled) {
+            m_short_path = enabled;
+            return *this;
+        }
 
-        void styled_log(
+        void named_log(
             const cstr log_name,
             const cstr message,
             i8 font, i8 background, i8 style,
-            const cstr file,
+            str file,
             const u32 line);
-
 
         template <typename... Args>
         void Debug(const cstr file, const u32 line, cstr fmt, Args&&... args) {
@@ -60,7 +63,7 @@ namespace nk {
                 fmt,
                 std::make_format_args(std::forward<Args>(args)...));
             constexpr u8 priority_index = static_cast<u8>(LoggingPriority::Debug);
-            styled_log("Debug", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
+            named_log("Debug", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
         }
 
         template <typename... Args>
@@ -73,7 +76,7 @@ namespace nk {
                 fmt,
                 std::make_format_args(std::forward<Args>(args)...));
             constexpr u8 priority_index = static_cast<u8>(LoggingPriority::Trace);
-            styled_log("Trace", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
+            named_log("Trace", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
         }
 
         template <typename... Args>
@@ -86,7 +89,7 @@ namespace nk {
                 fmt,
                 std::make_format_args(std::forward<Args>(args)...));
             constexpr u8 priority_index = static_cast<u8>(LoggingPriority::Info);
-            styled_log("Info", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
+            named_log("Info", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
         }
 
         template <typename... Args>
@@ -99,7 +102,7 @@ namespace nk {
                 fmt,
                 std::make_format_args(std::forward<Args>(args)...));
             constexpr u8 priority_index = static_cast<u8>(LoggingPriority::Warn);
-            styled_log("Warn", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
+            named_log("Warn", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
         }
 
         template <typename... Args>
@@ -112,7 +115,7 @@ namespace nk {
                 fmt,
                 std::make_format_args(std::forward<Args>(args)...));
             constexpr u8 priority_index = static_cast<u8>(LoggingPriority::Error);
-            styled_log("Error", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
+            named_log("Error", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
         }
 
         template <typename... Args>
@@ -125,7 +128,17 @@ namespace nk {
                 fmt,
                 std::make_format_args(std::forward<Args>(args)...));
             constexpr u8 priority_index = static_cast<u8>(LoggingPriority::Fatal);
-            styled_log("Fatal", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
+            named_log("Fatal", message.c_str(), m_style[priority_index][0], m_style[priority_index][1], m_style[priority_index][2], file, line);
+        }
+
+        template <typename... Args>
+        void StyledLog(i8 font, i8 background, i8 style, cstr fmt, Args&&... args) {
+            str message;
+            std::vformat_to(
+                std::back_inserter(message),
+                fmt,
+                std::make_format_args(std::forward<Args>(args)...));
+            styled_log(font, background, style, message.c_str());
         }
 
     private:
@@ -144,8 +157,12 @@ namespace nk {
 #endif
         cstr colorize(i8 font, i8 background = -1, i8 style = -1);
 
+        void styled_log(i8 font, i8 background, i8 style, cstr formatted_message);
+
         LoggingPriority m_priority = LoggingPriority::Info;
         bool m_file_output = true;
+        bool m_short_path = true;
+
         std::mutex m_log_mutex;
 
         static constexpr const i8 m_style[static_cast<u8>(LoggingPriority::Fatal) + 1][3] = {
@@ -208,3 +225,5 @@ namespace nk {
 #define FatalLogIf(value, ...) \
     if (value)                 \
     ::nk::LoggingSystem::get().Fatal(__FILE__, __LINE__, __VA_ARGS__)
+
+#define StyledLog(font, background, style, fmt, ...) ::nk::LoggingSystem::get().StyledLog(font, background, style, fmt __VA_OPT__(, ) __VA_ARGS__)

@@ -16,9 +16,7 @@ namespace nk {
               m_allocator{nullptr} {}
 
         ~Dyarr() {
-            if (m_capacity > 0) {
-                m_allocator->free_lot(T, m_data, m_capacity);
-            }
+            this->free();
 
             if (m_own_allocator)
                 delete m_allocator;
@@ -231,6 +229,12 @@ namespace nk {
     void Dyarr<T>::free() {
         if (m_capacity <= 0)
             return;
+
+        if constexpr(std::is_class_v<T>) {
+            for (auto it = begin(); it != end(); it++) {
+                it->~T();
+            }
+        }
 
         m_allocator->free_lot(T, m_data, m_capacity);
         m_capacity = 0;

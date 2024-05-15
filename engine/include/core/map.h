@@ -28,7 +28,7 @@ namespace nk {
         }
 
         ~Map() {
-            m_allocator->free_raw(m_control_bytes, calculate_size(m_capacity));
+            this->free();
 
             if (m_own_allocator)
                 delete m_allocator;
@@ -72,6 +72,8 @@ namespace nk {
 
         Iterator find(const K& key);
         void insert(const K& key, const V& value);
+        V& insert_use(const K& key);
+        void insert_move(const K& key, V& value);
         bool remove(const K& key);
         bool remove(const Iterator& it);
 
@@ -275,6 +277,28 @@ namespace nk {
     }
 
     template <typename K, typename V>
+    V& Map<K, V>::insert_use(const K& key) {
+        const detail::FindResult find_result = find_or_prepare_insert(key);
+        if (find_result.free_index) {
+            m_slots[find_result.index].key = key;
+        }
+        return m_slots[find_result.index].value;
+    }
+
+    template <typename K, typename V>
+    void Map<K, V>::insert_move(const K& key, V& value) {
+        const detail::FindResult find_result = find_or_prepare_insert(key);
+        if (find_result.free_index) {
+            // Emplace
+            m_slots[find_result.index].key = key;
+            m_slots[find_result.index].value = std::move(value);
+        } else {
+            // Substitute value index
+            m_slots[find_result.index].value = std::move(value);
+        }
+    }
+
+    template <typename K, typename V>
     bool Map<K, V>::remove(const K& key) {
         auto it = find(key);
         if (it == end())
@@ -341,6 +365,11 @@ namespace nk {
 
     template <typename K, typename V>
     void Map<K, V>::free() {
+        if constexpr(std::is_class_v<V>) {
+            for (auto it = begin(); it != end(); it++) {
+                it->value.~V();
+            }
+        }
         m_allocator->free_raw(m_control_bytes, calculate_size(m_capacity));
     }
 

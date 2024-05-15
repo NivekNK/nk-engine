@@ -34,6 +34,7 @@ set(SOURCES
     src/system/logging_system.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
+    src/nk/entry_point.cpp
 )
 
 # if (WIN32)

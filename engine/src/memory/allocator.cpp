@@ -5,11 +5,18 @@
 #include "system/memory_system.h"
 
 namespace nk {
+    Allocator::Allocator()
+        : m_size_bytes{0},
+          m_used_bytes{0},
+          m_allocation_count{0},
+          m_start{nullptr} {
+    }
+
     Allocator::~Allocator() {
 #if !defined(NK_RELEASE)
         if (m_allocation_count != 0 || m_used_bytes != 0) {
             FatalLog("{} Allocator not correctly freed!", m_name);
-            NK_MEMORY_SYSTEM_REPORT();
+            NK_MEMORY_SYSTEM_LOG_REPORT();
         }
 #endif
         Assert(m_allocation_count == 0 && m_used_bytes == 0);
@@ -63,28 +70,28 @@ namespace nk {
     void* Allocator::memory_manager_allocate_raw_impl(
         const u64 size_bytes, const u64 alignment, str file, const u32 line) {
         auto memory = allocate_raw_impl(size_bytes, alignment);
-        NK_MEMORY_SYSTEM_ALLOCATE(*this, size_bytes, file, line);
+        NK_MEMORY_SYSTEM_UPDATE(*this, size_bytes, file, line, AllocationType::Allocate);
         return memory;
     }
 
     void Allocator::memory_manager_free_raw_impl(
         void* const ptr, const u64 size_bytes, str file, const u32 line) {
         free_raw_impl(ptr, size_bytes);
-        NK_MEMORY_SYSTEM_FREE(*this, size_bytes, file, line);
+        NK_MEMORY_SYSTEM_UPDATE(*this, size_bytes, file, line, AllocationType::Free);
     }
 #endif
 
 #if !defined(NK_RELEASE)
-    void Allocator::private_allocator_init_impl(
-        const u64 size_bytes, void* const start, str name, const MemoryTypeValue memory_type) {
+    void Allocator::private_allocator_init(
+        const u64 size_bytes, void* const start, str name, str file, const u32 line, const MemoryTypeValue memory_type) {
         m_size_bytes = size_bytes;
         m_start = start;
         m_name = name;
         m_type = memory_type;
-        NK_MEMORY_SYSTEM_INSERT(*this);
+        NK_MEMORY_SYSTEM_UPDATE(*this, size_bytes, file, line, AllocationType::Init);
     }
 #else
-    void Allocator::private_allocator_init_impl(const u64 size_bytes, void* const start) {
+    void Allocator::private_allocator_init(const u64 size_bytes, void* const start) {
         m_size_bytes = size_bytes;
         m_start = start;
     }

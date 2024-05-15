@@ -2,7 +2,13 @@
 
 #include "memory/malloc_allocator.h"
 
+#include "system/memory_system.h"
+
 namespace nk {
+    MallocAllocator::MallocAllocator() : Allocator() {
+        NK_MEMORY_SYSTEM_INSERT(*this);
+    }
+
     void* MallocAllocator::allocate_raw_impl(const u64 size_bytes, [[maybe_unused]] const u64 alignment) {
         m_allocation_count++;
         m_size_bytes += size_bytes;

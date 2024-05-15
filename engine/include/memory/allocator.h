@@ -22,12 +22,7 @@ namespace nk {
      */
     class Allocator {
     public:
-        Allocator()
-            : m_size_bytes{0},
-              m_used_bytes{0},
-              m_allocation_count{0},
-              m_start{nullptr} {}
-
+        Allocator();
         virtual ~Allocator();
 
         Allocator(const Allocator&) = delete;
@@ -141,7 +136,14 @@ namespace nk {
         void memory_manager_free_raw_impl(
             void* const ptr, const u64 size_bytes, str file, const u32 line);
 
-        virtual cstr to_string() const = 0;
+        virtual cstr to_cstr() const = 0;
+
+        inline cstr cname() const { return m_name.c_str(); }
+        virtual str name() const { return m_name; }
+        inline MemoryTypeValue memory_type() const { return m_type; }
+
+        inline u32 index() const { return m_index; }
+        inline void set_index(const u64 index) { m_index = index; }
 #endif
 
         virtual void* allocate_raw_impl(const u64 size_bytes, const u64 alignment) = 0;
@@ -149,10 +151,10 @@ namespace nk {
 
     protected:
 #if !defined(NK_RELEASE)
-        void private_allocator_init_impl(
-            const u64 size_bytes, void* const start, str name, const MemoryTypeValue memory_type);
+        void private_allocator_init(
+            const u64 size_bytes, void* const start, str name, str file, const u32 line, const MemoryTypeValue memory_type);
 #else
-        void private_allocator_init_impl(const u64 size_bytes, void* const start);
+        void private_allocator_init(const u64 size_bytes, void* const start);
 #endif
 
         u64 m_size_bytes;
@@ -162,26 +164,37 @@ namespace nk {
         void* m_start;
 
 #if !defined(NK_RELEASE)
-        str m_name;
-        MemoryTypeValue m_type;
+        str m_name = "undefined";
+        MemoryTypeValue m_type = MemoryType::None;
+        u64 m_index;
 #endif
     };
 
-// TODO: Maybe a constexpr? for name.
+#define _NK_EXPAND_PARAMETERS(...) __VA_OPT__(, ) __VA_ARGS__
+#define _NK_ESPAND_FUNC(...)       __VA_ARGS__
+
 #if !defined(NK_RELEASE)
-    #define NK_DEFINE_ALLOCATOR_INIT(allocator, ...) \
-        virtual cstr to_string() const override { return #allocator; } \
-        void allocator_init_impl(str name, const MemoryTypeValue memory_type __VA_OPT__(, ) __VA_ARGS__)
+    #define NK_DEFINE_ALLOCATOR_INIT(allocator, size_bytes_name, start_name, parameters, func)                                             \
+        allocator(const allocator&) = delete;                                                                                              \
+        allocator& operator=(allocator&) = delete;                                                                                         \
+        virtual cstr to_cstr() const override { return #allocator; }                                                                       \
+        void allocator_init_impl(str name, str file, const u32 line, const MemoryTypeValue memory_type _NK_EXPAND_PARAMETERS parameters) { \
+            _NK_ESPAND_FUNC func                                                                                                           \
+                private_allocator_init(size_bytes_name, start_name, name, file, line, memory_type);                                        \
+        }
 #else
-    #define NK_DEFINE_ALLOCATOR_INIT(allocator, ...) \
-        void allocator_init_impl(__VA_ARGS__)
+    #define NK_DEFINE_ALLOCATOR_INIT(allocator, size_bytes_name, start_name, parameters, func) \
+        allocator(const allocator&) = delete;                                                  \
+        allocator& operator=(allocator&) = delete;                                             \
+        void allocator_init_impl(_NK_EXPAND_PARAMETERS parameters) {                           \
+            _NK_ESPAND_FUNC func                                                               \
+                private_allocator_init(size_bytes_name, start_name);                           \
+        }
 #endif
 
 #if !defined(NK_RELEASE)
     #define allocator_init(name, memory_type, ...) \
-        allocator_init_impl(name, memory_type __VA_OPT__(, ) __VA_ARGS__)
-    #define private_allocator_init(size_bytes, start, name, memory_type) \
-        private_allocator_init_impl(size_bytes, start, name, memory_type)
+        allocator_init_impl(name, __FILE__, __LINE__, memory_type __VA_OPT__(, ) __VA_ARGS__)
     #define allocate_raw(size_bytes, alignment) \
         memory_manager_allocate_raw_impl(size_bytes, alignment, __FILE__, __LINE__)
     #define allocate_t(T) \
@@ -203,8 +216,6 @@ namespace nk {
 #else
     #define allocator_init(name, memory_type, ...) \
         allocator_init_impl(__VA_ARGS__)
-    #define private_allocator_init(size_bytes, start, name, memory_type) \
-        private_allocator_init_impl(size_bytes, start)
     #define allocate_raw(size_bytes, alignment) \
         allocate_raw_impl(size_bytes, alignment)
     #define allocate_t(T) \
