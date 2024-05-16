@@ -149,6 +149,24 @@ namespace nk {
         }
     }
 
+    void MemorySystem::log_title(std::string_view message) {
+        std::scoped_lock lock(LoggingSystem::get().get_mutex());
+
+        std::cout << std::format("\033[38;2;{};{};{}m", 0, 128, 255)
+                  << message
+                  << "\033[0m"
+                  << std::endl;
+    }
+
+    void MemorySystem::log(std::string_view message) {
+        std::scoped_lock lock(LoggingSystem::get().get_mutex());
+
+        std::cout << std::format("\033[38;2;{};{};{}m", 224, 224, 224)
+                  << message
+                  << "\033[0m"
+                  << std::endl;
+    }
+
     void MemorySystem::log_report(bool detailed) {
         AssertMsg(s_instance != nullptr, "MemorySystem not initialized!");
 
@@ -163,19 +181,18 @@ namespace nk {
         str details;
         bool there_are_details = false;
 
-        StyledLog(4, -1, 1, "\n\nGeneral Memory Usage:\n");
+        log_title("\n\nGeneral Memory Usage:\n");
         for (const MemorySystemStats& value : m_allocations) {
-            StyledLog(7, -1, -1,
-                      "Name: {}\n"
-                      "Allocator: {}\n"
-                      "Type: {}\n"
-                      "Memory: {}\n"
-                      "Allocation Count: {}\n",
-                      value.name, value.allocator,
-                      value.type > MemoryType::max() ?
-                            m_memory_type_to_cstr(value.type) : MemoryType::to_cstr(value.type),
-                      memory_in_bytes(value.size_bytes, value.used_bytes),
-                      value.allocation_count);
+            log(std::format(
+                "Name: {}\n"
+                "Allocator: {}\n"
+                "Type: {}\n"
+                "Memory: {}\n"
+                "Allocation Count: {}\n",
+                value.name, value.allocator,
+                value.type > MemoryType::max() ? m_memory_type_to_cstr(value.type) : MemoryType::to_cstr(value.type),
+                memory_in_bytes(value.size_bytes, value.used_bytes),
+                value.allocation_count));
 
             if (detailed) {
                 if (value.allocation_log.empty())
@@ -207,8 +224,8 @@ namespace nk {
         }
 
         if (detailed && there_are_details) {
-            StyledLog(4, -1, 1, "\n\nDetailed Memory Usage:\n");
-            StyledLog(7, -1, -1, details.c_str());
+            log_title("\n\nDetailed Memory Usage:\n");
+            log(details);
         }
     }
 

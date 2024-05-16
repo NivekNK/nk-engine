@@ -28,6 +28,7 @@ struct Test {
 };
 // REMOVE
 
+
 namespace nk {
     i32 entry_point(i32 argc, char** argv) {
         NK_MEMORY_SYSTEM_INIT();

@@ -15,15 +15,13 @@ namespace nk {
             std::back_inserter(message),
             fmt,
             std::make_format_args(std::forward<Args>(args)...));
-        message = std::format("{} > Failed '{}'", message, expression);
-        LoggingSystem::get().named_log("Assert", message.c_str(), -1, 1, 1, file, line);
+        FatalLog("{} > Failed '{}'", message, expression);
     }
 
     template <typename... Args>
     static void report_assert_failure(
         const cstr expression, const cstr file, const u32 line) {
-        str message = std::format("Failed '{}'", expression);
-        LoggingSystem::get().named_log("Assert", message.c_str(), -1, 1, 1, file, line);
+        FatalLog("Failed {}", expression);
     }
 
     static void debug_break() {

@@ -41,6 +41,9 @@ namespace nk {
         void expanded_memory_type(u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr);
         void insert(Allocator& allocator);
         void update(const Allocator& allocator, const u64 size_bytes, str file, const u32 line, AllocationType type);
+
+        void log_title(std::string_view message);
+        void log(std::string_view message);
         void log_report(bool detailed);
 
         inline static bool is_initialized() {
