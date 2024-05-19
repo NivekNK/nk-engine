@@ -38,7 +38,7 @@ namespace nk {
         static void init();
         static void shutdown();
 
-        void expanded_memory_type(u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr);
+        void expanded_memory_type(const u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr);
         void insert(Allocator& allocator);
         void update(const Allocator& allocator, const u64 size_bytes, str file, const u32 line, AllocationType type);
 
@@ -72,10 +72,6 @@ namespace nk {
         ::nk::MemorySystem::init()
     #define NK_MEMORY_SYSTEM_SHUTDOWN() \
         ::nk::MemorySystem::shutdown()
-    #define NK_MEMORY_SYSTEM_IS_INITIALIZED() \
-        ::nk::MemorySystem::is_initialized()
-    #define NK_MEMORY_SYSTEM_EXPANDED_MEMORY_TYPE(max_memory_type, memory_type_to_cstr) \
-        if (nk::MemorySystem::is_initialized()) nk::MemorySystem::get().expanded_memory_type(max_memory_type, memory_type_to_cstr)
     #define NK_MEMORY_SYSTEM_INSERT(allocator)  \
         if (nk::MemorySystem::is_initialized()) nk::MemorySystem::get().insert(allocator)
     #define NK_MEMORY_SYSTEM_UPDATE(allocator, size_bytes, file, line, type) \
@@ -89,8 +85,6 @@ namespace nk {
 
     #define NK_MEMORY_SYSTEM_INIT()
     #define NK_MEMORY_SYSTEM_SHUTDOWN()
-    #define NK_MEMORY_SYSTEM_IS_INITIALIZED() false
-    #define NK_MEMORY_SYSTEM_EXPANDED_MEMORY_TYPE(max_memory_type, memory_type_to_cstr)
     #define NK_MEMORY_SYSTEM_INSERT(allocator)
     #define NK_MEMORY_SYSTEM_UPDATE(allocator, size_bytes, file, line, type)
     #define NK_MEMORY_SYSTEM_LOG_REPORT()

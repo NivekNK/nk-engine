@@ -142,7 +142,7 @@ namespace nk {
         static constexpr LoggingColor s_default_style[static_cast<u8>(LoggingPriority::Fatal) + 1] = {
             {.fg = rgb(166, 226, 46)},                           // Debug
             {.fg = rgb(170, 129, 246)},                          // Trace
-            {.fg = rgb(209, 213, 219)},                          // Info
+            {.fg = rgb(255, 255, 255)},                          // Info
             {.fg = rgb(255, 128, 0)},                            // Warn
             {.fg = rgb(233, 38, 109)},                           // Error
             {.fg = rgb(255, 255, 255), .bg = rgb(233, 38, 109)}, // Fatal

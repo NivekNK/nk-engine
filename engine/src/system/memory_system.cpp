@@ -1,3 +1,4 @@
+#include "memory/memory_type.h"
 #include "nkpch.h"
 
 #include "system/logging_system.h"
@@ -53,7 +54,7 @@ namespace nk {
     void MemorySystem::init() {
         AssertMsg(s_instance == nullptr, "MemorySystem is already initialized!");
         s_instance = new MemorySystem();
-        s_instance->m_allocations.init(s_instance->m_allocator, 12);
+        s_instance->log("nk::MemorySystem initialized.");
     }
 
     void MemorySystem::shutdown() {
@@ -65,10 +66,12 @@ namespace nk {
 
         s_instance->m_allocations.free();
         delete s_instance->m_allocator;
-        std::free(s_instance);
+
+        s_instance->log("nk::MemorySystem shutdown.");
+        delete s_instance;
     }
 
-    void MemorySystem::expanded_memory_type(u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr) {
+    void MemorySystem::expanded_memory_type(const u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr) {
         AssertMsg(s_instance != nullptr, "MemorySystem not initialized!");
 
         m_max_memory_type = max_memory_type;
@@ -170,13 +173,14 @@ namespace nk {
     void MemorySystem::log_report(bool detailed) {
         AssertMsg(s_instance != nullptr, "MemorySystem not initialized!");
 
-        // u64 total_allocated = 0;
-        //
-        // u64 type_allocated[m_max_memory_type];
-        // memset(type_allocated, 0, sizeof type_allocated);
-        //
-        // u64 type_used[m_max_memory_type];
-        // memset(type_used, 0, sizeof type_used);
+        u64 total_allocated = 0;
+        u64 total_freed = 0;
+
+        u64 type_allocated[m_max_memory_type];
+        memset(type_allocated, 0, sizeof type_allocated);
+
+        u64 type_freed[m_max_memory_type];
+        memset(type_freed, 0, sizeof type_freed);
 
         str details;
         bool there_are_details = false;
@@ -206,9 +210,13 @@ namespace nk {
                             type = "Init";
                             break;
                         case AllocationType::Allocate:
+                            type_allocated[value.type] += log.size_bytes;
+                            total_allocated += log.size_bytes;
                             type = "Allocate";
                             break;
                         case AllocationType::Free:
+                            type_freed[value.type] += log.size_bytes;
+                            total_freed += log.size_bytes;
                             type = "Free";
                             break;
                     }
@@ -224,14 +232,31 @@ namespace nk {
         }
 
         if (detailed && there_are_details) {
+            details += "Memory Types:\n\n";
+            details += std::format("{:<15} {:<15} {:<15}\n", "Types", "Allocated", "Freed");
+
+            for (u32 i = 0; i < m_max_memory_type; i++) {
+                if (i > MemoryType::max()) {
+                    details += std::format("{:<15} {:<15} {:<15}\n", m_memory_type_to_cstr(i), memory_in_bytes(type_allocated[i]), memory_in_bytes(type_freed[i]));
+                }
+                if (i < MemoryType::max()) {
+                    details += std::format("{:<15} {:<15} {:<15}\n", MemoryType::to_cstr(i), memory_in_bytes(type_allocated[i]), memory_in_bytes(type_freed[i]));
+                }
+            }
+
+            details += std::format("\n\nTotal Allocated: {}\n", memory_in_bytes(total_allocated));
+            details += std::format("Total Freed: {}\n", memory_in_bytes(total_freed));
+
             log_title("\n\nDetailed Memory Usage:\n");
             log(details);
         }
     }
 
-    MemorySystem::MemorySystem() {
+    MemorySystem::MemorySystem()
+        : m_max_memory_type{MemoryType::max()} {
         auto allocator = new DebugMallocAllocator();
         allocator->allocator_init_impl();
         m_allocator = allocator;
+        m_allocations.init(m_allocator, 12);
     }
 }

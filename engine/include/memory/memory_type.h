@@ -1,5 +1,7 @@
 #pragma once
 
+#if !defined(NK_RELEASE)
+
 #include "macros/map.h"
 
 #define _NK_SWITCH_TO_STRING_MEMORY_TYPE(value) \
@@ -45,4 +47,20 @@
             }                                                                  \
         })
 
-_NK_DEFINE_MEMORY_TYPE()
+
+_NK_DEFINE_MEMORY_TYPE(System)
+
+namespace nk {
+    void memory_system_expanded_memory_type(const u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr);
+}
+
+#define NK_MEMORY_SYSTEM_EXPANDED_MEMORY_TYPE() \
+    nk::memory_system_expanded_memory_type(nk::MemoryType::extended_max(), nk::MemoryType::extended_to_cstr)
+
+#else
+
+#define NK_EXTEND_MEMORY_TYPE(...)
+
+#define NK_MEMORY_SYSTEM_EXPANDED_MEMORY_TYPE()
+
+#endif
