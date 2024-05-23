@@ -30,7 +30,7 @@ namespace nk {
 
     Window::Window(const ApplicationConfig& config)
         : m_suspended{false},
-          m_running{false},
+          m_running{true},
           m_pos_x{config.start_pos_x},
           m_pos_y{config.start_pos_y},
           m_width{config.start_width},

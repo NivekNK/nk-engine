@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nk/clock.h"
+
 namespace nk {
     class Allocator;
     class Window;
@@ -27,6 +29,9 @@ namespace nk {
     private:
         Allocator* m_allocator;
         Window* m_window;
+
+        Clock m_clock;
+        f64 m_last_time;
 
         static App* s_instance;
     };

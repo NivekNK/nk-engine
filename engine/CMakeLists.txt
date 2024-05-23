@@ -36,6 +36,7 @@ set(SOURCES
     src/nk/entry_point.cpp
     src/nk/app.cpp
     src/nk/window.cpp
+    src/nk/clock.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
