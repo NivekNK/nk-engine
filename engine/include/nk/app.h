@@ -2,6 +2,7 @@
 
 namespace nk {
     class Allocator;
+    class Window;
 
     struct ApplicationConfig {
         str name;
@@ -13,7 +14,7 @@ namespace nk {
 
     class App {
     public:
-        virtual ~App() = default;
+        virtual ~App();
 
         void run();
 
@@ -24,6 +25,9 @@ namespace nk {
         App(const ApplicationConfig& config);
 
     private:
+        Allocator* m_allocator;
+        Window* m_window;
+
         static App* s_instance;
     };
 }

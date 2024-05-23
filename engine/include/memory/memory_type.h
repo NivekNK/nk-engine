@@ -48,7 +48,7 @@
         })
 
 
-_NK_DEFINE_MEMORY_TYPE(System)
+_NK_DEFINE_MEMORY_TYPE(System, App)
 
 namespace nk {
     void memory_system_expanded_memory_type(const u64 max_memory_type, const std::function<cstr(MemoryTypeValue)>& memory_type_to_cstr);

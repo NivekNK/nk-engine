@@ -35,6 +35,7 @@ set(SOURCES
     src/memory/malloc_allocator.cpp
     src/nk/entry_point.cpp
     src/nk/app.cpp
+    src/nk/window.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -44,13 +45,13 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebIn
     )
 endif()
 
-# if (WIN32)
-#     list(APPEND SOURCES
-#         src/platform/platform_win32.cpp
-#     )
-# elseif (UNIX AND NOT APPLE)
-#     message(WARNING "Linux specific sources not yet implemented!")
-# endif()
+if (WIN32)
+    list(APPEND SOURCES
+        src/nk/window_win32.cpp
+    )
+elseif (UNIX AND NOT APPLE)
+    message(WARNING "Linux specific sources not yet implemented!")
+endif()
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCES})
 
