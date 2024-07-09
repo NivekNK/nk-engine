@@ -34,9 +34,8 @@ namespace nk {
                 delete m_allocator;
         }
 
-        Map(const Map&) = delete;
-        Map& operator=(const Map&) = delete;
-
+        Map(const Map&);
+        Map& operator=(const Map&);
         Map(Map&& other) noexcept;
         Map& operator=(Map&& right) noexcept;
 
@@ -199,6 +198,52 @@ namespace nk {
     };
 
     // Public Map
+    template <typename K, typename V>
+    Map<K, V>::Map(const Map& other) {
+        m_size = other.m_size;
+        m_capacity = other.m_capacity;
+        m_growth_left = other.m_growth_left;
+        m_own_allocator = other.m_own_allocator;
+        m_allocator = other.m_allocator;
+
+        if (other.m_control_bytes) {
+            m_control_bytes = m_allocator->allocate_lot(i8, m_capacity); // Assuming allocate is a templated function
+            std::copy(other.m_control_bytes, other.m_control_bytes + m_capacity, m_control_bytes);
+        } else {
+            m_control_bytes = nullptr;
+        }
+
+        if (other.m_slots) {
+            m_slots = m_allocator->allocate_lot(KeyValue, m_size);
+            std::copy(other.m_slots, other.m_slots + m_size, m_slots);
+        } else {
+            m_slots = nullptr;
+        }
+    }
+
+    template <typename K, typename V>
+    Map<K, V>& Map<K, V>::operator=(const Map& other) {
+        m_size = other.m_size;
+        m_capacity = other.m_capacity;
+        m_growth_left = other.m_growth_left;
+        m_own_allocator = other.m_own_allocator;
+        m_allocator = other.m_allocator;
+
+        if (other.m_control_bytes) {
+            m_control_bytes = m_allocator->allocate_lot(i8, m_capacity); // Assuming allocate is a templated function
+            std::copy(other.m_control_bytes, other.m_control_bytes + m_capacity, m_control_bytes);
+        } else {
+            m_control_bytes = nullptr;
+        }
+
+        if (other.m_slots) {
+            m_slots = m_allocator->allocate_lot(KeyValue, m_size);
+            std::copy(other.m_slots, other.m_slots + m_size, m_slots);
+        } else {
+            m_slots = nullptr;
+        }
+    }
+
     template <typename K, typename V>
     Map<K, V>::Map(Map&& other) noexcept {
         m_control_bytes = other.m_control_bytes;
@@ -365,12 +410,16 @@ namespace nk {
 
     template <typename K, typename V>
     void Map<K, V>::free() {
+        if (m_capacity == 0)
+            return;
+
         if constexpr(std::is_class_v<V>) {
             for (auto it = begin(); it != end(); it++) {
                 it->value.~V();
             }
         }
         m_allocator->free_raw(m_control_bytes, calculate_size(m_capacity));
+        m_capacity = 0;
     }
 
     template <typename K, typename V>

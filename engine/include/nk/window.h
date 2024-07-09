@@ -20,6 +20,11 @@ namespace nk {
         u16 width() const { return m_width; }
         u16 height() const { return m_height; }
 
+        void close() { m_running = false; }
+
+        static Window* create(Allocator* allocator, const ApplicationConfig& config);
+        static void free(Allocator* allocator, Window* window);
+
     protected:
         Window(const ApplicationConfig& config);
 
@@ -31,7 +36,4 @@ namespace nk {
         u16 m_width;
         u16 m_height;
     };
-
-    Window* window_create(Allocator* allocator, const ApplicationConfig& config);
-    void window_destroy(Allocator* allocator, Window* window);
 }

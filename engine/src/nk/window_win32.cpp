@@ -3,6 +3,8 @@
 #include "nk/window_win32.h"
 
 #include "nk/app.h"
+#include "system/event_system.h"
+#include "system/input_system.h"
 
 namespace nk {
     LRESULT CALLBACK win32_process_message(HWND hwnd, u32 msg, WPARAM wparam, LPARAM lparam);
@@ -82,12 +84,15 @@ namespace nk {
         QueryPerformanceFrequency(&frequency);
         m_clock_frequency = 1.0f / static_cast<f64>(frequency.QuadPart);
         QueryPerformanceCounter(&m_start_time);
+
+        InfoLog("WindowWin32 created.");
     }
 
     WindowWin32::~WindowWin32() {
         if (m_hwnd) {
             DestroyWindow(m_hwnd);
         }
+        InfoLog("WindowWin32 destroyed.");
     }
 
     bool WindowWin32::pump_messages() {
@@ -110,6 +115,86 @@ namespace nk {
     }
 
     LRESULT CALLBACK win32_process_message(HWND hwnd, u32 msg, WPARAM wparam, LPARAM lparam) {
+        switch (msg) {
+            case WM_ERASEBKGND:
+                // Notify the OS that erasing will be handled by the application to prevent flicker.
+                return 1;
+            case WM_DESTROY:
+                PostQuitMessage(0);
+                return 0;
+            case WM_CLOSE:
+                EventSystem::get().window_close.invoke();
+                App::exit();
+                return 0;
+            case WM_SIZE: {
+                WINDOWPLACEMENT placement;
+                placement.length = sizeof(WINDOWPLACEMENT);
+                GetWindowPlacement(hwnd, &placement);
+                u16 width = placement.rcNormalPosition.right - placement.rcNormalPosition.left;
+                u16 height = placement.rcNormalPosition.bottom - placement.rcNormalPosition.top;
+                EventSystem::get().window_resize.invoke(width, height);
+            } break;
+            case WM_ACTIVATEAPP: {
+                if (wparam) {
+                    EventSystem::get().window_focus.invoke(true);
+                } else {
+                    EventSystem::get().window_focus.invoke(false);
+                }
+            } break;
+            case WM_WINDOWPOSCHANGING: {
+                RECT rect;
+                GetWindowRect(hwnd, &rect);
+                i16 x = rect.left;
+                i16 y = rect.top;
+                EventSystem::get().window_moved.invoke(x, y);
+            } break;
+            case WM_KEYDOWN:
+            case WM_SYSKEYDOWN: {
+                // Key pressed
+                KeyCodeFlag keycode = static_cast<KeyCodeFlag>(wparam);
+                InputSystem::get().process_key(keycode, true);
+            } break;
+            case WM_KEYUP:
+            case WM_SYSKEYUP: {
+                // Key released
+                KeyCodeFlag keycode = static_cast<KeyCodeFlag>(wparam);
+                InputSystem::get().process_key(keycode, false);
+            } break;
+            case WM_MOUSEMOVE: {
+                i16 x_position = GET_X_LPARAM(lparam);
+                i16 y_position = GET_Y_LPARAM(lparam);
+                InputSystem::get().process_mouse_move(x_position, y_position);
+            } break;
+            case WM_MOUSEWHEEL: {
+                // f32 z_delta = GET_WHEEL_DELTA_WPARAM(wparam);
+                // if (z_delta != 0) {
+                //     // Flatten the input to an OS-independent (-1, 1)
+                //     z_delta /= 120.0f;
+                //     i8 z_delta_normalized = z_delta < 0 ? -1 : 1;
+                //     MouseScrolledEvent event{z_delta, z_delta_normalized};
+                //     App::on_event(event);
+                // }
+            } break;
+            case WM_LBUTTONDOWN: {
+                InputSystem::get().process_mouse_button(MouseButton::Left, true);
+            } break;
+            case WM_MBUTTONDOWN: {
+                InputSystem::get().process_mouse_button(MouseButton::Middle, true);
+            } break;
+            case WM_RBUTTONDOWN: {
+                InputSystem::get().process_mouse_button(MouseButton::Right, true);
+            } break;
+            case WM_LBUTTONUP: {
+                InputSystem::get().process_mouse_button(MouseButton::Left, false);
+            } break;
+            case WM_MBUTTONUP: {
+                InputSystem::get().process_mouse_button(MouseButton::Middle, false);
+            } break;
+            case WM_RBUTTONUP: {
+                InputSystem::get().process_mouse_button(MouseButton::Right, false);
+            } break;
+        }
+
         return DefWindowProcA(hwnd, msg, wparam, lparam);
     }
 }

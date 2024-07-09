@@ -1,6 +1,8 @@
 #pragma once
 
 #include "nk/clock.h"
+#include "nk/input_codes.h"
+#include "event/action.h"
 
 namespace nk {
     class Allocator;

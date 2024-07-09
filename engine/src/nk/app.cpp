@@ -4,14 +4,17 @@
 
 #include "nk/window.h"
 #include "memory/malloc_allocator.h"
+#include "event/event.h"
+#include "system/input_system.h"
 
 namespace nk {
     App* App::s_instance = nullptr;
 
     App::~App() {
-        window_destroy(m_allocator, m_window);
+        Window::free(m_allocator, m_window);
 
         delete m_allocator;
+        InfoLog("nk::App destroyed.");
     }
 
     void App::run() {
@@ -61,15 +64,14 @@ namespace nk {
                 frame_count++;
             }
 
-            // TODO: Update Input
+            InputSystem::get().update(delta_time);
 
             m_last_time = current_time;
         }
-
-        DebugLog("App running...");
     }
 
     void App::exit() {
+        s_instance->m_window->close();
     }
 
     App::App(const ApplicationConfig& config) {
@@ -80,9 +82,56 @@ namespace nk {
         allocator->allocator_init("App", MemoryType::App);
         m_allocator = allocator;
 
-        m_window = window_create(m_allocator, config);
+        m_window = Window::create(m_allocator, config);
 
         m_clock.init(m_window);
+
+        Event::WindowClose::add_listener([]() {
+            DebugLog("WindowCloseEvent");
+        });
+
+        Event::WindowResize::add_listener([](u16 width, u16 height) {
+            DebugLog("WindowResizeEvent: ({}, {})", width, height);
+        });
+
+        Event::WindowFocus::add_listener([](bool focus) {
+            str focus_value = focus ? "true" : "false";
+            DebugLog("WindowFocusEvent: {}", focus_value);
+        });
+
+        Event::WindowMoved::add_listener([](i16 x, i16 y) {
+            DebugLog("WindowMovedEvent: ({}, {})", x, y);
+        });
+
+        Event::KeyStateChanged::add_listener([](KeyState key_state) {
+            str pressed_value = key_state.pressed ? "pressed" : "released";
+            char value = static_cast<char>(key_state.keycode);
+            DebugLog("KeyStateChangedEvent: {} {}", value, pressed_value);
+        });
+
+        Event::MouseButtonChanged::add_listener([](MouseButtonState state) {
+            str button_value;
+            switch (state.button) {
+                case MouseButton::Left:
+                    button_value = "Left Button";
+                    break;
+                case MouseButton::Right:
+                    button_value = "Right Button";
+                    break;
+                case MouseButton::Middle:
+                    button_value = "Middle Button";
+                    break;
+                default:
+                    button_value = "Unknown Button";
+                    break;
+            }
+            str pressed_value = state.pressed ? "pressed" : "released";
+            DebugLog("MouseButtonChangedEvent: {} {}", button_value, pressed_value);
+        });
+
+        Event::MousePositionChanged::add_listener([](u16 x, u16 y) {
+            DebugLog("MousePositionChangedEvent: ({}, {})", x, y);
+        });
 
         InfoLog("nk::App created > Name: {} | Pos: ({}, {}) | Size: ({}, {})",
                 config.name, config.start_pos_x, config.start_pos_y, config.start_width, config.start_height);

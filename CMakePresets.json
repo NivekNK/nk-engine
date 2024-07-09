@@ -58,5 +58,13 @@
             "displayName": "",
             "configurePreset": "Win32-Debug"
         }
+    ],
+    "buildPresets": [
+        {
+            "name": "Win32-Debug",
+            "description": "",
+            "displayName": "",
+            "configurePreset": "Win32-Debug"
+        }
     ]
 }

@@ -31,12 +31,15 @@ add_subdirectory(vendor/wy)
 #================== Source files ===================
 set(SOURCES
     src/system/logging_system.cpp
+    src/system/input_system.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
     src/nk/entry_point.cpp
     src/nk/app.cpp
     src/nk/window.cpp
     src/nk/clock.cpp
+    src/nk/input.cpp
+    src/event/event.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")

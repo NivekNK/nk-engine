@@ -12,7 +12,7 @@
 #endif
 
 namespace nk {
-    Window* window_create(Allocator* allocator, const ApplicationConfig& config) {
+    Window* Window::create(Allocator* allocator, const ApplicationConfig& config) {
 #if defined(NK_PLATFORM_WINDOWS)
         return allocator->construct(WindowWin32, config);
 #else
@@ -20,7 +20,7 @@ namespace nk {
 #endif
     }
 
-    void window_destroy(Allocator* allocator, Window* window) {
+    void Window::free(Allocator* allocator, Window* window) {
 #if defined(NK_PLATFORM_WINDOWS)
         allocator->destroy(WindowWin32, window);
 #else

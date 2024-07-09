@@ -1,6 +1,6 @@
 #pragma once
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
 
     #include "memory/memory_type.h"
     #include "core/dyarr.h"

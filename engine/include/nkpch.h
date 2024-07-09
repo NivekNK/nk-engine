@@ -18,6 +18,8 @@
 
 // Threading
 #include <mutex>
+#include <atomic>
+#include <future>
 
 // Windows specific
 #if defined(NK_PLATFORM_WINDOWS)
