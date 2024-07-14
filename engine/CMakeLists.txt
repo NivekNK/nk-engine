@@ -23,10 +23,9 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 
 add_subdirectory(vendor/wy)
 
-# find_package(Vulkan REQUIRED)
-#
+find_package(Vulkan REQUIRED)
+
 # add_subdirectory(vendor/tlsf)
-# add_subdirectory(vendor/eventpp)
 
 #================== Source files ===================
 set(SOURCES
@@ -40,6 +39,10 @@ set(SOURCES
     src/nk/clock.cpp
     src/nk/input.cpp
     src/event/event.cpp
+    src/renderer/renderer.cpp
+    src/renderer/vulkan/utils.cpp
+    src/renderer/vulkan/renderer_backend.cpp
+    src/renderer/vulkan/instance.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -74,22 +77,19 @@ target_link_libraries(${PROJECT_NAME}
 PRIVATE
     Threads::Threads
     wy
+    Vulkan::Vulkan
     # tlsf
-    # eventpp::eventpp
-    # Vulkan::Vulkan
 )
 
 target_include_directories(${PROJECT_NAME}
 PRIVATE
     # where the library itself will look for its internal headers
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    # ${Vulkan_INCLUDE_DIR}
+    ${Vulkan_INCLUDE_DIR}
 PUBLIC
     # where top-level project will look for the library's public headers
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     # Libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
-    # ${CMAKE_CURRENT_SOURCE_DIR}/vendor/internal
     # ${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf/include
-    # ${CMAKE_CURRENT_SOURCE_DIR}/vendor/eventpp/include
 )

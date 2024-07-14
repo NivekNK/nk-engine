@@ -7,10 +7,14 @@
 #include "event/event.h"
 #include "system/input_system.h"
 
+#include "renderer/renderer.h"
+
 namespace nk {
     App* App::s_instance = nullptr;
 
     App::~App() {
+        Renderer::free(m_allocator, m_renderer);
+
         Window::free(m_allocator, m_window);
 
         delete m_allocator;
@@ -48,7 +52,11 @@ namespace nk {
                 break;
             }
 
-            // TODO: RenderPacket with Renderer Draw Frame
+            // TODO: Refactor packet creation
+            RenderPacket render_packet {
+                .delta_time = delta_time,
+            };
+            m_renderer->draw_frame(render_packet);
 
             f64 frame_end_time = m_window->get_absolute_time();
             f64 frame_elapsed_time = frame_end_time - frame_start_time;
@@ -84,6 +92,8 @@ namespace nk {
 
         m_window = Window::create(m_allocator, config);
 
+        m_renderer = Renderer::create(m_allocator, *m_window, config.name);
+        
         m_clock.init(m_window);
 
         Event::WindowClose::add_listener([]() {

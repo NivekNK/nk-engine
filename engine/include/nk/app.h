@@ -7,6 +7,7 @@
 namespace nk {
     class Allocator;
     class Window;
+    class Renderer;
 
     struct ApplicationConfig {
         str name;
@@ -31,6 +32,7 @@ namespace nk {
     private:
         Allocator* m_allocator;
         Window* m_window;
+        Renderer* m_renderer;
 
         Clock m_clock;
         f64 m_last_time;

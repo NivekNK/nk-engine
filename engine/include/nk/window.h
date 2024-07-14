@@ -4,6 +4,7 @@ namespace nk {
     struct ApplicationConfig;
     class Allocator;
 
+    // TODO: Refactor
     class Window {
     public:
         virtual ~Window() = default;
