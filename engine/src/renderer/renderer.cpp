@@ -3,7 +3,7 @@
 #include "renderer/renderer.h"
 
 #include "memory/allocator.h"
-#include "renderer/vulkan/renderer_backend.h"
+#include "vulkan/renderer_backend.h"
 
 namespace nk {
     Renderer* Renderer::create(Allocator* allocator, Window& window, str application_name) {

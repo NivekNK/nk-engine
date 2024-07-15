@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/vulkan/vulkan.h"
+#include "vulkan/vk.h"
 #include "core/dyarr.h"
 
 namespace nk {
@@ -22,7 +22,7 @@ namespace nk {
         operator VkInstance() { return m_instance; }
 
     private:
-        void create_instance(cstr application_name);
+        void create_instance(cstr application_name, Allocator* allocator);
 #if defined(NK_DEBUG)
         void create_debug_messenger();
 #endif

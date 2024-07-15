@@ -1,8 +1,8 @@
 #include "nkpch.h"
 
-#include "renderer/vulkan/instance.h"
+#include "vulkan/instance.h"
 
-#include "renderer/vulkan/utils.h"
+#include "vulkan/utils.h"
 
 #if defined(NK_DEBUG)
     #define NK_MAX_INSTANCE_LAYER_PROPERTIES 64
@@ -71,7 +71,7 @@ namespace nk {
     void Instance::init(cstr application_name, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
         m_allocator = vulkan_allocator;
         m_extensions.init(allocator, 15);
-        create_instance(application_name);
+        create_instance(application_name, allocator);
 #if defined(NK_DEBUG)
         create_debug_messenger();
 #endif
@@ -97,7 +97,7 @@ namespace nk {
         TraceLog("nk::Instance shutdown.");
     }
 
-    void Instance::create_instance(cstr application_name) {
+    void Instance::create_instance(cstr application_name, Allocator* allocator) {
         VkApplicationInfo app_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
         app_info.apiVersion = VK_API_VERSION_1_2;
         app_info.pApplicationName = application_name;
@@ -135,10 +135,7 @@ namespace nk {
         // Obtain a list of available validation layers
         u32 available_layer_count = 0;
         VulkanCheck(vkEnumerateInstanceLayerProperties(&available_layer_count, 0));
-
-        AssertMsg(available_layer_count < NK_MAX_INSTANCE_LAYER_PROPERTIES, "Too many vulkan validation layers!");
-
-        VkLayerProperties available_layers[NK_MAX_INSTANCE_LAYER_PROPERTIES];
+        VkLayerProperties* available_layers = allocator->allocate_lot(VkLayerProperties, available_layer_count);
         VulkanCheck(vkEnumerateInstanceLayerProperties(&available_layer_count, available_layers));
 
         for (cstr layer_name : required_validation_layers) {
@@ -157,6 +154,8 @@ namespace nk {
                 return;
             }
         }
+
+        allocator->free_lot(VkLayerProperties, available_layers, available_layer_count);
 
         DebugLog("All required validation layers are present.");
 

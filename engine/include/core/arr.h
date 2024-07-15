@@ -150,9 +150,12 @@ namespace nk {
                 return;
             }
 
-            m_allocator->free_lot(T, m_data, m_length);
+            if (m_length > 0)
+                m_allocator->free_lot(T, m_data, m_length);
+
             if (m_own_allocator)
                 delete m_allocator;
+                
             reset();
         }
 

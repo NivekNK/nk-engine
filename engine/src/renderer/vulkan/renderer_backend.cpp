@@ -1,6 +1,6 @@
 #include "nkpch.h"
 
-#include "renderer/vulkan/renderer_backend.h"
+#include "vulkan/renderer_backend.h"
 
 #include "nk/window.h"
 #include "memory/malloc_allocator.h"
@@ -12,14 +12,15 @@ namespace nk {
         allocator->allocator_init("VulkanRenderer", MemoryType::Renderer);
         m_allocator = allocator;
 
-        m_vulkan_allocator = nullptr;
-
         m_instance.init(application_name.c_str(), m_allocator, m_vulkan_allocator);
+        m_device.init(m_window, m_instance, m_allocator, m_vulkan_allocator);
 
         TraceLog("nk::RendererBackend created.");
     }
 
     RendererBackend::~RendererBackend() {
+        m_device.shutdown(m_instance);
+
         m_instance.shutdown();
 
         delete m_allocator;

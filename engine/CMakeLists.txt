@@ -43,6 +43,7 @@ set(SOURCES
     src/renderer/vulkan/utils.cpp
     src/renderer/vulkan/renderer_backend.cpp
     src/renderer/vulkan/instance.cpp
+    src/renderer/vulkan/device.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -85,6 +86,7 @@ target_include_directories(${PROJECT_NAME}
 PRIVATE
     # where the library itself will look for its internal headers
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer
     ${Vulkan_INCLUDE_DIR}
 PUBLIC
     # where top-level project will look for the library's public headers
