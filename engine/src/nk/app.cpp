@@ -93,7 +93,7 @@ namespace nk {
         m_window = Window::create(m_allocator, config);
 
         m_renderer = Renderer::create(m_allocator, *m_window, config.name);
-        
+
         m_clock.init(m_window);
 
         Event::WindowClose::add_listener([]() {
@@ -109,9 +109,9 @@ namespace nk {
             DebugLog("WindowFocusEvent: {}", focus_value);
         });
 
-        Event::WindowMoved::add_listener([](i16 x, i16 y) {
-            DebugLog("WindowMovedEvent: ({}, {})", x, y);
-        });
+        // Event::WindowMoved::add_listener([](i16 x, i16 y) {
+        //     DebugLog("WindowMovedEvent: ({}, {})", x, y);
+        // });
 
         Event::KeyStateChanged::add_listener([](KeyState key_state) {
             str pressed_value = key_state.pressed ? "pressed" : "released";
@@ -139,9 +139,9 @@ namespace nk {
             DebugLog("MouseButtonChangedEvent: {} {}", button_value, pressed_value);
         });
 
-        Event::MousePositionChanged::add_listener([](u16 x, u16 y) {
-            DebugLog("MousePositionChangedEvent: ({}, {})", x, y);
-        });
+        // Event::MousePositionChanged::add_listener([](u16 x, u16 y) {
+        //     DebugLog("MousePositionChangedEvent: ({}, {})", x, y);
+        // });
 
         InfoLog("nk::App created > Name: {} | Pos: ({}, {}) | Size: ({}, {})",
                 config.name, config.start_pos_x, config.start_pos_y, config.start_width, config.start_height);

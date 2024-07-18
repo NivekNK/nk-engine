@@ -69,6 +69,23 @@ namespace nk {
         TraceLog("nk::Device shutdown.");
     }
 
+    bool Device::find_memory_index(u32& out_memory_index, const u32 type_filter, VkMemoryPropertyFlags property_flags) const {
+        VkPhysicalDeviceMemoryProperties memory_properties;
+        vkGetPhysicalDeviceMemoryProperties(m_physical_device, &memory_properties);
+
+        for (u32 i = 0; i < memory_properties.memoryTypeCount; ++i) {
+            // Check each memory type to see if its bit is set to 1.
+            if (type_filter & (1 << i) && (memory_properties.memoryTypes[i].propertyFlags & property_flags) == property_flags) {
+                out_memory_index = i;
+                return true;
+            }
+        }
+
+        WarnLog("Unable to find suitable memory type!");
+        out_memory_index = u32_max;
+        return false;
+    }
+
     void Device::select_physical_device(Instance& instance, Allocator* allocator) {
         u32 physical_device_count = 0;
         VulkanCheck(vkEnumeratePhysicalDevices(instance.get(), &physical_device_count, 0));

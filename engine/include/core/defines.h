@@ -38,3 +38,6 @@ namespace nk {
 #define GiB(...) 1073741824 __VA_OPT__(* ) NK_1ST_ARGUMENT(__VA_ARGS__)
 #define MiB(...) 1048576 __VA_OPT__(* ) NK_1ST_ARGUMENT(__VA_ARGS__)
 #define KiB(...) 1024 __VA_OPT__(* ) NK_1ST_ARGUMENT(__VA_ARGS__)
+
+#define MinValue(a, b) (((a) < (b)) ? (a) : (b))
+#define MaxValue(a, b) (((a) > (b)) ? (a) : (b))

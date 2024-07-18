@@ -14,11 +14,24 @@ namespace nk {
 
         m_instance.init(application_name.c_str(), m_allocator, m_vulkan_allocator);
         m_device.init(m_window, m_instance, m_allocator, m_vulkan_allocator);
+        m_swapchain.init(window.width(), window.height(), m_device, m_vulkan_allocator);
+
+        auto main_render_pass_create_info = RenderPassCreateInfo {
+            .render_area = {{0, 0}, {m_window.width(), m_window.height()}},
+            .clear_color = {0.0f, 0.0f, 0.2f, 1.0f},
+            .depth = 1.0f,
+            .stencil = 0,
+        };
+        m_main_render_pass.init(main_render_pass_create_info, m_device, m_swapchain, m_vulkan_allocator);
 
         TraceLog("nk::RendererBackend created.");
     }
 
     RendererBackend::~RendererBackend() {
+        m_main_render_pass.shutdown(m_device);
+
+        m_swapchain.shutdown(m_device);
+
         m_device.shutdown(m_instance);
 
         m_instance.shutdown();

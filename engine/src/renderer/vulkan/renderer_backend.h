@@ -4,6 +4,8 @@
 
 #include "vulkan/instance.h"
 #include "vulkan/device.h"
+#include "vulkan/swapchain.h"
+#include "vulkan/render_pass.h"
 
 namespace nk {
     class Window;
@@ -25,8 +27,10 @@ namespace nk {
 
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
         u32 m_frame_number = 0;
-        
+
         Instance m_instance;
         Device m_device;
+        Swapchain m_swapchain;
+        RenderPass m_main_render_pass;
     };
 }

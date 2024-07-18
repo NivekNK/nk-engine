@@ -44,6 +44,9 @@ set(SOURCES
     src/renderer/vulkan/renderer_backend.cpp
     src/renderer/vulkan/instance.cpp
     src/renderer/vulkan/device.cpp
+    src/renderer/vulkan/swapchain.cpp
+    src/renderer/vulkan/image.cpp
+    src/renderer/vulkan/render_pass.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")

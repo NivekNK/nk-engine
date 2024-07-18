@@ -44,9 +44,19 @@ namespace nk {
         void init(Window& window, Instance& instance, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
         void shutdown(Instance& instance);
 
-        // VkDevice get() { return m_logical_device; }
-        // VkDevice operator()() { return m_logical_device; }
-        // operator VkDevice() { return m_logical_device; }
+        bool find_memory_index(
+            u32& out_memory_index,
+            const u32 type_filter,
+            VkMemoryPropertyFlags property_flags) const;
+
+        const SwapchainSupportInfo& get_swapchain_support_info() const { return m_swapchain_support_info; }
+        VkSurfaceKHR get_surface() { return m_surface; }
+        const PhysicalDeviceQueueFamilyInfo& get_queue_family_info() const { return m_queue_family; }
+        const VkFormat get_depth_format() const { return m_depth_format; }
+
+        VkDevice get() { return m_logical_device; }
+        VkDevice operator()() { return m_logical_device; }
+        operator VkDevice() { return m_logical_device; }
 
     private:
         void select_physical_device(Instance& instance, Allocator* allocator);
