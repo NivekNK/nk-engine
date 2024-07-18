@@ -52,6 +52,7 @@ namespace nk {
         void select_physical_device(Instance& instance, Allocator* allocator);
         void detect_depth_format();
         void create_logical_device();
+        void create_command_pool();
 
         void query_swapchain_support(Allocator* allocator, VkPhysicalDevice physical_device);
 
@@ -81,5 +82,7 @@ namespace nk {
         VkQueue m_graphics_queue;
         VkQueue m_present_queue;
         VkQueue m_transfer_queue;
+
+        VkCommandPool m_graphics_command_pool;
     };
 }

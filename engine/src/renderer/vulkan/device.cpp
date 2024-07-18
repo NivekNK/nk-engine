@@ -48,11 +48,15 @@ namespace nk {
         select_physical_device(instance, allocator);
         detect_depth_format();
         create_logical_device();
+        create_command_pool();
 
         TraceLog("nk::Device initialized.");
     }
 
     void Device::shutdown(Instance& instance) {
+        vkDestroyCommandPool(m_logical_device, m_graphics_command_pool, m_allocator);
+        InfoLog("Vulkan Graphics Command Pool destroyed.");
+
         vkDestroyDevice(m_logical_device, m_allocator);
         InfoLog("Vulkan Logical Device destroyed.");
 
@@ -258,7 +262,15 @@ namespace nk {
         vkGetDeviceQueue(m_logical_device, m_queue_family.graphics_family_index, 0, &m_graphics_queue);
         vkGetDeviceQueue(m_logical_device, m_queue_family.present_family_index, 0, &m_present_queue);
         vkGetDeviceQueue(m_logical_device, m_queue_family.transfer_family_index, 0, &m_transfer_queue);
-        InfoLog("Vulkan queues obtained."); 
+        InfoLog("Vulkan queues obtained.");
+    }
+
+    void Device::create_command_pool() {
+        VkCommandPoolCreateInfo pool_create_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        pool_create_info.queueFamilyIndex = m_queue_family.graphics_family_index;
+        pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        VulkanCheck(vkCreateCommandPool(m_logical_device, &pool_create_info, m_allocator, &m_graphics_command_pool));
+        InfoLog("Vulkan Graphics Command Pool created.");
     }
 
     void Device::query_swapchain_support(Allocator* allocator, VkPhysicalDevice physical_device) {
