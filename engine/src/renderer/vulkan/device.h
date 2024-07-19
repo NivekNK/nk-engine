@@ -1,11 +1,11 @@
 #pragma once
 
 #include "vulkan/vk.h"
-#include "vulkan/instance.h"
 #include "core/arr.h"
 #include "core/dyarr.h"
 
 namespace nk {
+    class Instance;
     class Window;
 
     struct PhysicalDeviceQueueFamilyInfo {
@@ -53,6 +53,7 @@ namespace nk {
         VkSurfaceKHR get_surface() { return m_surface; }
         const PhysicalDeviceQueueFamilyInfo& get_queue_family_info() const { return m_queue_family; }
         const VkFormat get_depth_format() const { return m_depth_format; }
+        VkCommandPool get_graphics_command_pool() { return m_graphics_command_pool; }
 
         VkDevice get() { return m_logical_device; }
         VkDevice operator()() { return m_logical_device; }

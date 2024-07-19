@@ -2,6 +2,8 @@
 
 #include "vulkan/swapchain.h"
 
+#include "vulkan/device.h"
+#include "vulkan/render_pass.h"
 #include "memory/malloc_allocator.h"
 
 namespace nk {

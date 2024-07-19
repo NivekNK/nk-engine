@@ -1,10 +1,11 @@
 #pragma once
 
 #include "vulkan/vk.h"
-#include "vulkan/device.h"
-#include "vulkan/swapchain.h"
 
 namespace nk {
+    class Device;
+    class Swapchain;
+
     struct RenderPassColor {
         f32 r;
         f32 g;
@@ -22,6 +23,12 @@ namespace nk {
     class RenderPass {
     public:
         RenderPass() = default;
+
+        RenderPass(const RenderPass&) = delete;
+        RenderPass& operator=(const RenderPass&) = delete;
+
+        RenderPass(RenderPass&& other);
+        RenderPass& operator=(RenderPass&& other);
 
         void init(const RenderPassCreateInfo& create_info,
                   Device& device,

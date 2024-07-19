@@ -2,6 +2,8 @@
 
 #include "vulkan/image.h"
 
+#include "vulkan/device.h"
+
 namespace nk {
     Image::Image(Image&& other) {
         m_allocator = other.m_allocator;

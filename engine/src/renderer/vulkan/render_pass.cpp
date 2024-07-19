@@ -2,7 +2,44 @@
 
 #include "vulkan/render_pass.h"
 
+#include "vulkan/device.h"
+#include "vulkan/swapchain.h"
+
 namespace nk {
+    RenderPass::RenderPass(RenderPass&& other) {
+        m_allocator = other.m_allocator;
+        m_render_pass = other.m_render_pass;
+        m_render_area = other.m_render_area;
+        m_clear_color = other.m_clear_color;
+        m_depth = other.m_depth;
+        m_stencil = other.m_stencil;
+
+        other.m_allocator = nullptr;
+        other.m_render_pass = nullptr;
+        other.m_render_area = {};
+        other.m_clear_color = {};
+        other.m_depth = 0;
+        other.m_stencil = 0;
+    }
+
+    RenderPass& RenderPass::operator=(RenderPass&& other) {
+        m_allocator = other.m_allocator;
+        m_render_pass = other.m_render_pass;
+        m_render_area = other.m_render_area;
+        m_clear_color = other.m_clear_color;
+        m_depth = other.m_depth;
+        m_stencil = other.m_stencil;
+
+        other.m_allocator = nullptr;
+        other.m_render_pass = nullptr;
+        other.m_render_area = {};
+        other.m_clear_color = {};
+        other.m_depth = 0;
+        other.m_stencil = 0;
+
+        return *this;
+    }
+
     void RenderPass::init(const RenderPassCreateInfo& create_info,
                           Device& device,
                           Swapchain& swapchain,

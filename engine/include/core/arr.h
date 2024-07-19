@@ -155,7 +155,7 @@ namespace nk {
 
             if (m_own_allocator)
                 delete m_allocator;
-                
+
             reset();
         }
 

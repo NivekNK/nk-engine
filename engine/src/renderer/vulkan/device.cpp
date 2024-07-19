@@ -3,6 +3,7 @@
 #include "vulkan/device.h"
 
 #include "vulkan/utils.h"
+#include "vulkan/instance.h"
 
 namespace nk {
     Device::Device(Device&& other) {

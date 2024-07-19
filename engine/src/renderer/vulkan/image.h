@@ -1,9 +1,10 @@
 #pragma once
 
 #include "vulkan/vk.h"
-#include "vulkan/device.h"
 
 namespace nk {
+    class Device;
+
     struct VulkanImageCreateInfo {
         VkImageType image_type;
         VkExtent2D extent;
