@@ -138,7 +138,7 @@ namespace nk {
 
         virtual cstr to_cstr() const = 0;
 
-        inline cstr cname() const { return m_name.c_str(); }
+        inline cstr c_name() const { return m_name.c_str(); }
         virtual str name() const { return m_name; }
         inline MemoryTypeValue memory_type() const { return m_type; }
 

@@ -52,7 +52,7 @@ namespace nk {
 
     Instance& Instance::operator=(Instance&& other) {
         m_extensions = std::move(other.m_extensions);
-        
+
         m_allocator = other.m_allocator;
         m_instance = other.m_instance;
 #if defined(NK_DEBUG)
@@ -91,7 +91,7 @@ namespace nk {
         vkDestroyInstance(m_instance, m_allocator);
         InfoLog("Vulkan Instance destroyed.");
 
-        m_extensions.free();
+        m_extensions.clear();
         InfoLog("Vulkan extensions freed.");
 
         TraceLog("nk::Instance shutdown.");

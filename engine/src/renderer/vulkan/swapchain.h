@@ -24,13 +24,7 @@ namespace nk {
         const VkSurfaceFormatKHR& get_image_format() const { return m_image_format; }
         const u32 get_image_count() const { return m_images.length(); }
         Image& get_depth_attachment() { return m_depth_attachment; }
-        VkImageView get_image_view_at(const u32 index) {
-            if (m_views[index])
-                return m_views[index]->get();
-
-            FatalLog("nk::Swapchain::get_image_view_at bad index!");
-            return nullptr;
-        }
+        VkImageView get_image_view_at(const u32 index) { return m_views[index]; }
 
     private:
         void create_swapchain(const u16 width, const u16 height, Device& device);

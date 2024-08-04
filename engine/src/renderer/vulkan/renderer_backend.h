@@ -25,8 +25,8 @@ namespace nk {
         bool begin_frame(f64 delta_time);
         bool end_frame(f64 delta_time);
 
-        void create_command_buffers();
         void regenerate_framebuffers(const u16 width, const u16 height);
+        void create_command_buffers();
 
         Window& m_window;
         Allocator* m_allocator;

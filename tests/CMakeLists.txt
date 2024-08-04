@@ -34,6 +34,7 @@ target_sources(${PROJECT_NAME}
 PRIVATE
     src/main.cpp
     src/core/rb_map.cpp
+    src/core/dyarr.cpp
 )
 
 if(NOT CMAKE_THREAD_PREFER_PTHREAD)

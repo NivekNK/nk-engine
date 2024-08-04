@@ -129,7 +129,7 @@ namespace nk {
                 requirements,
                 allocator);
 
-            requirements.extensions.free();
+            requirements.extensions.clear();
 
             if (!meet_requirements) {
                 continue;

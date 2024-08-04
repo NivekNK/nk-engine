@@ -127,7 +127,7 @@ namespace nk {
         m_views.init(m_swapchain_allocator, image_count);
         for (u32 i = 0; i < image_count; ++i) {
             VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-            view_info.image = m_images[i]->get();
+            view_info.image = m_images[i];
             view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
             view_info.format = image_format.format;
             view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -136,7 +136,7 @@ namespace nk {
             view_info.subresourceRange.baseArrayLayer = 0;
             view_info.subresourceRange.layerCount = 1;
 
-            VulkanCheck(vkCreateImageView(device, &view_info, m_allocator, &m_views[i]->get()));
+            VulkanCheck(vkCreateImageView(device, &view_info, m_allocator, &m_views[i]));
         }
 
         // Depth resources
@@ -199,7 +199,7 @@ namespace nk {
                 return available_format;
             }
         }
-        return available_formats[0]->get();
+        return available_formats[0];
     }
 
     VkPresentModeKHR Swapchain::choose_swap_present_mode(const Arr<VkPresentModeKHR>& available_present_modes) const {

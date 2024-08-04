@@ -3,6 +3,7 @@
 #include "vulkan/vk.h"
 #include "core/arr.h"
 #include "core/dyarr.h"
+#include <memory>
 
 namespace nk {
     class Instance;

@@ -61,10 +61,10 @@ namespace nk {
         Assert(s_instance != nullptr);
 
         for (MemorySystemStats& value : s_instance->m_allocations) {
-            value.allocation_log.free();
+            value.allocation_log.clear();
         }
 
-        s_instance->m_allocations.free();
+        s_instance->m_allocations.clear();
         delete s_instance->m_allocator;
 
         s_instance->log("nk::MemorySystem shutdown.");
@@ -86,14 +86,15 @@ namespace nk {
 
         allocator.set_index(m_allocations.length());
 
-        MemorySystemStats& inserted_stats = m_allocations.insert_use(allocator.index());
-        inserted_stats.name = allocator.cname();
-        inserted_stats.allocator = allocator.to_cstr();
-        inserted_stats.type = allocator.memory_type();
-        inserted_stats.size_bytes = allocator.size();
-        inserted_stats.used_bytes = allocator.used();
-        inserted_stats.allocation_count = allocator.allocation_count();
-        inserted_stats.allocation_log.init(m_allocator, 5);
+        MemorySystemStats& value = m_allocations[allocator.index()];
+
+        value.name = allocator.c_name();
+        value.allocator = allocator.to_cstr();
+        value.type = allocator.memory_type();
+        value.size_bytes = allocator.size();
+        value.used_bytes = allocator.used();
+        value.allocation_count = allocator.allocation_count();
+        value.allocation_log.init(m_allocator, 5);
     }
 
     void MemorySystem::update(const Allocator& allocator, const u64 size_bytes, str file, const u32 line, AllocationType type) {
@@ -102,26 +103,26 @@ namespace nk {
 
         AssertMsg(s_instance != nullptr, "MemorySystem not initialized!");
 
-        if (auto value = m_allocations[allocator.index()]) {
-            auto& value_ref = value->get();
-            value_ref.name = allocator.name();
-            value_ref.type = allocator.memory_type();
-            value_ref.size_bytes = allocator.size();
-            value_ref.used_bytes = allocator.used();
-            value_ref.allocation_count = allocator.allocation_count();
+        MemorySystemStats& value = m_allocations[allocator.index()];
+        WarnLogIf(value.name != "undefined" && allocator.name() != value.name, "nk::MemorySystem::update Overriding existing allocator!");
 
-            const u64 pos = file.find("nk-engine");
-            if (pos != std::string::npos) {
-                file.erase(0, pos + 10);
-            }
+        value.name = allocator.c_name();
+        value.type = allocator.memory_type();
+        value.size_bytes = allocator.size();
+        value.used_bytes = allocator.used();
+        value.allocation_count = allocator.allocation_count();
 
-            value_ref.allocation_log.push({
-                .size_bytes = size_bytes,
-                .file = file,
-                .line = line,
-                .type = type,
-            });
+        const u64 pos = file.find("nk-engine");
+        if (pos != std::string::npos) {
+            file.erase(0, pos + 10);
         }
+
+        value.allocation_log.push_copy({
+            .size_bytes = size_bytes,
+            .file = file,
+            .line = line,
+            .type = type,
+        });
     }
 
     str memory_in_bytes(u64 memory) {
