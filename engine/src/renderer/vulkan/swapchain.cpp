@@ -48,26 +48,52 @@ namespace nk {
         return *this;
     }
 
-    void Swapchain::init(const u16 width, const u16 height, Device& device, VkAllocationCallbacks* allocator) {
+    void Swapchain::init(const u16 width, const u16 height, Device* device, VkAllocationCallbacks* allocator) {
         m_allocator = allocator;
+        m_device = device;
 
         auto swapchain_allocator = new MallocAllocator();
         swapchain_allocator->allocator_init("SwapchainAllocator", MemoryType::Renderer);
         m_swapchain_allocator = swapchain_allocator;
 
-        create_swapchain(width, height, device);
+        create_swapchain(width, height);
         TraceLog("nk::Swapchain initialized.");
     }
 
-    void Swapchain::shutdown(Device& device) {
-        destroy_swapchain(device);
+    void Swapchain::shutdown() {
+        destroy_swapchain();
         delete m_swapchain_allocator;
 
         TraceLog("nk::Swapchain shutdown.");
     }
 
-    void Swapchain::create_swapchain(const u16 width, const u16 height, Device& device) {
-        const SwapchainSupportInfo& swapchain_support_info = device.get_swapchain_support_info();
+    // TODO: Implement
+    void Swapchain::recreate(const u16 width, const u16 height) {
+    }
+
+    bool Swapchain::acquire_next_image_index(u64 timeout_ns, VkSemaphore image_available_semaphore, VkFence fence, const u16 width, const u16 height, u32* out_image_index) {
+        VkResult result = vkAcquireNextImageKHR(
+            m_device->get(),
+            m_swapchain,
+            timeout_ns,
+            image_available_semaphore,
+            fence,
+            out_image_index);
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            // Trigger swapchain recreation, then boot out of the render loop.
+            recreate(width, height);
+            return false;
+        } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            FatalLog("Failed to acquire Swap Chain image!");
+            return false;
+        }
+
+        return true;
+    }
+
+    void Swapchain::create_swapchain(const u16 width, const u16 height) {
+        const SwapchainSupportInfo& swapchain_support_info = m_device->get_swapchain_support_info();
 
         VkSurfaceFormatKHR image_format = choose_swap_surface_format(swapchain_support_info.formats);
         VkPresentModeKHR present_mode = choose_swap_present_mode(swapchain_support_info.present_modes);
@@ -83,7 +109,7 @@ namespace nk {
 
         // Swapchain create info
         VkSwapchainCreateInfoKHR swapchain_create_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
-        swapchain_create_info.surface = device.get_surface();
+        swapchain_create_info.surface = m_device->get_surface();
         swapchain_create_info.minImageCount = image_count;
         swapchain_create_info.imageFormat = image_format.format;
         swapchain_create_info.imageColorSpace = image_format.colorSpace;
@@ -92,12 +118,11 @@ namespace nk {
         swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
         // Setup the queue family indices
-        const PhysicalDeviceQueueFamilyInfo& queue_family = device.get_queue_family_info();
+        const PhysicalDeviceQueueFamilyInfo& queue_family = m_device->get_queue_family_info();
         if (queue_family.graphics_family_index != queue_family.present_family_index) {
             u32 queue_family_indices[] = {
                 queue_family.graphics_family_index,
-                queue_family.present_family_index
-            };
+                queue_family.present_family_index};
             swapchain_create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
             swapchain_create_info.queueFamilyIndexCount = 2;
             swapchain_create_info.pQueueFamilyIndices = queue_family_indices;
@@ -113,15 +138,15 @@ namespace nk {
         swapchain_create_info.clipped = VK_TRUE;
         swapchain_create_info.oldSwapchain = VK_NULL_HANDLE;
 
-        VulkanCheck(vkCreateSwapchainKHR(device, &swapchain_create_info, m_allocator, &m_swapchain));
+        VulkanCheck(vkCreateSwapchainKHR(m_device->get(), &swapchain_create_info, m_allocator, &m_swapchain));
 
         // Start with a zero frame index.
         m_current_frame = 0;
 
         // Images
-        VulkanCheck(vkGetSwapchainImagesKHR(device, m_swapchain, &image_count, nullptr));
+        VulkanCheck(vkGetSwapchainImagesKHR(m_device->get(), m_swapchain, &image_count, nullptr));
         m_images.init(m_swapchain_allocator, image_count);
-        VulkanCheck(vkGetSwapchainImagesKHR(device, m_swapchain, &image_count, m_images.data()));
+        VulkanCheck(vkGetSwapchainImagesKHR(m_device->get(), m_swapchain, &image_count, m_images.data()));
 
         // Views
         m_views.init(m_swapchain_allocator, image_count);
@@ -136,17 +161,17 @@ namespace nk {
             view_info.subresourceRange.baseArrayLayer = 0;
             view_info.subresourceRange.layerCount = 1;
 
-            VulkanCheck(vkCreateImageView(device, &view_info, m_allocator, &m_views[i]));
+            VulkanCheck(vkCreateImageView(m_device->get(), &view_info, m_allocator, &m_views[i]));
         }
 
         // Depth resources
-        const VkFormat depth_format = device.get_depth_format();
+        const VkFormat depth_format = m_device->get_depth_format();
         if (depth_format == VK_FORMAT_UNDEFINED) {
             FatalLog("Failed to find a supported depth format!");
         }
 
         // Create depth image and its view.
-        auto depth_create_info = VulkanImageCreateInfo {
+        auto depth_create_info = VulkanImageCreateInfo{
             .image_type = VK_IMAGE_TYPE_2D,
             .extent = {width, height},
             .format = depth_format,
@@ -157,22 +182,22 @@ namespace nk {
             .view_aspect_flags = VK_IMAGE_ASPECT_DEPTH_BIT,
         };
 
-        m_depth_attachment.init(depth_create_info, &device, m_allocator);
+        m_depth_attachment.init(depth_create_info, m_device, m_allocator);
         m_image_format = image_format;
         m_swapchain_extent = swapchain_extent;
     }
 
-    void Swapchain::destroy_swapchain(Device& device) {
+    void Swapchain::destroy_swapchain() {
         m_depth_attachment.shutdown();
 
         // Only destroy the views, not the images, since those are owned by the swapchain and are thus
         // destroyed when it is.
         for (auto& view : m_views) {
-            vkDestroyImageView(device, view, m_allocator);
+            vkDestroyImageView(m_device->get(), view, m_allocator);
         }
         m_views.clear();
 
-        vkDestroySwapchainKHR(device, m_swapchain, m_allocator);
+        vkDestroySwapchainKHR(m_device->get(), m_swapchain, m_allocator);
 
         m_images.clear();
     }

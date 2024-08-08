@@ -5,6 +5,7 @@
 namespace nk {
     class Device;
     class Swapchain;
+    class CommandBuffer;
 
     struct RenderPassColor {
         f32 r;
@@ -35,6 +36,12 @@ namespace nk {
                   Swapchain& swapchain,
                   VkAllocationCallbacks* allocator);
         void shutdown(Device& device);
+
+        // TODO: Implement begin and end.
+        void begin(CommandBuffer& command_buffer, VkFramebuffer frame_buffer);
+        void end(CommandBuffer& command_buffer);
+
+        void set_render_area(const u16 width, const u16 height) { m_render_area = {width, height}; }
 
         VkRenderPass get() { return m_render_pass; }
         VkRenderPass operator()() { return m_render_pass; }

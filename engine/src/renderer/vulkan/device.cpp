@@ -87,6 +87,35 @@ namespace nk {
         return false;
     }
 
+    void Device::detect_depth_format() {
+        // Format candidates
+        constexpr u64 candidate_count = 3;
+        VkFormat candidates[candidate_count] = {
+            VK_FORMAT_D32_SFLOAT,
+            VK_FORMAT_D32_SFLOAT_S8_UINT,
+            VK_FORMAT_D24_UNORM_S8_UINT
+        };
+
+        u32 flags = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        for (u64 i = 0; i < candidate_count; ++i) {
+            VkFormatProperties properties;
+            vkGetPhysicalDeviceFormatProperties(m_physical_device, candidates[i], &properties);
+
+            if ((properties.linearTilingFeatures & flags) == flags) {
+                m_depth_format = candidates[i];
+                InfoLog("Depth format detected.");
+                return;
+            } else if ((properties.optimalTilingFeatures & flags) == flags) {
+                m_depth_format = candidates[i];
+                InfoLog("Depth format detected.");
+                return;
+            }
+        }
+
+        m_depth_format = VK_FORMAT_UNDEFINED;
+        WarnLog("Depth format not detected.");
+    }
+
     void Device::select_physical_device(Instance& instance, Allocator* allocator) {
         u32 physical_device_count = 0;
         VulkanCheck(vkEnumeratePhysicalDevices(instance.get(), &physical_device_count, 0));
@@ -196,35 +225,6 @@ namespace nk {
         }
 
         InfoLog("Vulkan Physical device selected.");
-    }
-
-    void Device::detect_depth_format() {
-        // Format candidates
-        constexpr u64 candidate_count = 3;
-        VkFormat candidates[candidate_count] = {
-            VK_FORMAT_D32_SFLOAT,
-            VK_FORMAT_D32_SFLOAT_S8_UINT,
-            VK_FORMAT_D24_UNORM_S8_UINT
-        };
-
-        u32 flags = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        for (u64 i = 0; i < candidate_count; ++i) {
-            VkFormatProperties properties;
-            vkGetPhysicalDeviceFormatProperties(m_physical_device, candidates[i], &properties);
-
-            if ((properties.linearTilingFeatures & flags) == flags) {
-                m_depth_format = candidates[i];
-                InfoLog("Depth format detected.");
-                return;
-            } else if ((properties.optimalTilingFeatures & flags) == flags) {
-                m_depth_format = candidates[i];
-                InfoLog("Depth format detected.");
-                return;
-            }
-        }
-
-        m_depth_format = VK_FORMAT_UNDEFINED;
-        WarnLog("Depth format not detected.");
     }
 
     void Device::create_logical_device() {

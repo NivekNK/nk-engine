@@ -135,6 +135,14 @@ namespace nk {
         TraceLog("nk::RenderPass initialized.");
     }
 
+    void RenderPass::begin(CommandBuffer& command_buffer, VkFramebuffer frame_buffer) {
+
+    }
+
+    void RenderPass::end(CommandBuffer& command_buffer) {
+
+    }
+
     void RenderPass::shutdown(Device& device) {
         if (m_render_pass) {
             vkDestroyRenderPass(device, m_render_pass, m_allocator);

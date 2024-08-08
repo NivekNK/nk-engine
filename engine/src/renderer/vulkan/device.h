@@ -50,6 +50,8 @@ namespace nk {
             const u32 type_filter,
             VkMemoryPropertyFlags property_flags) const;
 
+        void detect_depth_format();
+
         const SwapchainSupportInfo& get_swapchain_support_info() const { return m_swapchain_support_info; }
         VkSurfaceKHR get_surface() { return m_surface; }
         const PhysicalDeviceQueueFamilyInfo& get_queue_family_info() const { return m_queue_family; }
@@ -62,7 +64,6 @@ namespace nk {
 
     private:
         void select_physical_device(Instance& instance, Allocator* allocator);
-        void detect_depth_format();
         void create_logical_device();
         void create_command_pool();
 
