@@ -25,6 +25,7 @@ namespace nk {
         void recreate(const u16 width, const u16 height);
 
         bool acquire_next_image_index(u64 timeout_ns, VkSemaphore image_available_semaphore, VkFence fence, const u16 width, const u16 height, u32* out_image_index);
+        void present(VkQueue graphics_queue, VkQueue present_queue, VkSemaphore render_complete_semaphore, u32 present_image_index, const u16 width, const u16 height, bool* window_was_resized);
 
         const VkSurfaceFormatKHR& get_image_format() const { return m_image_format; }
         const u32 get_image_count() const { return m_images.length(); }

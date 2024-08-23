@@ -58,6 +58,7 @@ namespace nk::vk {
         }
     }
 
+    // TODO: Fix Log to work with results from functions
     inline cstr result_to_cstr(VkResult result, bool get_extended) {
         // From: https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkResult.html
         // Success Codes

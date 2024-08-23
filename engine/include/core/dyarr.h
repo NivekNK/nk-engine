@@ -18,8 +18,8 @@ namespace nk {
 
         ~Dyarr();
 
-        void init(Allocator* allocator, const u64 initial_capacity);
-        void init_own(Allocator* allocator, const u64 initial_capacity);
+        void init(Allocator* allocator, const u64 initial_capacity, const u64 initial_length = 0);
+        void init_own(Allocator* allocator, const u64 initial_capacity, const u64 initial_length = 0);
         void init_list(Allocator* allocator, std::initializer_list<T> data);
         void init_list_own(Allocator* allocator, std::initializer_list<T> data);
 
@@ -47,7 +47,7 @@ namespace nk {
         void clear(Allocator* allocator);
 
         void reset();
-        void resize(u64 capacity);
+        void resize(u64 length);
 
         NK_DEFINE_ITERATOR(T, std::forward_iterator_tag);
         Iterator begin() { return Iterator{&m_data[0]}; }
@@ -61,6 +61,8 @@ namespace nk {
         T* data() { return m_data; }
 
     private:
+        void grow(u64 new_capacity);
+
         T* m_data;
         u64 m_length;
         u64 m_capacity;
@@ -118,16 +120,16 @@ namespace nk {
     }
 
     template <IArrT T>
-    void Dyarr<T>::init(Allocator* allocator, const u64 initial_capacity) {
+    void Dyarr<T>::init(Allocator* allocator, const u64 initial_capacity, const u64 initial_length) {
         Assert(allocator != nullptr);
 
         m_data = nullptr;
-        m_length = 0;
+        m_length = initial_length;
         m_capacity = 0;
         m_allocator = allocator;
         m_own_allocator = false;
 
-        resize(initial_capacity);
+        grow(initial_capacity);
 
         if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T> || std::is_enum_v<T>) {
             memset(m_data, 0, sizeof(T) * m_capacity);
@@ -135,17 +137,17 @@ namespace nk {
     }
 
     template <IArrT T>
-    void Dyarr<T>::init_own(Allocator* allocator, const u64 initial_capacity) {
+    void Dyarr<T>::init_own(Allocator* allocator, const u64 initial_capacity, const u64 initial_length) {
         Assert(allocator != nullptr);
 
         m_data = nullptr;
-        m_length = 0;
+        m_length = initial_length;
         m_capacity = 0;
         m_allocator = allocator;
         m_own_allocator = true;
 
         if (initial_capacity > 0)
-            resize(initial_capacity);
+            grow(initial_capacity);
 
         if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T> || std::is_enum_v<T>) {
             memset(m_data, 0, sizeof(T) * m_capacity);
@@ -163,7 +165,7 @@ namespace nk {
         m_own_allocator = false;
 
         if (m_length > 0)
-            resize(m_length);
+            grow(m_length);
 
         std::uninitialized_move(data.begin(), data.end(), m_data);
     }
@@ -179,7 +181,7 @@ namespace nk {
         m_own_allocator = true;
 
         if (m_length > 0)
-            resize(m_length);
+            grow(m_length);
 
         std::uninitialized_move(data.begin(), data.end(), m_data);
     }
@@ -190,7 +192,7 @@ namespace nk {
             m_length = index + 1;
 
             if (m_length >= m_capacity)
-                resize(m_length + 1);
+                grow(m_length + 1);
         }
 
         return m_data[index];
@@ -229,7 +231,7 @@ namespace nk {
     template <IArrT T>
     void Dyarr<T>::push(T& element) {
         if (m_length >= m_capacity)
-            resize(m_capacity + 1);
+            grow(m_capacity + 1);
 
         m_data[m_length] = std::move(element);
         m_length++;
@@ -238,7 +240,7 @@ namespace nk {
     template <IArrT T>
     void Dyarr<T>::push(T element) requires std::is_pointer_v<T> {
         if (m_length >= m_capacity)
-            resize(m_capacity + 1);
+            grow(m_capacity + 1);
 
         m_data[m_length] = element;
         m_length++;
@@ -247,7 +249,7 @@ namespace nk {
     template <IArrT T>
     void Dyarr<T>::push_copy(const T& element) {
         if (m_length >= m_capacity)
-            resize(m_capacity + 1);
+            grow(m_capacity + 1);
 
         m_data[m_length] = element;
         m_length++;
@@ -259,7 +261,7 @@ namespace nk {
             m_length = index + 1;
 
             if (m_length >= m_capacity)
-                resize(m_length + 1);
+                grow(m_length + 1);
         } else {
             m_length++;
         }
@@ -274,7 +276,7 @@ namespace nk {
             m_length = index + 1;
 
             if (m_length >= m_capacity)
-                resize(m_length + 1);
+                grow(m_length + 1);
         } else {
             m_length++;
         }
@@ -289,7 +291,7 @@ namespace nk {
             m_length = index + 1;
 
             if (m_length >= m_capacity)
-                resize(m_length + 1);
+                grow(m_length + 1);
         } else {
             m_length++;
         }
@@ -381,20 +383,28 @@ namespace nk {
     }
 
     template <IArrT T>
-    void Dyarr<T>::resize(u64 capacity) {
-        if (capacity < m_capacity * 2) {
-            capacity = m_capacity * 2;
-        } else if (capacity < 4) {
-            capacity = 4;
+    void Dyarr<T>::resize(u64 length) {
+        if (length >= m_capacity)
+            grow(length);
+
+        m_length = length;
+    }
+
+    template <IArrT T>
+    void Dyarr<T>::grow(u64 new_capacity) {
+        if (new_capacity < m_capacity * 2) {
+            new_capacity = m_capacity * 2;
+        } else if (new_capacity < 4) {
+            new_capacity = 4;
         }
 
-        T* data = m_allocator->allocate_lot(T, capacity);
+        T* data = m_allocator->allocate_lot(T, new_capacity);
         if (m_capacity > 0) {
             memcpy(data, m_data, m_capacity * sizeof(T));
             m_allocator->free_lot(T, m_data, m_capacity);
         }
 
         m_data = data;
-        m_capacity = capacity;
+        m_capacity = new_capacity;
     }
 }

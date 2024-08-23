@@ -33,7 +33,7 @@ namespace nk {
         void create_command_buffers();
         void create_sync_objects();
 
-        bool recreate_swapchain();
+        bool recreate_swapchain(const u16 width, const u16 height);
 
         Window& m_window;
         Allocator* m_allocator;
@@ -53,7 +53,7 @@ namespace nk {
         Arr<VkSemaphore> m_image_available_semaphores;
         Arr<VkSemaphore> m_queue_complete_semaphores;
         Arr<Fence> m_in_flight_fences;
-        Arr<Fence> m_images_in_flight;
+        Arr<Fence*> m_images_in_flight;
 
         bool m_recreating_swapchain;
 

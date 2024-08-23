@@ -4,6 +4,7 @@
 
 #include "vulkan/device.h"
 #include "vulkan/swapchain.h"
+#include "vulkan/command_buffer.h"
 
 namespace nk {
     RenderPass::RenderPass(RenderPass&& other) {
@@ -45,6 +46,11 @@ namespace nk {
                           Swapchain& swapchain,
                           VkAllocationCallbacks* allocator) {
         m_allocator = allocator;
+
+        m_render_area = create_info.render_area;
+        m_clear_color = create_info.clear_color;
+        m_depth = create_info.depth;
+        m_stencil = create_info.stencil;
 
         // Main subpass
         VkSubpassDescription subpass = {};
@@ -135,18 +141,38 @@ namespace nk {
         TraceLog("nk::RenderPass initialized.");
     }
 
-    void RenderPass::begin(CommandBuffer& command_buffer, VkFramebuffer frame_buffer) {
-
-    }
-
-    void RenderPass::end(CommandBuffer& command_buffer) {
-
-    }
-
     void RenderPass::shutdown(Device& device) {
         if (m_render_pass) {
             vkDestroyRenderPass(device, m_render_pass, m_allocator);
         }
         TraceLog("nk::RenderPass shutdown.");
+    }
+
+    void RenderPass::begin(CommandBuffer& command_buffer, VkFramebuffer frame_buffer) {
+        VkRenderPassBeginInfo begin_info = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        begin_info.renderPass = m_render_pass;
+        begin_info.framebuffer = frame_buffer;
+        begin_info.renderArea = m_render_area;
+        //DebugLog("Offset: ({}, {}) | Extent: ({}, {})", m_render_area.offset.x, m_render_area.offset.y, m_render_area.extent.width, m_render_area.extent.height);
+
+        const u32 clear_values_count = 2;
+        VkClearValue clear_values[clear_values_count];
+        clear_values[0].color.float32[0] = m_clear_color.r;
+        clear_values[0].color.float32[1] = m_clear_color.g;
+        clear_values[0].color.float32[2] = m_clear_color.b;
+        clear_values[0].color.float32[3] = m_clear_color.a;
+        clear_values[1].depthStencil.depth = m_depth;
+        clear_values[1].depthStencil.stencil = m_stencil;
+
+        begin_info.clearValueCount = clear_values_count;
+        begin_info.pClearValues = clear_values;
+
+        vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+        command_buffer.set_state(CommandBufferState::InRenderPass);
+    }
+
+    void RenderPass::end(CommandBuffer& command_buffer) {
+        vkCmdEndRenderPass(command_buffer);
+        command_buffer.set_state(CommandBufferState::Recording);
     }
 }

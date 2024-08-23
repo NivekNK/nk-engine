@@ -37,11 +37,12 @@ namespace nk {
                   VkAllocationCallbacks* allocator);
         void shutdown(Device& device);
 
-        // TODO: Implement begin and end.
         void begin(CommandBuffer& command_buffer, VkFramebuffer frame_buffer);
         void end(CommandBuffer& command_buffer);
 
-        void set_render_area(const u16 width, const u16 height) { m_render_area = {width, height}; }
+        void set_render_area(const u16 x, const u16 y, const u16 width, const u16 height) { m_render_area = {x, y, width, height}; }
+        void set_render_area_extent(const u16 width, const u16 height) { m_render_area.extent = {width, height}; }
+        void set_render_area_offset(const u16 x, const u16 y) { m_render_area.offset = {x, y}; }
 
         VkRenderPass get() { return m_render_pass; }
         VkRenderPass operator()() { return m_render_pass; }

@@ -67,8 +67,10 @@ namespace nk {
         TraceLog("nk::Swapchain shutdown.");
     }
 
-    // TODO: Implement
     void Swapchain::recreate(const u16 width, const u16 height) {
+        vkDeviceWaitIdle(m_device->get());
+        destroy_swapchain();
+        create_swapchain(width, height);
     }
 
     bool Swapchain::acquire_next_image_index(u64 timeout_ns, VkSemaphore image_available_semaphore, VkFence fence, const u16 width, const u16 height, u32* out_image_index) {
@@ -90,6 +92,30 @@ namespace nk {
         }
 
         return true;
+    }
+
+    void Swapchain::present(VkQueue graphics_queue, VkQueue present_queue, VkSemaphore render_complete_semaphore, u32 present_image_index, const u16 width, const u16 height, bool* window_was_resized) {
+        // Return the image to the swapchain for presentation.
+        VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        present_info.waitSemaphoreCount = 1;
+        present_info.pWaitSemaphores = &render_complete_semaphore;
+        present_info.swapchainCount = 1;
+        present_info.pSwapchains = &m_swapchain;
+        present_info.pImageIndices = &present_image_index;
+        present_info.pResults = nullptr;
+
+        VkResult result = vkQueuePresentKHR(present_queue, &present_info);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || *window_was_resized) {
+            // Swapchain is out of date, suboptimal or a framebuffer resize has occurred. Trigger swapchain recreation.
+            // NOTE: before used context->framebuffer_width, context->framebuffer_height as parameters
+            *window_was_resized = false;
+            recreate(width, height);
+        } else if (result != VK_SUCCESS) {
+            FatalLog("Failed to Present Swap Chain image!");
+        }
+
+        // Increment (and loop) the index.
+        m_current_frame = (m_current_frame + 1) % m_max_frames_in_flight;
     }
 
     void Swapchain::create_swapchain(const u16 width, const u16 height) {
@@ -150,7 +176,7 @@ namespace nk {
 
         // Views
         m_views.init(m_swapchain_allocator, image_count);
-        for (u32 i = 0; i < image_count; ++i) {
+        for (u32 i = 0; i < image_count; i++) {
             VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             view_info.image = m_images[i];
             view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
