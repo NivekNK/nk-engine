@@ -62,4 +62,16 @@ namespace nk {
         m_attachments.clear();
         m_framebuffer = nullptr;
     }
+
+    void Framebuffer::renew(const u16 width,
+                            const u16 height,
+                            Arr<VkImageView>& attachments,
+                            Device* device,
+                            RenderPass& render_pass,
+                            VkAllocationCallbacks* allocator) {
+        if (m_framebuffer != nullptr)
+            shutdown();
+
+        init(width, height, attachments, device, render_pass, allocator);
+    }
 }

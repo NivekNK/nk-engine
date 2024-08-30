@@ -26,6 +26,13 @@ namespace nk {
                   VkAllocationCallbacks* allocator);
         void shutdown();
 
+        void renew(const u16 width,
+                   const u16 height,
+                   Arr<VkImageView>& attachments,
+                   Device* device,
+                   RenderPass& render_pass,
+                   VkAllocationCallbacks* allocator);
+
         VkFramebuffer get() { return m_framebuffer; }
         VkFramebuffer operator()() { return m_framebuffer; }
         operator VkFramebuffer() { return m_framebuffer; }

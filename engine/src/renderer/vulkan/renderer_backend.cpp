@@ -18,17 +18,17 @@ namespace nk {
 
         m_instance.init(application_name.c_str(), m_allocator, m_vulkan_allocator);
         m_device.init(m_window, m_instance, m_allocator, m_vulkan_allocator);
-        m_swapchain.init(window.width(), window.height(), &m_device, m_vulkan_allocator);
+        m_swapchain.init(m_width, m_height, &m_device, m_vulkan_allocator);
 
         auto main_render_pass_create_info = RenderPassCreateInfo{
-            .render_area = {{0, 0}, {m_window.width(), m_window.height()}},
+            .render_area = {{0, 0}, {m_width, m_height}},
             .clear_color = {1.0f, 0.0f, 0.45f, 1.0f},
             .depth = 1.0f,
             .stencil = 0,
         };
         m_main_render_pass.init(main_render_pass_create_info, m_device, m_swapchain, m_vulkan_allocator);
 
-        regenerate_framebuffers(m_window.width(), m_window.height());
+        regenerate_framebuffers(m_width, m_height);
         InfoLog("Vulkan Framebuffers created.");
 
         create_command_buffers();
@@ -107,6 +107,7 @@ namespace nk {
         }
 
         if (m_window_was_resized) {
+            DebugLog("WINDOW WAS RESIZED");
             VkResult result = vkDeviceWaitIdle(m_device);
             if (!vk::is_success(result)) {
                 str value = vk::result_to_cstr(result, true);
@@ -246,7 +247,7 @@ namespace nk {
         m_width = width;
         m_height = height;
         m_window_was_resized = true;
-        DebugLog("RendererBackend::on_window_resize ({} x {})", width, height);
+        DebugLog("RendererBackend::on_window_resize ({}x{})", width, height);
     }
 
     void RendererBackend::regenerate_framebuffers(const u16 width, const u16 height) {
@@ -254,30 +255,16 @@ namespace nk {
 
         if (m_framebuffers.empty()) {
             m_framebuffers.init(m_allocator, image_count, image_count);
-
-            u32 i = 0;
-            for (auto& framebuffer : m_framebuffers) {
-                // TODO: make this dynamic based on the currently configured attachments
-                Arr<VkImageView> attachments;
-                attachments.init_list(m_allocator, {m_swapchain.get_image_view_at(i), m_swapchain.get_depth_attachment().get_view()});
-                framebuffer.init(width, height, attachments, &m_device, m_main_render_pass, m_vulkan_allocator);
-                i++;
-            }
         } else {
-            const u32 old_image_count = m_framebuffers.length();
             m_framebuffers.resize(image_count);
+        }
 
-            u32 i = 0;
-            for (auto& framebuffer : m_framebuffers) {
-                if (i < old_image_count) {
-                    framebuffer.shutdown();
-                }
-                // TODO: make this dynamic based on the currently configured attachments
-                Arr<VkImageView> attachments;
-                attachments.init_list(m_allocator, {m_swapchain.get_image_view_at(i), m_swapchain.get_depth_attachment().get_view()});
-                framebuffer.init(width, height, attachments, &m_device, m_main_render_pass, m_vulkan_allocator);
-                i++;
-            }
+        for (u32 i = 0; i < image_count; i++) {
+            Arr<VkImageView> attachments;
+            attachments.init_list(m_allocator, {m_swapchain.get_image_view_at(i), m_swapchain.get_depth_attachment().get_view()});
+
+            Framebuffer& framebuffer = m_framebuffers[i];
+            framebuffer.renew(width, height, attachments, &m_device, m_main_render_pass, m_vulkan_allocator);
         }
     }
 
