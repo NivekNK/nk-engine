@@ -3,6 +3,7 @@
 #include "renderer/renderer.h"
 
 #include "vulkan/instance.h"
+#include "vulkan/device.h"
 
 namespace nk {
     class Window;
@@ -28,5 +29,6 @@ namespace nk {
 
         VkAllocationCallbacks* m_vulkan_allocator;
         Instance m_instance;
+        Device m_device;
     };
 }

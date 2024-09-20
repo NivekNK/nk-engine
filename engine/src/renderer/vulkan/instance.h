@@ -10,9 +10,8 @@ namespace nk {
 
         Instance(const Instance&) = delete;
         Instance& operator=(const Instance&) = delete;
-
-        Instance(Instance&& other);
-        Instance& operator=(Instance&& other);
+        Instance(Instance&&) = delete;
+        Instance& operator=(Instance&&) = delete;
 
         void init(cstr application_name, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
         void shutdown();

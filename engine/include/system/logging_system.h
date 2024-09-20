@@ -11,20 +11,20 @@
 #define NK_LOG_INFO_ENABLED TRUE
 #define NK_LOG_WARN_ENABLED TRUE
 
-#define NK_DEFINE_LOG(log_name)                                                                                                        \
-    template <typename... Args>                                                                                                        \
-    void log_name(str file, const u32 line, cstr fmt, Args&&... args) {                                                                \
-        str message;                                                                                                                   \
-        std::vformat_to(                                                                                                               \
-            std::back_inserter(message),                                                                                               \
-            fmt,                                                                                                                       \
-            std::make_format_args(std::forward<Args>(args)...));                                                                       \
-        formatted_log(file, line, m_style[static_cast<u8>(nk::LoggingPriority::log_name)], message.c_str(), #log_name);                \
-    }                                                                                                                                  \
-                                                                                                                                       \
-    template <typename Arg>                                                                                                            \
-    void log_name(str file, const u32 line, Arg& arg) {                                                                                \
-        formatted_log(file, line, m_style[static_cast<u8>(nk::LoggingPriority::log_name)], std::format("{}", arg).c_str(), #log_name); \
+#define NK_DEFINE_LOG(log_name)                                                                                                                           \
+    template <typename... Args>                                                                                                                           \
+    void log_name(str file, const u32 line, cstr fmt, Args&&... args) {                                                                                   \
+        str message;                                                                                                                                      \
+        std::vformat_to(                                                                                                                                  \
+            std::back_inserter(message),                                                                                                                  \
+            fmt,                                                                                                                                          \
+            std::make_format_args(std::forward<Args>(args)...));                                                                                          \
+        formatted_log(file, line, m_style[static_cast<u8>(nk::LoggingPriority::log_name)], message.c_str(), #log_name);                                   \
+    }                                                                                                                                                     \
+                                                                                                                                                          \
+    template <typename Arg>                                                                                                                               \
+    void log_name(str file, const u32 line, Arg&& arg) {                                                                                                  \
+        formatted_log(file, line, m_style[static_cast<u8>(nk::LoggingPriority::log_name)], std::format("{}", std::forward<Arg>(arg)).c_str(), #log_name); \
     }
 
 namespace nk {

@@ -2,7 +2,6 @@
 
 #include "memory/allocator.h"
 #include "core/arr_type.h"
-#include "core/arr_type.h"
 #include "core/iterator.h"
 
 namespace nk {

@@ -16,9 +16,11 @@ namespace nk {
         m_vulkan_allocator = nullptr;
 
         m_instance.init(application_name, m_allocator, m_vulkan_allocator);
+        m_device.init(m_window, &m_instance, m_allocator, m_vulkan_allocator);
     }
 
     RendererBackend::~RendererBackend() {
+        m_device.shutdown();
         m_instance.shutdown();
 
         m_vulkan_allocator = nullptr;

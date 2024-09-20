@@ -344,7 +344,9 @@ namespace nk {
         if (m_own_allocator)
             delete m_allocator;
 
-        reset();
+        m_data = nullptr;
+        m_length = 0;
+        m_capacity = 0;
     }
 
     template <IArrT T>
@@ -372,14 +374,14 @@ namespace nk {
             m_allocator->free_lot(T, m_data, m_capacity);
         }
 
-        reset();
+        m_data = nullptr;
+        m_length = 0;
+        m_capacity = 0;
     }
 
     template <IArrT T>
     void Dyarr<T>::reset() {
-        m_data = nullptr;
         m_length = 0;
-        m_capacity = 0;
     }
 
     template <IArrT T>

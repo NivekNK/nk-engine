@@ -10,7 +10,7 @@ namespace nk {
     namespace vk {
         void get_required_extensions(Dyarr<cstr>& extensions);
 
-        VkSurfaceKHR create_surface(Window& window, Instance& instance, VkAllocationCallbacks* allocator);
+        VkSurfaceKHR create_surface(Window& window, Instance* instance, VkAllocationCallbacks* vulkan_allocator);
 
         bool is_success(VkResult result);
 

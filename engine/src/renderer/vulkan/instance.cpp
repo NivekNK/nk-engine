@@ -30,40 +30,6 @@ namespace nk {
     }
 #endif
 
-    Instance::Instance(Instance&& other) {
-        m_extensions = std::move(other.m_extensions);
-
-        m_vulkan_allocator = other.m_vulkan_allocator;
-        m_instance = other.m_instance;
-#if defined(NK_DEBUG)
-        m_debug_messenger = other.m_debug_messenger;
-#endif
-
-        other.m_vulkan_allocator = nullptr;
-        other.m_instance = nullptr;
-#if defined(NK_DEBUG)
-        other.m_debug_messenger = nullptr;
-#endif
-    }
-
-    Instance& Instance::operator=(Instance&& other) {
-        m_extensions = std::move(other.m_extensions);
-
-        m_vulkan_allocator = other.m_vulkan_allocator;
-        m_instance = other.m_instance;
-#if defined(NK_DEBUG)
-        m_debug_messenger = other.m_debug_messenger;
-#endif
-
-        other.m_vulkan_allocator = nullptr;
-        other.m_instance = nullptr;
-#if defined(NK_DEBUG)
-        other.m_debug_messenger = nullptr;
-#endif
-
-        return *this;
-    }
-
     void Instance::init(cstr application_name, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
         m_vulkan_allocator = vulkan_allocator;
         m_extensions.init(allocator, 15);
@@ -89,6 +55,8 @@ namespace nk {
 
         m_extensions.clear();
         InfoLog("Vulkan extensions freed.");
+
+        m_vulkan_allocator = nullptr;
 
         TraceLog("nk::Instance shutdown.");
     }

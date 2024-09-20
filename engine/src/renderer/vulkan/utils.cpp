@@ -20,7 +20,7 @@ namespace nk::vk {
 #endif
     }
 
-    VkSurfaceKHR create_surface(Window& window, Instance& instance, VkAllocationCallbacks* allocator) {
+    VkSurfaceKHR create_surface(Window& window, Instance* instance, VkAllocationCallbacks* vulkan_allocator) {
 #if defined(NK_PLATFORM_WINDOWS)
         WindowWin32& native_window = static_cast<WindowWin32&>(window);
 
@@ -29,9 +29,9 @@ namespace nk::vk {
         create_info.hwnd = native_window.get_hwnd();
 
         VkSurfaceKHR surface;
-        VkResult result = vkCreateWin32SurfaceKHR(instance.get(), &create_info, allocator, &surface);
+        VkResult result = vkCreateWin32SurfaceKHR(instance->get(), &create_info, vulkan_allocator, &surface);
         if (result != VK_SUCCESS) {
-            FatalLog("Vulkan surface creation failed.");
+            FatalLog("create_surface Vulkan surface creation failed.");
             return nullptr;
         }
 
