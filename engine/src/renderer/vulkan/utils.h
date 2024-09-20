@@ -7,9 +7,13 @@ namespace nk {
     class Instance;
     class Window;
 
-    namespace Utils {
+    namespace vk {
         void get_required_extensions(Dyarr<cstr>& extensions);
 
         VkSurfaceKHR create_surface(Window& window, Instance& instance, VkAllocationCallbacks* allocator);
+
+        bool is_success(VkResult result);
+
+        cstr result_to_cstr(VkResult result, bool get_extended);
     }
 }

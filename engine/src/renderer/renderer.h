@@ -15,7 +15,7 @@ namespace nk {
         virtual bool draw_frame(const RenderPacket& packet) = 0;
 
     private:
-        static Renderer* create(Allocator* allocator, Window& window, str application_name);
+        static Renderer* create(Allocator* allocator, Window& window, cstr application_name);
         static void free(Allocator* allocator, Renderer* renderer);
 
         friend class App;

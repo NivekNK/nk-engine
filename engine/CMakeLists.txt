@@ -40,16 +40,16 @@ set(SOURCES
     src/nk/input.cpp
     src/event/event.cpp
     src/renderer/renderer.cpp
-    src/renderer/vulkan/utils.cpp
     src/renderer/vulkan/renderer_backend.cpp
+    src/renderer/vulkan/utils.cpp
     src/renderer/vulkan/instance.cpp
-    src/renderer/vulkan/device.cpp
-    src/renderer/vulkan/swapchain.cpp
-    src/renderer/vulkan/image.cpp
-    src/renderer/vulkan/render_pass.cpp
-    src/renderer/vulkan/command_buffer.cpp
-    src/renderer/vulkan/framebuffer.cpp
-    src/renderer/vulkan/fence.cpp
+    # src/renderer/vulkan/device.cpp
+    # src/renderer/vulkan/swapchain.cpp
+    # src/renderer/vulkan/image.cpp
+    # src/renderer/vulkan/render_pass.cpp
+    # src/renderer/vulkan/command_buffer.cpp
+    # src/renderer/vulkan/framebuffer.cpp
+    # src/renderer/vulkan/fence.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")

@@ -86,13 +86,15 @@ namespace nk {
         Assert(s_instance == nullptr);
         s_instance = this;
 
+        m_name = std::move(config.name);
+
         auto allocator = new MallocAllocator();
         allocator->allocator_init("App", MemoryType::App);
         m_allocator = allocator;
 
         m_window = Window::create(m_allocator, config);
 
-        m_renderer = Renderer::create(m_allocator, *m_window, config.name);
+        m_renderer = Renderer::create(m_allocator, *m_window, m_name.c_str());
 
         m_clock.init(m_window);
 
@@ -144,6 +146,6 @@ namespace nk {
         // });
 
         InfoLog("nk::App created > Name: {} | Pos: ({}, {}) | Size: ({}, {})",
-                config.name, config.start_pos_x, config.start_pos_y, config.start_width, config.start_height);
+                m_name, config.start_pos_x, config.start_pos_y, config.start_width, config.start_height);
     }
 }

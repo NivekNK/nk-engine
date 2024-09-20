@@ -4,10 +4,6 @@
 
 #include "vulkan/utils.h"
 
-#if defined(NK_DEBUG)
-    #define NK_MAX_INSTANCE_LAYER_PROPERTIES 64
-#endif
-
 namespace nk {
 #if defined(NK_DEBUG)
     VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_callback(
@@ -37,13 +33,13 @@ namespace nk {
     Instance::Instance(Instance&& other) {
         m_extensions = std::move(other.m_extensions);
 
-        m_allocator = other.m_allocator;
+        m_vulkan_allocator = other.m_vulkan_allocator;
         m_instance = other.m_instance;
 #if defined(NK_DEBUG)
         m_debug_messenger = other.m_debug_messenger;
 #endif
 
-        other.m_allocator = nullptr;
+        other.m_vulkan_allocator = nullptr;
         other.m_instance = nullptr;
 #if defined(NK_DEBUG)
         other.m_debug_messenger = nullptr;
@@ -53,13 +49,13 @@ namespace nk {
     Instance& Instance::operator=(Instance&& other) {
         m_extensions = std::move(other.m_extensions);
 
-        m_allocator = other.m_allocator;
+        m_vulkan_allocator = other.m_vulkan_allocator;
         m_instance = other.m_instance;
 #if defined(NK_DEBUG)
         m_debug_messenger = other.m_debug_messenger;
 #endif
 
-        other.m_allocator = nullptr;
+        other.m_vulkan_allocator = nullptr;
         other.m_instance = nullptr;
 #if defined(NK_DEBUG)
         other.m_debug_messenger = nullptr;
@@ -69,7 +65,7 @@ namespace nk {
     }
 
     void Instance::init(cstr application_name, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
-        m_allocator = vulkan_allocator;
+        m_vulkan_allocator = vulkan_allocator;
         m_extensions.init(allocator, 15);
         create_instance(application_name, allocator);
 #if defined(NK_DEBUG)
@@ -83,12 +79,12 @@ namespace nk {
         if (m_debug_messenger) {
             PFN_vkDestroyDebugUtilsMessengerEXT func =
                 (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_instance, "vkDestroyDebugUtilsMessengerEXT");
-            func(m_instance, m_debug_messenger, m_allocator);
+            func(m_instance, m_debug_messenger, m_vulkan_allocator);
         }
         DebugLog("Vulkan Debug Messenger destroyed.");
 #endif
 
-        vkDestroyInstance(m_instance, m_allocator);
+        vkDestroyInstance(m_instance, m_vulkan_allocator);
         InfoLog("Vulkan Instance destroyed.");
 
         m_extensions.clear();
@@ -109,7 +105,7 @@ namespace nk {
         instance_create_info.pApplicationInfo = &app_info;
 
         m_extensions.push(VK_KHR_SURFACE_EXTENSION_NAME);
-        Utils::get_required_extensions(m_extensions);
+        vk::get_required_extensions(m_extensions);
 #if defined(NK_DEBUG)
         m_extensions.push(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
@@ -166,7 +162,7 @@ namespace nk {
         instance_create_info.ppEnabledLayerNames = nullptr;
 #endif
 
-        VulkanCheck(vkCreateInstance(&instance_create_info, m_allocator, &m_instance));
+        VulkanCheck(vkCreateInstance(&instance_create_info, m_vulkan_allocator, &m_instance));
         InfoLog("Vulkan Instance created.");
     }
 
@@ -188,7 +184,7 @@ namespace nk {
         PFN_vkCreateDebugUtilsMessengerEXT func =
             (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_instance, "vkCreateDebugUtilsMessengerEXT");
         AssertMsg(func != nullptr, "Failed to create debug messenger!");
-        VulkanCheck(func(m_instance, &debug_create_info, m_allocator, &m_debug_messenger));
+        VulkanCheck(func(m_instance, &debug_create_info, m_vulkan_allocator, &m_debug_messenger));
         DebugLog("Vulkan debugger created.");
     }
 #endif

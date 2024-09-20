@@ -30,6 +30,8 @@ namespace nk {
         App(const ApplicationConfig& config);
 
     private:
+        str m_name;
+
         Allocator* m_allocator;
         Window* m_window;
         Renderer* m_renderer;

@@ -29,7 +29,7 @@ namespace nk {
 
         Dyarr<cstr> m_extensions;
 
-        VkAllocationCallbacks* m_allocator;
+        VkAllocationCallbacks* m_vulkan_allocator;
         VkInstance m_instance;
 #if defined(NK_DEBUG)
         VkDebugUtilsMessengerEXT m_debug_messenger;
