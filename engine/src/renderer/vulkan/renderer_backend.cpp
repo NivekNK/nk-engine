@@ -4,6 +4,8 @@
 
 #include "nk/window.h"
 #include "memory/malloc_allocator.h"
+#include "event/event.h"
+#include "vulkan/utils.h"
 
 namespace nk {
     RendererBackend::RendererBackend(Window& window, cstr application_name)
@@ -19,6 +21,10 @@ namespace nk {
         m_framebuffer_height = window.height() > 0 ? window.height() : 720;
         m_cached_framebuffer_width = 0;
         m_cached_framebuffer_height = 0;
+
+        Event::WindowResize::add_listener([this](u16 width, u16 height) {
+            this->on_window_resize(width, height);
+        });
 
         m_instance.init(application_name, m_allocator, m_vulkan_allocator);
         m_device.init(m_window, &m_instance, m_allocator, m_vulkan_allocator);
@@ -91,12 +97,161 @@ namespace nk {
     }
 
     bool RendererBackend::begin_frame(f64 delta_time) {
+        // Check if recreating swap chain and boot out.
+        if (m_recreating_swapchain) {
+            VkResult result = vkDeviceWaitIdle(m_device);
+            if (!vk::is_success(result)) {
+                ErrorLog("RendererBackend::begin_frame vkDeviceWaitIdle (1) failed: '{}'.", vk::result_to_cstr(result, true));
+                return false;
+            }
+            InfoLog("RendererBackend::begin_frame Recreating swapchain, booting.");
+            return false;
+        }
+
+        // Check if the framebuffer has been resized. If so, a new swapchain must be created
+        if (m_framebuffer_size_generation != m_framebuffer_last_generation) {
+            VkResult result = vkDeviceWaitIdle(m_device);
+            if (!vk::is_success(result)) {
+                ErrorLog("RendererBackend::begin_frame vkDeviceWaitIdle (2) failed: '{}'.", vk::result_to_cstr(result, true));
+                return false;
+            }
+
+            // If the swapchain recreation failed (because, for example, the window was minimized),
+            // boot out before unsetting the flag.
+            if (!recreate_swapchain()) {
+                return false;
+            }
+
+            InfoLog("RendererBackend::begin_frame Resized, booting.");
+            return false;
+        }
+
+        const u32& current_frame = m_swapchain.get_current_frame();
+
+        // Wait for the execution of the current frame to complete.
+        // The fence being free will allow this one to move on.
+        if (!m_in_flight_fences[current_frame].wait(u64_max)) {
+            WarnLog("RendererBackend::begin_frame In-flight fence wait failure!");
+            return false;
+        }
+
+        // Acquire the next image from the swap chain.
+        // Pass along the semaphore that should signaled when this completes.
+        // This same semaphore will later be waited on by the queue submission
+        // to ensure this image is available.
+        if (!m_swapchain.acquire_next_image_index(
+                m_framebuffer_width,
+                m_framebuffer_height,
+                u64_max,
+                m_image_available_semaphores[current_frame],
+                nullptr,
+                &m_image_index)) {
+            return false;
+        }
+
+        CommandBuffer& command_buffer = m_graphics_command_buffers[m_image_index];
+        command_buffer.reset();
+        command_buffer.begin(false, false);
+
+        // Dynamic state
+        VkViewport viewport;
+        viewport.x = 0.0f;
+        viewport.y = static_cast<f32>(m_framebuffer_height);
+        viewport.width = static_cast<f32>(m_framebuffer_width);
+        viewport.height = -static_cast<f32>(m_framebuffer_height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        // Scissor
+        VkRect2D scissor;
+        scissor.offset.x = scissor.offset.y = 0;
+        scissor.extent.width = m_framebuffer_width;
+        scissor.extent.height = m_framebuffer_height;
+
+        vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+        vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+        m_main_render_pass.set_render_area_extent(m_framebuffer_width, m_framebuffer_height);
+        m_main_render_pass.begin(command_buffer, m_framebuffers[m_image_index]);
+
         return true;
     }
 
     bool RendererBackend::end_frame(f64 delta_time) {
+        CommandBuffer& command_buffer = m_graphics_command_buffers[m_image_index];
+
+        // End renderpass
+        m_main_render_pass.end(command_buffer);
+        command_buffer.end();
+
+        // Make sure the previous frame is not using this image (i.e. its fence is being waited on)
+        if (m_images_in_flight[m_image_index] != nullptr) { // was frame
+            m_images_in_flight[m_image_index]->wait(u64_max);
+        }
+
+        const u32& current_frame = m_swapchain.get_current_frame();
+
+        // Mark the image fence as in-use by this frame.
+        m_images_in_flight[m_image_index] = &m_in_flight_fences[current_frame];
+
+        // Reset the fence for use on the next frame
+        m_images_in_flight[m_image_index]->reset();
+
+        // Submit the queue and wait for the operation to complete.
+        // Begin queue submission
+        VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+
+        // Command buffer(s) to be executed.
+        submit_info.commandBufferCount = 1;
+        VkCommandBuffer p_command_buffer = command_buffer;
+        submit_info.pCommandBuffers = &p_command_buffer;
+
+        // The semaphore(s) to be signaled when the queue is complete.
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &m_queue_complete_semaphores[current_frame];
+
+        // Wait semaphore ensures that the operation cannot begin until the image is available.
+        submit_info.waitSemaphoreCount = 1;
+        submit_info.pWaitSemaphores = &m_image_available_semaphores[current_frame];
+
+        // Each semaphore waits on the corresponding pipeline stage to complete. 1:1 ratio.
+        // VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT prevents subsequent colour attachment
+        // writes from executing until the semaphore signals (i.e. one frame is presented at a time)
+        VkPipelineStageFlags flags[1] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        submit_info.pWaitDstStageMask = flags;
+
+        VkResult result = vkQueueSubmit(
+            m_device.get_graphics_queue(),
+            1,
+            &submit_info,
+            m_in_flight_fences[current_frame]);
+        if (result != VK_SUCCESS) {
+            ErrorLog("RendererBackend::end_frame vkQueueSubmit failed with result: '{}'.", vk::result_to_cstr(result, true));
+            return false;
+        }
+
+        command_buffer.set_state(CommandBufferState::Submitted);
+        // End queue submission
+
+        m_swapchain.present(
+            m_framebuffer_width,
+            m_framebuffer_height,
+            m_device.get_graphics_queue(),
+            m_device.get_present_queue(),
+            m_queue_complete_semaphores[current_frame],
+            m_image_index
+        );
+
         m_frame_number++;
         return true;
+    }
+
+    void RendererBackend::on_window_resize(u16 width, u16 height) {
+        m_cached_framebuffer_width = width;
+        m_cached_framebuffer_height = height;
+        m_framebuffer_size_generation++;
+
+        DebugLog("RendererBackend::on_window_resize: {}, {}", width, height);
     }
 
     void RendererBackend::recreate_framebuffers() {
@@ -164,5 +319,55 @@ namespace nk {
         // by this list.
         m_images_in_flight.init(m_allocator, m_swapchain.get_image_count());
         InfoLog("Vulkan Sync Objects created.");
+    }
+
+    bool RendererBackend::recreate_swapchain() {
+        // If already being recreated, do not try again.
+        if (m_recreating_swapchain) {
+            InfoLog("RendererBackend::recreate_swapchain called when already recreating. Booting.");
+            return false;
+        }
+
+        // Detect if the window is too small to be drawn to
+        if (m_framebuffer_width == 0 || m_framebuffer_height == 0) {
+            InfoLog("RendererBackend::recreate_swapchain called when window is < 1 in a dimension. Booting.");
+            return false;
+        }
+
+        // Mark as recreating if the dimensions are valid.
+        m_recreating_swapchain = true;
+
+        // Wait for any operations to complete.
+        vkDeviceWaitIdle(m_device);
+
+        // Clear these out just in case.
+        for (u32 i = 0; i < m_swapchain.get_image_count(); i++) {
+            m_images_in_flight[i] = nullptr;
+        }
+
+        // Requery support
+        m_device.query_swapchain_support_info();
+
+        m_swapchain.recreate(m_cached_framebuffer_width, m_cached_framebuffer_height);
+
+        // Sync the framebuffer size with the cached sizes.
+        m_framebuffer_width = m_cached_framebuffer_width;
+        m_framebuffer_height = m_cached_framebuffer_height;
+        m_main_render_pass.set_render_area_extent(m_framebuffer_width, m_framebuffer_height);
+        m_cached_framebuffer_width = 0;
+        m_cached_framebuffer_height = 0;
+
+        // Update framebuffer size generation
+        m_framebuffer_last_generation = m_framebuffer_size_generation;
+
+        m_main_render_pass.set_render_area(0, 0, m_framebuffer_width, m_framebuffer_height);
+
+        recreate_framebuffers();
+        recreate_command_buffers();
+
+        // Clear the recreating flag.
+        m_recreating_swapchain = false;
+
+        return true;
     }
 }

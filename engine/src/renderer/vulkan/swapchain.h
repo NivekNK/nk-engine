@@ -17,22 +17,22 @@ namespace nk {
         Swapchain(Swapchain&&) = delete;
         Swapchain& operator=(Swapchain&&) = delete;
 
-        void init(const u16 width, const u16 height, Device* device, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
+        void init(u16& width, u16& height, Device* device, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
-        void recreate(const u16 width, const u16 height);
+        void recreate(u16& width, u16& height);
 
         bool acquire_next_image_index(
-            const u16 framebuffer_width,
-            const u16 framebuffer_height,
+            u16& framebuffer_width,
+            u16& framebuffer_height,
             u64 timeout_ns,
             VkSemaphore image_available_semaphore,
             VkFence fence,
             u32* out_image_index);
 
         void present(
-            const u16 framebuffer_width,
-            const u16 framebuffer_height,
+            u16& framebuffer_width,
+            u16& framebuffer_height,
             VkQueue graphics_queue,
             VkQueue present_queue,
             VkSemaphore render_complete_semaphore,
@@ -43,12 +43,13 @@ namespace nk {
         VkImageView get_image_view_at(u32 index) { return m_views[index]; }
         Image& get_depth_attachment() { return m_depth_attachment; }
         u8 get_max_frames_in_flight() const { return m_max_frames_in_flight; }
+        const u32& get_current_frame() const { return m_current_frame; }
 
     private:
         VkSurfaceFormatKHR choose_swap_surface_format(const Dyarr<VkSurfaceFormatKHR>& available_formats) const;
         VkPresentModeKHR choose_swap_present_mode(const Dyarr<VkPresentModeKHR>& available_present_modes) const;
 
-        void create_swapchain(const u16 width, const u16 height);
+        void create_swapchain(u16& width, u16& height);
         void destroy_swapchain();
 
         Device* m_device;

@@ -3,9 +3,10 @@
 #include "vulkan/swapchain.h"
 
 #include "vulkan/device.h"
+#include "vulkan/utils.h"
 
 namespace nk {
-    void Swapchain::init(const u16 width, const u16 height, Device* device, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
+    void Swapchain::init(u16& width, u16& height, Device* device, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
         m_device = device;
         m_allocator = allocator;
         m_vulkan_allocator = vulkan_allocator;
@@ -19,14 +20,14 @@ namespace nk {
         TraceLog("nk::Swapchain shutdown.");
     }
 
-    void Swapchain::recreate(const u16 width, const u16 height) {
+    void Swapchain::recreate(u16& width, u16& height) {
         destroy_swapchain();
         create_swapchain(width, height);
     }
 
     bool Swapchain::acquire_next_image_index(
-        const u16 framebuffer_width,
-        const u16 framebuffer_height,
+        u16& framebuffer_width,
+        u16& framebuffer_height,
         u64 timeout_ns,
         VkSemaphore image_available_semaphore,
         VkFence fence,
@@ -43,7 +44,7 @@ namespace nk {
             recreate(framebuffer_width, framebuffer_height);
             return false;
         } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            FatalLog("Failed to acquire Swapchain image!");
+            FatalLog("Failed to acquire Swapchain image! {}", vk::result_to_cstr(result, true));
             return false;
         }
 
@@ -51,8 +52,8 @@ namespace nk {
     }
 
     void Swapchain::present(
-        const u16 framebuffer_width,
-        const u16 framebuffer_height,
+        u16& framebuffer_width,
+        u16& framebuffer_height,
         VkQueue graphics_queue,
         VkQueue present_queue,
         VkSemaphore render_complete_semaphore,
@@ -68,27 +69,27 @@ namespace nk {
 
         VkResult result = vkQueuePresentKHR(present_queue, &present_info);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            // Swapchain is out of date, suboptimal or a framebuffer resize has occurred. Trigger swapchain recreation.
+            // Swapchain is out of date, suboptimal or a framebuffer resize has occurred.
+            // Trigger swapchain recreation.
             recreate(framebuffer_width, framebuffer_height);
         } else if (result != VK_SUCCESS) {
-            FatalLog("Failed to Present Swap Chain image!");
+            FatalLog("Failed to Present Swap Chain image! {}", vk::result_to_cstr(result, true));
         }
 
         // Increment (and loop) the index.
         m_current_frame = (m_current_frame + 1) % m_max_frames_in_flight;
     }
 
-    void Swapchain::create_swapchain(const u16 width, const u16 height) {
+    void Swapchain::create_swapchain(u16& width, u16& height) {
         VkExtent2D swapchain_extent = {width, height};
         m_max_frames_in_flight = 2;
 
+        m_device->query_swapchain_support_info();
         const SwapchainSupportInfo& swapchain_support_info = m_device->get_swapchain_support_info();
 
         m_image_format = choose_swap_surface_format(swapchain_support_info.formats);
 
         VkPresentModeKHR present_mode = choose_swap_present_mode(swapchain_support_info.present_modes);
-
-        m_device->query_swapchain_support_info();
 
         if (swapchain_support_info.capabilities.currentExtent.width != u32_max) {
             swapchain_extent = swapchain_support_info.capabilities.currentExtent;
@@ -181,9 +182,13 @@ namespace nk {
         };
 
         m_depth_attachment.init(depth_create_info, m_device, m_vulkan_allocator);
+
+        width = swapchain_extent.width;
+        height = swapchain_extent.height;
     }
 
     void Swapchain::destroy_swapchain() {
+        vkDeviceWaitIdle(m_device->get());
         m_depth_attachment.shutdown();
 
         // Only destroy the views, not the images, since those are owned by the swapchain and are thus
