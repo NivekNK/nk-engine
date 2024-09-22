@@ -287,7 +287,7 @@ namespace nk {
         u32 format_count = 0;
         VulkanCheck(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, m_surface, &format_count, nullptr));
         if (format_count > 0) {
-            if (m_swapchain_support_info.formats.length() > 0) {
+            if (m_swapchain_support_info.formats.capacity() > 0) {
                 if (m_swapchain_support_info.formats.length() != format_count)
                     m_swapchain_support_info.formats.resize(format_count);
             } else {
@@ -307,7 +307,7 @@ namespace nk {
         u32 present_mode_count = 0;
         VulkanCheck(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, m_surface, &present_mode_count, nullptr));
         if (present_mode_count > 0) {
-            if (m_swapchain_support_info.present_modes.length() > 0) {
+            if (m_swapchain_support_info.present_modes.capacity() > 0) {
                 if (m_swapchain_support_info.present_modes.length() != present_mode_count)
                     m_swapchain_support_info.present_modes.resize(present_mode_count);
             } else {

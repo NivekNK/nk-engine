@@ -40,6 +40,9 @@ namespace nk {
 
         VkSurfaceFormatKHR get_image_format() const { return m_image_format; }
         u32 get_image_count() const { return m_images.length(); }
+        VkImageView get_image_view_at(u32 index) { return m_views[index]; }
+        Image& get_depth_attachment() { return m_depth_attachment; }
+        u8 get_max_frames_in_flight() const { return m_max_frames_in_flight; }
 
     private:
         VkSurfaceFormatKHR choose_swap_surface_format(const Dyarr<VkSurfaceFormatKHR>& available_formats) const;

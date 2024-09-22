@@ -6,7 +6,9 @@
 #include "vulkan/device.h"
 #include "vulkan/swapchain.h"
 #include "vulkan/render_pass.h"
+#include "vulkan/framebuffer.h"
 #include "vulkan/command_buffer.h"
+#include "vulkan/fence.h"
 
 namespace nk {
     class Window;
@@ -25,7 +27,9 @@ namespace nk {
 
         void on_window_resize(u16 width, u16 height) {}
 
+        void recreate_framebuffers();
         void recreate_command_buffers();
+        void create_sync_objects();
 
         Window& m_window;
         u32 m_frame_number;
@@ -38,12 +42,22 @@ namespace nk {
 
         u16 m_framebuffer_width;
         u16 m_framebuffer_height;
+        u16 m_cached_framebuffer_width;
+        u16 m_cached_framebuffer_height;
+
         u32 m_image_index;
         bool m_recreating_swapchain;
         Swapchain m_swapchain;
 
         RenderPass m_main_render_pass;
 
+        Dyarr<Framebuffer> m_framebuffers;
+
         Dyarr<CommandBuffer> m_graphics_command_buffers;
+
+        Arr<VkSemaphore> m_image_available_semaphores;
+        Arr<VkSemaphore> m_queue_complete_semaphores;
+        Arr<Fence> m_in_flight_fences;
+        Arr<Fence*> m_images_in_flight;
     };
 }

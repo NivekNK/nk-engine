@@ -73,6 +73,9 @@ namespace nk {
         } else if (result != VK_SUCCESS) {
             FatalLog("Failed to Present Swap Chain image!");
         }
+
+        // Increment (and loop) the index.
+        m_current_frame = (m_current_frame + 1) % m_max_frames_in_flight;
     }
 
     void Swapchain::create_swapchain(const u16 width, const u16 height) {
