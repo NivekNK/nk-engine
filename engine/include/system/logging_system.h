@@ -18,7 +18,7 @@
         std::vformat_to(                                                                                                                                  \
             std::back_inserter(message),                                                                                                                  \
             fmt,                                                                                                                                          \
-            std::make_format_args(std::forward<Args>(args)...));                                                                                          \
+            std::make_format_args(std::forward<Args>(args)...));                                                                       \
         formatted_log(file, line, m_style[static_cast<u8>(nk::LoggingPriority::log_name)], message.c_str(), #log_name);                                   \
     }                                                                                                                                                     \
                                                                                                                                                           \

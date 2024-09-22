@@ -9,7 +9,7 @@
 namespace nk {
     template <typename... Args>
     static void report_assert_failure_message(
-        const cstr expression, const cstr file, const u32 line, const cstr fmt, Args&&... args) {
+        cstr expression, const cstr file, const u32 line, const cstr fmt, Args&&... args) {
         str message;
         std::vformat_to(
             std::back_inserter(message),
@@ -20,7 +20,7 @@ namespace nk {
 
     template <typename... Args>
     static void report_assert_failure(
-        const cstr expression, const cstr file, const u32 line) {
+        cstr expression, const cstr file, const u32 line) {
         FatalLog("Failed {}", expression);
     }
 

@@ -44,7 +44,8 @@ namespace nk {
             recreate(framebuffer_width, framebuffer_height);
             return false;
         } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            FatalLog("Failed to acquire Swapchain image! {}", vk::result_to_cstr(result, true));
+            str result_str = vk::result_to_cstr(result, true);
+            FatalLog("Failed to acquire Swapchain image! {}", result_str);
             return false;
         }
 
@@ -73,7 +74,8 @@ namespace nk {
             // Trigger swapchain recreation.
             recreate(framebuffer_width, framebuffer_height);
         } else if (result != VK_SUCCESS) {
-            FatalLog("Failed to Present Swap Chain image! {}", vk::result_to_cstr(result, true));
+            str result_str = vk::result_to_cstr(result, true);
+            FatalLog("Failed to Present Swap Chain image! {}", result_str);
         }
 
         // Increment (and loop) the index.

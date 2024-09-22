@@ -101,7 +101,8 @@ namespace nk {
         if (m_recreating_swapchain) {
             VkResult result = vkDeviceWaitIdle(m_device);
             if (!vk::is_success(result)) {
-                ErrorLog("RendererBackend::begin_frame vkDeviceWaitIdle (1) failed: '{}'.", vk::result_to_cstr(result, true));
+                str result_str = vk::result_to_cstr(result, true);
+                ErrorLog("RendererBackend::begin_frame vkDeviceWaitIdle (1) failed: '{}'.", result_str);
                 return false;
             }
             InfoLog("RendererBackend::begin_frame Recreating swapchain, booting.");
@@ -112,7 +113,8 @@ namespace nk {
         if (m_framebuffer_size_generation != m_framebuffer_last_generation) {
             VkResult result = vkDeviceWaitIdle(m_device);
             if (!vk::is_success(result)) {
-                ErrorLog("RendererBackend::begin_frame vkDeviceWaitIdle (2) failed: '{}'.", vk::result_to_cstr(result, true));
+                str result_str = vk::result_to_cstr(result, true);
+                ErrorLog("RendererBackend::begin_frame vkDeviceWaitIdle (2) failed: '{}'.", result_str);
                 return false;
             }
 
@@ -226,7 +228,8 @@ namespace nk {
             &submit_info,
             m_in_flight_fences[current_frame]);
         if (result != VK_SUCCESS) {
-            ErrorLog("RendererBackend::end_frame vkQueueSubmit failed with result: '{}'.", vk::result_to_cstr(result, true));
+            str result_str = vk::result_to_cstr(result, true);
+            ErrorLog("RendererBackend::end_frame vkQueueSubmit failed with result: '{}'.", result_str);
             return false;
         }
 

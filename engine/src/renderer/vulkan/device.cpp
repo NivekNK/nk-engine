@@ -146,15 +146,15 @@ namespace nk {
                     break;
             }
 
-            DebugLog("GPU Driver version: {}.{}.{}.",
-                     VK_API_VERSION_MAJOR(properties.driverVersion),
-                     VK_API_VERSION_MINOR(properties.driverVersion),
-                     VK_API_VERSION_PATCH(properties.driverVersion));
+            const u32 api_major = VK_API_VERSION_MAJOR(properties.driverVersion);
+            const u32 api_minor = VK_API_VERSION_MINOR(properties.driverVersion);
+            const u32 api_patch = VK_API_VERSION_PATCH(properties.driverVersion);
+            DebugLog("GPU Driver version: {}.{}.{}.", api_major, api_minor, api_patch);
 
-            DebugLog("Vulkan API version: {}.{}.{}.",
-                     VK_API_VERSION_MAJOR(properties.apiVersion),
-                     VK_API_VERSION_MINOR(properties.apiVersion),
-                     VK_API_VERSION_PATCH(properties.apiVersion));
+            const u32 vk_api_major = VK_API_VERSION_MAJOR(properties.apiVersion);
+            const u32 vk_api_minor = VK_API_VERSION_MINOR(properties.apiVersion);
+            const u32 vk_api_patch = VK_API_VERSION_PATCH(properties.apiVersion);
+            DebugLog("Vulkan API version: {}.{}.{}.", vk_api_major, vk_api_minor, vk_api_patch);
 
             // Memory information
             for (u32 i = 0; i < memory.memoryHeapCount; i++) {
@@ -392,12 +392,16 @@ namespace nk {
         m_allocator->free_lot(VkQueueFamilyProperties, queue_families, queue_family_count);
 
 #if defined(NK_DEBUG)
+        str graphics_family_index_str = out_queue_family->graphics_family_index != -1 ? "true" : "false";
+        str present_family_index_str = out_queue_family->present_family_index != -1 ? "true" : "false";
+        str compute_family_index_str = out_queue_family->compute_family_index != -1 ? "true" : "false";
+        str transfer_family_index_str = out_queue_family->transfer_family_index != -1 ? "true" : "false";
         DebugLog("Device selected:\n{:>12} | {:>12} | {:>12} | {:>12} | {:>12}\n{:>12} | {:>12} | {:>12} | {:>12} | {:>12}",
                  "Graphics", "Present", "Compute", "Transfer", "Name",
-                 out_queue_family->graphics_family_index != -1 ? "true" : "false",
-                 out_queue_family->present_family_index != -1 ? "true" : "false",
-                 out_queue_family->compute_family_index != -1 ? "true" : "false",
-                 out_queue_family->transfer_family_index != -1 ? "true" : "false",
+                 graphics_family_index_str,
+                 present_family_index_str,
+                 compute_family_index_str,
+                 transfer_family_index_str,
                  properties.deviceName);
 #endif
 
