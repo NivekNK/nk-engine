@@ -41,3 +41,5 @@ namespace nk {
 
 #define MinValue(a, b) (((a) < (b)) ? (a) : (b))
 #define MaxValue(a, b) (((a) > (b)) ? (a) : (b))
+
+#define Clamp(value, min, max) (value <= min) ? min : (value >= max) ? max : value;

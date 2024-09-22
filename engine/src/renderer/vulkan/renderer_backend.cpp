@@ -17,9 +17,20 @@ namespace nk {
 
         m_instance.init(application_name, m_allocator, m_vulkan_allocator);
         m_device.init(m_window, &m_instance, m_allocator, m_vulkan_allocator);
+        m_swapchain.init(m_framebuffer_width, m_framebuffer_height, &m_device, m_allocator, m_vulkan_allocator);
+
+        RenderPassCreateInfo main_render_pass_create_info {
+            .render_area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
+            .clear_color = {1.0f, 0.0f, 0.45f, 1.0f},
+            .depth = 1.0f,
+            .stencil = 0,
+        };
+        m_main_render_pass.init(main_render_pass_create_info, m_device, m_swapchain, m_vulkan_allocator);
     }
 
     RendererBackend::~RendererBackend() {
+        m_main_render_pass.shutdown(m_device);
+        m_swapchain.shutdown();
         m_device.shutdown();
         m_instance.shutdown();
 

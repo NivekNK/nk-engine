@@ -9,7 +9,6 @@ namespace nk {
     void Device::init(Window& window, Instance* instance, Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
         m_instance = instance;
         m_allocator = allocator;
-        ;
         m_vulkan_allocator = vulkan_allocator;
 
         m_surface = vk::create_surface(window, m_instance, m_vulkan_allocator);
@@ -20,12 +19,32 @@ namespace nk {
         if (!select_physical_device())
             return;
 
+        if (!detect_depth_format())
+            return;
+        InfoLog("Vulkan Depth Format detected.");
+
+        create_logical_device();
+        obtain_queues();
+        create_command_pool();
+
         TraceLog("nk::Device initialized.");
     }
 
     void Device::shutdown() {
+        vkDestroyCommandPool(m_logical_device, m_graphics_command_pool, m_vulkan_allocator);
+        InfoLog("Vulkan Graphics Command Pool destroyed.");
+
+        m_graphics_queue = nullptr;
+        m_present_queue = nullptr;
+        m_transfer_queue = nullptr;
+
+        vkDestroyDevice(m_logical_device, m_vulkan_allocator);
+        InfoLog("Vulkan Logical Device destroyed.");
+
         m_swapchain_support_info.formats.clear();
         m_swapchain_support_info.present_modes.clear();
+        InfoLog("SwapchainSupportInfo freed.");
+
         m_physical_device = nullptr;
 
         vkDestroySurfaceKHR(m_instance->get(), m_surface, m_vulkan_allocator);
@@ -36,6 +55,25 @@ namespace nk {
         m_instance = nullptr;
 
         TraceLog("nk::Device shutdown.");
+    }
+
+    bool Device::find_memory_index(
+        const u32 type_filter,
+        VkMemoryPropertyFlags property_flags,
+        u32* out_memory_index) const {
+        VkPhysicalDeviceMemoryProperties memory_properties;
+        vkGetPhysicalDeviceMemoryProperties(m_physical_device, &memory_properties);
+
+        for (u32 i = 0; i < memory_properties.memoryTypeCount; i++) {
+            // Check each memory type to see if its bit is set to 1.
+            if (type_filter & (1 << i) && (memory_properties.memoryTypes[i].propertyFlags & property_flags) == property_flags) {
+                *out_memory_index = i;
+                return true;
+            }
+        }
+
+        *out_memory_index = u32_max;
+        return false;
     }
 
     bool Device::select_physical_device() {
@@ -130,7 +168,7 @@ namespace nk {
 #endif
 
             m_physical_device = physical_devices[i];
-            m_queue_family = queue_family;
+            m_queue_family_info = queue_family;
 
             // Keep a copy of properties, features and memory info for later use.
             m_properties = properties;
@@ -147,7 +185,101 @@ namespace nk {
         return true;
     }
 
-    const SwapchainSupportInfo& Device::query_swapchain_support(VkPhysicalDevice physical_device) {
+    bool Device::detect_depth_format() {
+        // Format candidates
+        constexpr u64 candidate_count = 3;
+        VkFormat candidates[candidate_count] = {
+            VK_FORMAT_D32_SFLOAT,
+            VK_FORMAT_D32_SFLOAT_S8_UINT,
+            VK_FORMAT_D24_UNORM_S8_UINT
+        };
+
+        u32 flags = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        for (u64 i = 0; i < candidate_count; i++) {
+            VkFormatProperties properties;
+            vkGetPhysicalDeviceFormatProperties(m_physical_device, candidates[i], &properties);
+
+            if ((properties.linearTilingFeatures & flags) == flags) {
+                m_depth_format = candidates[i];
+                return true;
+            } else if ((properties.optimalTilingFeatures & flags) == flags) {
+                m_depth_format = candidates[i];
+                return true;
+            }
+        }
+
+        m_depth_format = VK_FORMAT_UNDEFINED;
+        WarnLog("Device::detect_depth_format Depth format not detected.");
+        return false;
+    }
+
+    void Device::create_logical_device() {
+        // NOTE: Do not create additional queues for shared indices.
+        constexpr u32 unique_queue_family_count = 3;
+        u32 unique_queue_families[unique_queue_family_count] = {
+            m_queue_family_info.graphics_family_index,
+            m_queue_family_info.present_family_index,
+            m_queue_family_info.transfer_family_index
+        };
+
+        VkDeviceQueueCreateInfo queue_create_infos[unique_queue_family_count] = {};
+        u32 i = 0;
+        for (const u32 queue_family_index : unique_queue_families) {
+            queue_create_infos[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_infos[i].queueFamilyIndex = queue_family_index;
+            queue_create_infos[i].queueCount = 1;
+
+            // TODO: Enable this for a future enhacement.
+            // if (indices[i] == m_queue_family_info.graphics_family_index)
+            //    queue_create_infos[i].queueCount = 2;
+
+            queue_create_infos[i].flags = 0;
+            queue_create_infos[i].pNext = nullptr;
+
+            f32 queue_priority = 1.0f;
+            queue_create_infos[i].pQueuePriorities = &queue_priority;
+            i++;
+        }
+
+        // Request device features.
+        // TODO: should be configurable.
+        VkPhysicalDeviceFeatures device_features = {};
+        device_features.samplerAnisotropy = VK_TRUE; // Request anistrophy
+
+        VkDeviceCreateInfo device_create_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+        device_create_info.queueCreateInfoCount = unique_queue_family_count;
+        device_create_info.pQueueCreateInfos = queue_create_infos;
+        device_create_info.pEnabledFeatures = &device_features;
+        device_create_info.enabledExtensionCount = 1;
+        cstr extension_names = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+        device_create_info.ppEnabledExtensionNames = &extension_names;
+
+        // Deprecated and ignored, so pass nothing.
+        device_create_info.enabledLayerCount = 0;
+        device_create_info.ppEnabledLayerNames = nullptr;
+
+        // Create the device.
+        VulkanCheck(vkCreateDevice(m_physical_device, &device_create_info, m_vulkan_allocator, &m_logical_device));
+        InfoLog("Vulkan Logical Device created.");
+    }
+
+    void Device::obtain_queues() {
+        // Get queues.
+        vkGetDeviceQueue(m_logical_device, m_queue_family_info.graphics_family_index, 0, &m_graphics_queue);
+        vkGetDeviceQueue(m_logical_device, m_queue_family_info.present_family_index, 0, &m_present_queue);
+        vkGetDeviceQueue(m_logical_device, m_queue_family_info.transfer_family_index, 0, &m_transfer_queue);
+        InfoLog("Vulkan Queues obtained.");
+    }
+
+    void Device::create_command_pool() {
+        VkCommandPoolCreateInfo pool_create_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        pool_create_info.queueFamilyIndex = m_queue_family_info.graphics_family_index;
+        pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        VulkanCheck(vkCreateCommandPool(m_logical_device, &pool_create_info, m_vulkan_allocator, &m_graphics_command_pool));
+        InfoLog("Vulkan Graphics Command Pool created.");
+    }
+
+    const SwapchainSupportInfo& Device::query_swapchain_support_info(VkPhysicalDevice physical_device) {
         // Surface capabilities
         VulkanCheck(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, m_surface, &m_swapchain_support_info.capabilities));
 
@@ -286,7 +418,7 @@ namespace nk {
         DebugLog("Transfer Family Index: {}.", out_queue_family->transfer_family_index);
         DebugLog("Compute Family Index:  {}.", out_queue_family->compute_family_index);
 
-        query_swapchain_support(physical_device);
+        query_swapchain_support_info(physical_device);
         if (m_swapchain_support_info.formats.empty() || m_swapchain_support_info.present_modes.empty()) {
             m_swapchain_support_info.formats.clear();
             m_swapchain_support_info.present_modes.clear();

@@ -26,9 +26,9 @@ namespace nk {
         void create_debug_messenger();
 #endif
 
-        Dyarr<cstr> m_extensions;
-
         VkAllocationCallbacks* m_vulkan_allocator;
+
+        Dyarr<cstr> m_extensions;
         VkInstance m_instance;
 #if defined(NK_DEBUG)
         VkDebugUtilsMessengerEXT m_debug_messenger;
