@@ -47,7 +47,7 @@ set(SOURCES
     src/renderer/vulkan/swapchain.cpp
     src/renderer/vulkan/image.cpp
     src/renderer/vulkan/render_pass.cpp
-    # src/renderer/vulkan/command_buffer.cpp
+    src/renderer/vulkan/command_buffer.cpp
     # src/renderer/vulkan/framebuffer.cpp
     # src/renderer/vulkan/fence.cpp
 )

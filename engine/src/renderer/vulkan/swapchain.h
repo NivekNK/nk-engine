@@ -39,6 +39,7 @@ namespace nk {
             u32 present_image_index);
 
         VkSurfaceFormatKHR get_image_format() const { return m_image_format; }
+        u32 get_image_count() const { return m_images.length(); }
 
     private:
         VkSurfaceFormatKHR choose_swap_surface_format(const Dyarr<VkSurfaceFormatKHR>& available_formats) const;

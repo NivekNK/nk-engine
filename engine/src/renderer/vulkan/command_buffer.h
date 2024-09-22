@@ -21,15 +21,19 @@ namespace nk {
 
         CommandBuffer(const CommandBuffer&) = delete;
         CommandBuffer& operator=(const CommandBuffer&) = delete;
-        CommandBuffer(CommandBuffer&&) = delete;
-        CommandBuffer& operator=(CommandBuffer&&) = delete;
 
-        void init(VkCommandPool command_pool, Device* device, bool is_primary, bool is_single_use = false) {}
-        void shutdown() {}
+        CommandBuffer(CommandBuffer&& other);
+        CommandBuffer& operator=(CommandBuffer&& other);
 
-        void begin(bool is_renderpass_continue, bool is_simultaneous_use) {}
-        void end() {}
-        void end_single_use(VkQueue queue) {}
+        void init(VkCommandPool command_pool, Device* device, bool is_primary, bool is_single_use = false);
+        void shutdown();
+
+        void renew(VkCommandPool command_pool, Device* device, bool is_primary, bool is_single_use);
+
+        void begin(bool is_renderpass_continue, bool is_simultaneous_use);
+        void end();
+        void end_single_use(VkQueue queue);
+
 
         void reset() { m_state = CommandBufferState::Ready; }
         void set_state(CommandBufferState state) { m_state = state; }
@@ -42,7 +46,7 @@ namespace nk {
         Device* m_device;
         VkCommandPool m_command_pool;
 
-        VkCommandBuffer m_command_buffer;
+        VkCommandBuffer m_command_buffer = nullptr;
         CommandBufferState m_state;
         bool m_is_single_use;
     };

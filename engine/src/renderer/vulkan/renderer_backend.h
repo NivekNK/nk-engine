@@ -6,6 +6,7 @@
 #include "vulkan/device.h"
 #include "vulkan/swapchain.h"
 #include "vulkan/render_pass.h"
+#include "vulkan/command_buffer.h"
 
 namespace nk {
     class Window;
@@ -24,6 +25,8 @@ namespace nk {
 
         void on_window_resize(u16 width, u16 height) {}
 
+        void recreate_command_buffers();
+
         Window& m_window;
         u32 m_frame_number;
 
@@ -40,5 +43,7 @@ namespace nk {
         Swapchain m_swapchain;
 
         RenderPass m_main_render_pass;
+
+        Dyarr<CommandBuffer> m_graphics_command_buffers;
     };
 }
