@@ -22,6 +22,7 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 #============== Vendor Subdirectory ================
 
 add_subdirectory(vendor/wy)
+add_subdirectory(vendor/glm)
 
 find_package(Vulkan REQUIRED)
 
@@ -85,6 +86,7 @@ PRIVATE
     Threads::Threads
     wy
     Vulkan::Vulkan
+    glm
     # tlsf
 )
 
@@ -99,5 +101,6 @@ PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     # Libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/glm
     # ${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf/include
 )
