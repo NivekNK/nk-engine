@@ -117,7 +117,24 @@ namespace nk {
 
         Event::KeyStateChanged::add_listener([](KeyState key_state) {
             str pressed_value = key_state.pressed ? "pressed" : "released";
-            char value = static_cast<char>(key_state.keycode);
+
+            str value;
+            if (key_state.keycode == KeyCode::LAlt) {
+                value = "Left Alt";
+            } else if (key_state.keycode == KeyCode::RAlt) {
+                value = "Right Alt";
+            } if (key_state.keycode == KeyCode::LShift) {
+                value = "Left Shift";
+            } else if (key_state.keycode == KeyCode::RShift) {
+                value = "Right Shift";
+            } if (key_state.keycode == KeyCode::LCtrl) {
+                value = "Left Ctrl";
+            } else if (key_state.keycode == KeyCode::RCtrl) {
+                value = "Right Ctrl";
+            } else {
+                value = static_cast<char>(key_state.keycode);
+            }
+
             DebugLog("KeyStateChangedEvent: {} {}", value, pressed_value);
         });
 

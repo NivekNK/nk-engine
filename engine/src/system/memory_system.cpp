@@ -247,6 +247,7 @@ namespace nk {
 
             details += std::format("\n\nTotal Allocated: {}\n", memory_in_bytes(total_allocated));
             details += std::format("Total Freed: {}\n", memory_in_bytes(total_freed));
+            details += std::format("\nCurrent Memory Usage: {}\n", memory_in_bytes(total_allocated - total_freed));
 
             log_title("\n\nDetailed Memory Usage:\n");
             log(details);

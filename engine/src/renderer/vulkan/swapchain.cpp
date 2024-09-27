@@ -84,7 +84,6 @@ namespace nk {
 
     void Swapchain::create_swapchain(u16& width, u16& height) {
         VkExtent2D swapchain_extent = {width, height};
-        m_max_frames_in_flight = 2;
 
         m_device->query_swapchain_support_info();
         const SwapchainSupportInfo& swapchain_support_info = m_device->get_swapchain_support_info();
@@ -107,6 +106,8 @@ namespace nk {
             image_count > swapchain_support_info.capabilities.maxImageCount) {
             image_count = swapchain_support_info.capabilities.maxImageCount;
         }
+
+        m_max_frames_in_flight = image_count - 1;
 
         // Swapchain create info
         VkSwapchainCreateInfoKHR swapchain_create_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};

@@ -149,16 +149,45 @@ namespace nk {
                 EventSystem::get().window_moved.invoke(x, y);
             } break;
             case WM_KEYDOWN:
-            case WM_SYSKEYDOWN: {
-                // Key pressed
-                KeyCodeFlag keycode = static_cast<KeyCodeFlag>(wparam);
-                InputSystem::get().process_key(keycode, true);
-            } break;
+            case WM_SYSKEYDOWN:
             case WM_KEYUP:
             case WM_SYSKEYUP: {
-                // Key released
+                // Key pressed or released
+                bool pressed = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
                 KeyCodeFlag keycode = static_cast<KeyCodeFlag>(wparam);
-                InputSystem::get().process_key(keycode, false);
+                if (wparam == VK_MENU) {
+                    bool is_right_alt = lparam & (1 << 24);  // Check the 24th bit of lParam
+                    if (is_right_alt) {
+                        keycode = KeyCode::RAlt;
+                    } else {
+                        keycode = KeyCode::LAlt;
+                    }
+                }
+
+                // switch (wparam) {
+                //     case VK_RMENU:
+                //         DebugLog("Right Alt: {}", pressed);
+                //         keycode = KeyCode::RAlt;
+                //         break;
+                //     case VK_LMENU:
+                //         keycode = KeyCode::LAlt;
+                //         break;
+                //     case VK_RSHIFT:
+                //         keycode = KeyCode::RShift;
+                //         break;
+                //     case VK_LSHIFT:
+                //         keycode = KeyCode::LShift;
+                //         break;
+                //     case VK_RCONTROL:
+                //         keycode = KeyCode::RCtrl;
+                //         break;
+                //     case VK_LCONTROL:
+                //         keycode = KeyCode::LCtrl;
+                //         break;
+                //     default:
+                //         break;
+                // };
+                InputSystem::get().process_key(keycode, pressed);
             } break;
             case WM_MOUSEMOVE: {
                 i16 x_position = GET_X_LPARAM(lparam);
