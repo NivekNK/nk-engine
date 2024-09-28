@@ -5,7 +5,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin/${OPERATIVE_SYST
 
 enable_testing()
 
-add_executable(${PROJECT_NAME})
+file(GLOB_RECURSE SRC_FILES "${CMAKE_SOURCE_DIR}/src/*.cpp")
+
+add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 #============== Platform Specific ==================
 target_compile_definitions(${PROJECT_NAME}
@@ -13,7 +15,7 @@ PRIVATE
     $<$<CONFIG:Debug>:NK_DEBUG>
     $<$<CONFIG:RelWithDebInfo>:NK_RELEASE_DEBUG_INFO>
     $<$<CONFIG:Release>:NK_RELEASE>
-    NK_TESTING=1
+    NK_TESTING
 )
 
 if (WIN32)
@@ -25,17 +27,15 @@ else()
     message(FATAL_ERROR "Platform not supported!")
 endif()
 
+target_compile_definitions(engine PRIVATE NK_TESTING)
+
 #============== Vendor Subdirectory ================
 add_subdirectory(vendor/googletest)
 add_subdirectory(vendor/benchmark)
 
 #================== Source files ===================
-target_sources(${PROJECT_NAME}
-PRIVATE
-    src/main.cpp
-    src/core/rb_map.cpp
-    src/core/dyarr.cpp
-)
+file(GLOB_RECURSE SRC_FILES "${CMAKE_SOURCE_DIR}/tests/src/*.cpp")
+target_sources(${PROJECT_NAME} PRIVATE ${SRC_FILES})
 
 if(NOT CMAKE_THREAD_PREFER_PTHREAD)
     set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
@@ -56,6 +56,7 @@ PRIVATE
     GTest::gtest_main
     benchmark
 )
+
 
 set_target_properties(gtest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}

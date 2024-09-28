@@ -34,6 +34,7 @@ set(SOURCES
     src/system/input_system.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
+    src/memory/linear_allocator.cpp
     src/nk/entry_point.cpp
     src/nk/app.cpp
     src/nk/window.cpp
@@ -53,11 +54,14 @@ set(SOURCES
     src/renderer/vulkan/fence.cpp
 )
 
+# TODO: Make ENABLE_NK_TESING work
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    list(APPEND SOURCES
-        src/system/memory_system.cpp
-        src/memory/memory_type.cpp
-    )
+    if(NOT ENABLE_NK_TESTING)
+        list(APPEND SOURCES
+            src/system/memory_system.cpp
+            src/memory/memory_type.cpp
+        )
+    endif()
 endif()
 
 if (WIN32)

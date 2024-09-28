@@ -13,7 +13,7 @@ namespace nk {
     }
 
     Allocator::~Allocator() {
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         if (m_allocation_count != 0 || m_used_bytes != 0) {
             FatalLog("{} Allocator not correctly freed!", m_name);
             NK_MEMORY_SYSTEM_LOG_REPORT();
@@ -26,7 +26,7 @@ namespace nk {
         : m_size_bytes{other.m_size_bytes},
           m_used_bytes{other.m_used_bytes},
           m_allocation_count{other.m_allocation_count},
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
           m_start{other.m_start},
           m_name{other.m_name},
           m_type{other.m_type}
@@ -38,7 +38,7 @@ namespace nk {
         other.m_used_bytes = 0;
         other.m_allocation_count = 0;
         other.m_start = nullptr;
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         other.m_name = "None";
         other.m_type = MemoryType::None;
 #endif
@@ -49,7 +49,7 @@ namespace nk {
         m_used_bytes = rhs.m_used_bytes;
         m_allocation_count = rhs.m_allocation_count;
         m_start = rhs.m_start;
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         m_name = rhs.m_name;
         m_type = rhs.m_type;
 #endif
@@ -58,7 +58,7 @@ namespace nk {
         rhs.m_used_bytes = 0;
         rhs.m_allocation_count = 0;
         rhs.m_start = nullptr;
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         rhs.m_name = "None";
         rhs.m_type = MemoryType::None;
 #endif
@@ -66,7 +66,7 @@ namespace nk {
         return *this;
     }
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
     void* Allocator::memory_manager_allocate_raw_impl(
         const u64 size_bytes, const u64 alignment, str file, const u32 line) {
         auto memory = allocate_raw_impl(size_bytes, alignment);
@@ -81,9 +81,9 @@ namespace nk {
     }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
     void Allocator::private_allocator_init(
-        const u64 size_bytes, void* const start, str name, str file, const u32 line, const MemoryTypeValue memory_type) {
+        const u64 size_bytes, void* start, str name, str file, const u32 line, const MemoryTypeValue memory_type) {
         m_size_bytes = size_bytes;
         m_start = start;
         m_name = name;
@@ -91,7 +91,7 @@ namespace nk {
         NK_MEMORY_SYSTEM_UPDATE(*this, size_bytes, file, line, AllocationType::Init);
     }
 #else
-    void Allocator::private_allocator_init(const u64 size_bytes, void* const start) {
+    void Allocator::private_allocator_init(const u64 size_bytes, void* start) {
         m_size_bytes = size_bytes;
         m_start = start;
     }

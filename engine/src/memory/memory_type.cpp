@@ -1,3 +1,5 @@
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
+
 #include "nkpch.h"
 
 #include "memory/memory_type.h"
@@ -10,3 +12,5 @@ namespace nk {
             nk::MemorySystem::get().expanded_memory_type(max_memory_type, memory_type_to_cstr);
     }
 }
+
+#endif

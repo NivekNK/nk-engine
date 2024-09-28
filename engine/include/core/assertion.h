@@ -15,13 +15,13 @@ namespace nk {
             std::back_inserter(message),
             fmt,
             std::make_format_args(std::forward<Args>(args)...));
-        FatalLog("{} > Failed '{}'", message, expression);
+        FatalLog("{} > Failed at {}:{}: '{}'", file, line, message, expression);
     }
 
     template <typename... Args>
     static void report_assert_failure(
         cstr expression, const cstr file, const u32 line) {
-        FatalLog("Failed {}", expression);
+        FatalLog("Failed at {}:{}: {}", file, line, expression);
     }
 
     static void debug_break() {
@@ -60,8 +60,8 @@ namespace nk {
 #else
 
     #define Assert(expr)
-    #define AssertMsg(expr, message)
-    #define AssertKeep(expr)             expr
-    #define AssertKeepMsg(expr, message) expr
+    #define AssertMsg(expr, fmt, ...)
+    #define AssertKeep(expr) expr
+    #define AssertKeepMsg(expr, fmt, ...) expr
 
 #endif

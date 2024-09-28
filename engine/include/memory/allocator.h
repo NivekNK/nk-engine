@@ -31,7 +31,7 @@ namespace nk {
         Allocator(Allocator&&);
         Allocator& operator=(Allocator&&);
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         template <typename T>
         inline T* allocate_t_impl(str file, const u32 line) {
             return static_cast<T*>(memory_manager_allocate_raw_impl(sizeof(T), alignof(T), file, line));
@@ -43,7 +43,7 @@ namespace nk {
         }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         template <typename T>
         inline T* allocate_raw_t_impl(const u64 size_bytes, str file, const u32 line) {
             return static_cast<T*>(memory_manager_allocate_raw_impl(size_bytes, alignof(T), file, line));
@@ -55,7 +55,7 @@ namespace nk {
         }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         template <typename T>
         inline T* allocate_lot_impl(const u64 lot, str file, const u32 line) {
             return static_cast<T*>(memory_manager_allocate_raw_impl(sizeof(T) * lot, alignof(T), file, line));
@@ -67,7 +67,7 @@ namespace nk {
         }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         template <typename T>
         inline void free_t_impl(T* ptr, str file, const u32 line) {
             memory_manager_free_raw_impl(ptr, sizeof(T), file, line);
@@ -79,7 +79,7 @@ namespace nk {
         }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         template <typename T>
         inline void free_lot_impl(T* ptr, const u64 lot, str file, const u32 line) {
             memory_manager_free_raw_impl(ptr, sizeof(T) * lot, file, line);
@@ -91,7 +91,7 @@ namespace nk {
         }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         template <typename T, typename... Args>
         inline T* construct_impl(str file, const u32 line, Args&&... args) {
             return new (memory_manager_allocate_raw_impl(sizeof(T), alignof(T), file, line)) T(std::forward<Args>(args)...);
@@ -103,7 +103,7 @@ namespace nk {
         }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         template <typename T, typename V>
         inline void destroy_impl(V* ptr, str file, const u32 line) {
             if (ptr == nullptr) {
@@ -130,7 +130,7 @@ namespace nk {
         inline u64 allocation_count() const { return m_allocation_count; }
         inline const void* start() const { return m_start; }
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         void* memory_manager_allocate_raw_impl(
             const u64 size_bytes, const u64 alignment, str file, const u32 line);
         void memory_manager_free_raw_impl(
@@ -150,11 +150,11 @@ namespace nk {
         virtual void free_raw_impl(void* const ptr, const u64 size_bytes) = 0;
 
     protected:
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         void private_allocator_init(
-            const u64 size_bytes, void* const start, str name, str file, const u32 line, const MemoryTypeValue memory_type);
+            const u64 size_bytes, void* start, str name, str file, const u32 line, const MemoryTypeValue memory_type);
 #else
-        void private_allocator_init(const u64 size_bytes, void* const start);
+        void private_allocator_init(const u64 size_bytes, void* start);
 #endif
 
         u64 m_size_bytes;
@@ -163,7 +163,7 @@ namespace nk {
 
         void* m_start;
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
         str m_name = "undefined";
         MemoryTypeValue m_type = MemoryType::None;
         u64 m_index;
@@ -171,28 +171,28 @@ namespace nk {
     };
 
 #define _NK_EXPAND_PARAMETERS(...) __VA_OPT__(, ) __VA_ARGS__
-#define _NK_ESPAND_FUNC(...)       __VA_ARGS__
+#define _NK_EXPAND_ARGUMENTS(...)  __VA_ARGS__
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
     #define NK_DEFINE_ALLOCATOR_INIT(allocator, size_bytes_name, start_name, parameters, func)                                             \
         allocator(const allocator&) = delete;                                                                                              \
         allocator& operator=(allocator&) = delete;                                                                                         \
         virtual cstr to_cstr() const override { return #allocator; }                                                                       \
         void allocator_init_impl(str name, str file, const u32 line, const MemoryTypeValue memory_type _NK_EXPAND_PARAMETERS parameters) { \
-            _NK_ESPAND_FUNC func                                                                                                           \
+            _NK_EXPAND_ARGUMENTS func                                                                                                      \
                 private_allocator_init(size_bytes_name, start_name, name, file, line, memory_type);                                        \
         }
 #else
     #define NK_DEFINE_ALLOCATOR_INIT(allocator, size_bytes_name, start_name, parameters, func) \
         allocator(const allocator&) = delete;                                                  \
         allocator& operator=(allocator&) = delete;                                             \
-        void allocator_init_impl(_NK_EXPAND_PARAMETERS parameters) {                           \
-            _NK_ESPAND_FUNC func                                                               \
+        void allocator_init_impl(_NK_EXPAND_ARGUMENTS parameters) {                            \
+            _NK_EXPAND_ARGUMENTS func                                                          \
                 private_allocator_init(size_bytes_name, start_name);                           \
         }
 #endif
 
-#if !defined(NK_RELEASE)
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
     #define allocator_init(name, memory_type, ...) \
         allocator_init_impl(name, __FILE__, __LINE__, memory_type __VA_OPT__(, ) __VA_ARGS__)
     #define allocate_raw(size_bytes, alignment) \

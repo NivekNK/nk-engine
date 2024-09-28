@@ -1,3 +1,5 @@
+#if !defined(NK_RELEASE) && !defined(NK_TESTING)
+
 #include "memory/memory_type.h"
 #include "nkpch.h"
 
@@ -262,3 +264,5 @@ namespace nk {
         m_allocations.init(m_allocator, 12);
     }
 }
+
+#endif
