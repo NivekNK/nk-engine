@@ -1,3 +1,6 @@
 [submodule "tests/vendor/googletest"]
 	path = tests/vendor/googletest
 	url = https://github.com/google/googletest
+[submodule "tests/vendor/benchmark"]
+	path = tests/vendor/benchmark
+	url = https://github.com/google/benchmark
