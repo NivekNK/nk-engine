@@ -1,0 +1,4 @@
+"Name","Version","Link","Project"
+"googletest","v1.15.2","https://github.com/google/googletest","tests"
+"benchmark","v1.9.1","https://github.com/google/benchmark","tests"
+"spdlog","v1.15.0","https://github.com/gabime/spdlog","engine"
