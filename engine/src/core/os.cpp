@@ -16,12 +16,12 @@ namespace nk::os {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
     void* _native_allocate_impl(cstr file, u32 line, u64 size_bytes, u64 alignment) {
-        nk::MemorySystem::native_allocation(file, line, size_bytes, AllocationType::Allocate);
+        nk::mem::MemorySystem::native_allocation(file, line, size_bytes, mem::AllocationType::Allocate);
         return malloc(size_bytes);
     }
 
     void _native_free_impl(cstr file, u32 line, void* data, u64 size_bytes) {
-        nk::MemorySystem::native_allocation(file, line, size_bytes, AllocationType::Free);
+        nk::mem::MemorySystem::native_allocation(file, line, size_bytes, mem::AllocationType::Free);
         free(data);
     }
 

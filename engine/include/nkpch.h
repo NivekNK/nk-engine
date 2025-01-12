@@ -15,6 +15,7 @@
 
 // Functions
 #include <functional>
+#include <concepts>
 
 // Sync
 #include <mutex>

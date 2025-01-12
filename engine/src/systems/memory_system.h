@@ -2,9 +2,11 @@
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
-    #include "core/os.h"
+    #include "memory/memory_type.h"
 
-namespace nk {
+namespace nk::mem {
+    class Allocator;
+
     enum class AllocationType : u8 {
         Init,
         Allocate,
@@ -25,6 +27,10 @@ namespace nk {
 
         static void native_allocation(cstr file, u32 line, u64 size_bytes,
                                       AllocationType allocation_type);
+        static void init_allocator(mem::Allocator* allocator, cstr file,
+                                   u32 line, cstr name, MemoryType::Value type);
+        static void update_allocator(mem::Allocator* allocator, cstr file,
+                                     u32 line, u64 size_bytes, AllocationType allocation_type);
 
         static void log_report(bool detailed = false);
 
@@ -52,13 +58,13 @@ namespace nk {
 }
 
     #define NK_MEMORY_SYSTEM_INIT() \
-        nk::MemorySystem::init()
+        nk::mem::MemorySystem::init()
     #define NK_MEMORY_SYSTEM_SHUTDOWN() \
-        nk::MemorySystem::shutdown()
+        nk::mem::MemorySystem::shutdown()
     #define NK_MEMORY_SYSTEM_LOG_REPORT() \
-        nk::MemorySystem::log_report()
+        nk::mem::MemorySystem::log_report()
     #define NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT() \
-        nk::MemorySystem::log_report(true)
+        nk::mem::MemorySystem::log_report(true)
 
 #else
 

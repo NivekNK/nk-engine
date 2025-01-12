@@ -2,12 +2,12 @@
 
 #include "systems/memory_system.h"
 
-#include "memory/memory_type.h"
+#include "memory/allocator.h"
 
 #include <vector>
 #include <memory>
 
-namespace nk {
+namespace nk::mem {
     namespace Type {
         u8 to_value(const AllocationType type) {
             return static_cast<u8>(type);
@@ -111,14 +111,64 @@ namespace nk {
         instance.log_title("nk::MemorySystem shutdown.");
     }
 
+    void MemorySystem::init_allocator(mem::Allocator* allocator, cstr file,
+                                      u32 line, cstr name, MemoryType::Value type) {
+        auto& memory_system_info = get_memory_system_info();
+
+        AllocationStats stats{
+            .name = name,
+            .allocator = allocator->to_cstr(),
+            .type = type,
+            .size_bytes = allocator->get_size_bytes(),
+            .used_bytes = allocator->get_used_bytes(),
+            .allocation_count = allocator->get_allocation_count(),
+            .allocator_log = {{
+                .size_bytes = allocator->get_size_bytes(),
+                .file = file,
+                .line = line,
+                .type = AllocationType::Init,
+            }},
+        };
+        memory_system_info.allocations.push_back(stats);
+
+        allocator->key = memory_system_info.allocations.size() - 1;
+    }
+
+    void MemorySystem::update_allocator(mem::Allocator* allocator, cstr file,
+                                        u32 line, u64 size_bytes, AllocationType allocation_type) {
+        auto& memory_system_info = get_memory_system_info();
+
+        if (allocator->key >= memory_system_info.allocations.size()) {
+            return;
+        }
+
+        auto& value = memory_system_info.allocations.at(allocator->key);
+        value.size_bytes = allocator->get_size_bytes();
+        value.used_bytes = allocator->get_used_bytes();
+        value.allocation_count = allocator->get_allocation_count();
+        value.allocator_log.push_back({
+            .size_bytes = size_bytes,
+            .file = file,
+            .line = line,
+            .type = allocation_type,
+        });
+    }
+
     void MemorySystem::native_allocation(cstr file, u32 line, u64 size_bytes,
                                          AllocationType allocation_type) {
         auto& memory_system_info = get_memory_system_info();
         auto& value = memory_system_info.allocations.at(0);
-        value.size_bytes += size_bytes;
-        value.used_bytes += size_bytes;
-        if (allocation_type == AllocationType::Allocate)
-            value.allocation_count += 1;
+
+        if (allocation_type == AllocationType::Allocate) {
+            value.size_bytes += size_bytes;
+            value.used_bytes += size_bytes;
+            value.allocation_count++;
+        } else {
+            value.size_bytes -= size_bytes;
+            value.used_bytes -= size_bytes;
+            value.allocation_count--;
+        }
+
         value.allocator_log.push_back({
             .size_bytes = size_bytes,
             .file = file,
@@ -138,6 +188,9 @@ namespace nk {
 
         u64 type_freed[MemoryType::max()];
         std::memset(type_freed, 0, sizeof(type_freed));
+
+        u64 type_count[MemoryType::max()];
+        std::memset(type_count, 0, sizeof(type_count));
 
         std::string details;
         bool there_are_details = false;
@@ -172,6 +225,7 @@ namespace nk {
                             total_allocated += log.size_bytes;
                             break;
                         case AllocationType::Allocate:
+                            type_count[stats.type] += 1;
                             type_allocated[stats.type] += log.size_bytes;
                             total_allocated += log.size_bytes;
                             type = "Allocate";
@@ -195,10 +249,11 @@ namespace nk {
 
         if (detailed && there_are_details) {
             details += "Memory Types:\n\n";
-            details += std::format("{:<15} {:<15} {:<15}\n", "Types", "Allocated", "Freed");
+            details += std::format("{:<15} {:<15} {:<15} {:<15}\n", "Types", "Allocated", "Freed", "Count");
 
             for (u32 i = 0; i < MemoryType::max(); i++) {
-                details += std::format("{:<15} {:<15} {:<15}\n", MemoryType::to_cstr(i), memory_in_bytes(type_allocated[i]), memory_in_bytes(type_freed[i]));
+                details += std::format("{:<15} {:<15} {:<15} {:<15}\n",
+                    MemoryType::to_cstr(i), memory_in_bytes(type_allocated[i]), memory_in_bytes(type_freed[i]), type_count[i]);
             }
 
             details += std::format("\n\nTotal Allocated: {}\n", memory_in_bytes(total_allocated));

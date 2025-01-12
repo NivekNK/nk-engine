@@ -29,8 +29,10 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 
 set(SOURCES
     src/core/os.cpp
+    src/memory/allocator.cpp
+    src/memory/malloc_allocator.cpp
 )
-
+    
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     list(APPEND SOURCES
         src/systems/memory_system.cpp
