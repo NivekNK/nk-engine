@@ -2,6 +2,7 @@
 
 - [x] Memory System
 - [x] Allocator Types
+- [ ] Assertions
 - [ ] Array-Like types (Map, Array, Dynamic Array, String)
 - [ ] Logging System
 - [ ] App creation and entry point

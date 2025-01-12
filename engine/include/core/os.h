@@ -61,6 +61,16 @@ namespace nk::os {
 #endif
     }
 
+    inline void debug_break() {
+#if defined(NK_PLATFORM_WINDOWS)
+        __debugbreak();
+#elif defined(NK_PLATFORM_LINUX)
+        __builtin_trap();
+#else
+    #error Not implemented!
+#endif
+    }
+
     void* native_allocate_impl(u64 size_bytes, u64 alignment);
 
     void native_free_impl(void* data, u64 size_bytes);

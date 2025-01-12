@@ -138,9 +138,8 @@ namespace nk::mem {
                                         u32 line, u64 size_bytes, AllocationType allocation_type) {
         auto& memory_system_info = get_memory_system_info();
 
-        if (allocator->key >= memory_system_info.allocations.size()) {
+        if (allocator->key >= memory_system_info.allocations.size())
             return;
-        }
 
         auto& value = memory_system_info.allocations.at(allocator->key);
         value.size_bytes = allocator->get_size_bytes();
@@ -265,8 +264,18 @@ namespace nk::mem {
         }
     }
 
+    std::string_view MemorySystem::get_allocator_name(u32 key) {
+        auto& memory_system_info = get_memory_system_info();
+
+        if (key >= memory_system_info.allocations.size())
+            return;
+
+        auto& value = memory_system_info.allocations.at(key);
+        return value.name;
+    }
+
     void MemorySystem::log(cstr color, cstr msg, size_t msg_size) {
-        std::lock_guard<std::mutex> lock(mutex);
+        // TODO: Add general mutex for logging std::lock_guard<std::mutex> lock(mutex);
         os::write(color, 19);
         os::write(msg, msg_size);
         os::write("\n\033[0m", 5);

@@ -33,6 +33,7 @@ namespace nk::mem {
                                      u32 line, u64 size_bytes, AllocationType allocation_type);
 
         static void log_report(bool detailed = false);
+        static std::string_view get_allocator_name(u32 key);
 
     private:
         MemorySystem() = default;
@@ -50,7 +51,6 @@ namespace nk::mem {
 
         void log(cstr color, cstr msg, size_t msg_size);
 
-        std::mutex mutex;
         void* data;
 
         friend void* get_memory_system_data();

@@ -35,3 +35,4 @@
 #include "core/defines.h"
 #include "macros/util.h"
 #include "core/os.h"
+#include "core/assertion.h"
