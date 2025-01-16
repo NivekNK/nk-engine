@@ -19,7 +19,7 @@ namespace nk::mem {
             NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
         }
 #endif
-        // Assert(allocation_count == 0 && used_bytes == 0);
+        Assert(allocation_count == 0 && used_bytes == 0);
     }
 
     Allocator::Allocator(Allocator&& other)
