@@ -23,5 +23,10 @@ else()
     message(FATAL_ERROR "Platform not supported!")
 endif()
 
+add_compile_definitions(
+    $<$<CONFIG:Debug>:NK_PROJECT_PATH=\"${CMAKE_HOME_DIRECTORY}\">
+    $<$<CONFIG:RelWithDebInfo>:NK_PROJECT_PATH=\"${CMAKE_HOME_DIRECTORY}\">
+)
+
 add_subdirectory(tests)
 add_subdirectory(engine)

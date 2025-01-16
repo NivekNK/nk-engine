@@ -16,13 +16,15 @@ PRIVATE
     NK_DEBUG=1
     NK_RELEASE_DEBUG_INFO=2
     NK_RELEASE=3
+    GLM_FORCE_SWIZZLE
 )
 
 target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 
 #============== Vendor Subdirectory ================
 
-# add_subdirectory(vendor/library)
+add_subdirectory(vendor/glm)
+
 # find_package(library REQUIRED)
 
 #================== Source files ===================
@@ -31,6 +33,7 @@ set(SOURCES
     src/core/os.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
+    src/systems/logging_system.cpp
 )
     
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -39,14 +42,22 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebIn
     )
 endif()
 
+# if (WIN32)
+#     list(APPEND SOURCES
+#         src/windows_specific.cpp
+#     )
+# elseif (UNIX AND NOT APPLE)
+#     message(WARNING "Linux specific sources not yet implemented!")
+# endif()
+
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCES})
 
 #================== Include Files ==================
 
-# target_link_libraries(${PROJECT_NAME}
-# PUBLIC
-#     library
-# )
+target_link_libraries(${PROJECT_NAME}
+PRIVATE
+    glm
+)
 
 target_include_directories(${PROJECT_NAME}
 PRIVATE
@@ -56,4 +67,5 @@ PUBLIC
 
     # Libraries
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glm>
 )

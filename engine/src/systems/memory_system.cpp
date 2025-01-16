@@ -268,7 +268,7 @@ namespace nk::mem {
         auto& memory_system_info = get_memory_system_info();
 
         if (key >= memory_system_info.allocations.size())
-            return;
+            return "Invalid";
 
         auto& value = memory_system_info.allocations.at(key);
         return value.name;
@@ -278,7 +278,7 @@ namespace nk::mem {
         // TODO: Add general mutex for logging std::lock_guard<std::mutex> lock(mutex);
         os::write(color, 19);
         os::write(msg, msg_size);
-        os::write("\n\033[0m", 5);
+        os::write("\033[0m\n", 5);
         os::flush();
     }
 

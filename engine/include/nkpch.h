@@ -12,6 +12,7 @@
 #include <string_view>
 #include <optional>
 #include <cstdio>
+#include <filesystem>
 
 // Functions
 #include <functional>
@@ -20,6 +21,8 @@
 // Sync
 #include <mutex>
 #include <thread>
+#include <chrono>
+#include <ctime>
 
 // OS specific
 #if defined(NK_PLATFORM_WINDOWS)
