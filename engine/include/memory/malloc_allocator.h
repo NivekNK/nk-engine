@@ -16,8 +16,8 @@ namespace nk::mem {
 
         void init();
 
-        virtual void* allocate_raw_impl(const u64 size_bytes, const u64 alignment) override;
-        virtual void free_raw_impl(void* const data, const u64 size_bytes) override;
+        virtual void* _allocate_raw(const u64 size_bytes, const u64 alignment) override;
+        virtual void _free_raw(void* const data, const u64 size_bytes) override;
 
         virtual cstr to_cstr() const override { return "MallocAllocator"; }
     };

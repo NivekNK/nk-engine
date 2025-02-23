@@ -9,24 +9,28 @@ namespace nk {
         for (u8 i = 0; i < static_cast<u8>(LoggingLevel::Off); i++) {
             LoggingColor color = config.style[i];
             if (color.bg) {
-                instance.style[i] = std::format("\033[38;2;{};{};{};48;2;{};{};{}m",
+                instance.m_style[i] = std::format("\033[38;2;{};{};{};48;2;{};{};{}m",
                                                 color.fg.r, color.fg.g, color.fg.b,
                                                 color.bg->r, color.bg->g, color.bg->b);
             } else {
-                instance.style[i] = std::format("\033[38;2;{};{};{}m",
+                instance.m_style[i] = std::format("\033[38;2;{};{};{}m",
                                                 color.fg.r, color.fg.g, color.fg.b);
             }
         }
 
-        instance.priority = config.priority;
-        instance.show_file = config.show_file;
-        instance.show_time = config.show_time;
-        instance.file_output = config.file_output;
+        instance.m_priority = config.priority;
+        instance.m_show_file = config.show_file;
+        instance.m_show_time = config.show_time;
+        instance.m_file_output = config.file_output;
+
+        TraceLog("nk::LoggingSystem Inititalized.");
 
         return instance;
     }
 
-    void LoggingSystem::shutdown() {}
+    void LoggingSystem::shutdown() {
+        TraceLog("nk::LoggingSystem Shutdown.");
+    }
 
     // TODO: Move to a more generalized place
     std::string get_project_path() {
@@ -45,13 +49,13 @@ namespace nk {
         auto& instance = get();
 
         // Add color
-        const std::string& color = instance.style[index];
+        const std::string& color = instance.m_style[index];
         os::write(color.c_str(), color.size());
 
         std::string buffer;
         buffer.reserve(128);
 
-        if (instance.show_time) {
+        if (instance.m_show_time) {
             auto now = std::chrono::system_clock::now();
             auto time_t = std::chrono::system_clock::to_time_t(now);
             auto* tm = std::localtime(&time_t);
@@ -68,7 +72,7 @@ namespace nk {
 
         buffer.append(message);
 
-        if (instance.show_file) {
+        if (instance.m_show_file) {
             auto project_path = get_project_path();
             auto pos = file.find(project_path);
             if (pos != std::string_view::npos) {

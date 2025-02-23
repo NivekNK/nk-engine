@@ -2,6 +2,7 @@
 
 // Numeric types and limits
 #include <cstdint>
+#include <climits>
 #include <limits>
 
 // Memory
@@ -13,10 +14,15 @@
 #include <optional>
 #include <cstdio>
 #include <filesystem>
+#include <tuple>
+#include <initializer_list>
 
 // Functions
 #include <functional>
 #include <concepts>
+#include <compare>
+#include <type_traits>
+#include <variant>
 
 // Sync
 #include <mutex>
@@ -39,3 +45,5 @@
 #include "macros/util.h"
 #include "core/os.h"
 #include "core/assertion.h"
+#include "core/result.h"
+#include "systems/logging_system.h"

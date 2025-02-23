@@ -73,22 +73,83 @@ namespace nk {
 
         struct LoggingLevelString {
             cstr value;
-            size_t size;
+            std::size_t size;
         };
 
         static constexpr LoggingLevelString logging_level[static_cast<u8>(LoggingLevel::None)] = {
-            { .value = " [Trace]: ", .size = 10 },
-            { .value = " [Debug]: ", .size = 10 },
-            { .value = " [Info]: ", .size = 9 },
-            { .value = " [Warning]: ", .size = 12 },
-            { .value = " [Error]: ", .size = 10 },
-            { .value = " [Fatal]: ", .size = 10 },
+            {.value = " [Trace]: ", .size = 10},
+            {.value = " [Debug]: ", .size = 10},
+            {.value = " [Info]: ", .size = 9},
+            {.value = " [Warning]: ", .size = 12},
+            {.value = " [Error]: ", .size = 10},
+            {.value = " [Fatal]: ", .size = 10},
         };
 
-        std::string style[static_cast<u8>(LoggingLevel::Off)];
-        LoggingLevel priority;
-        bool show_file;
-        bool show_time;
-        bool file_output;
+        std::string m_style[static_cast<u8>(LoggingLevel::Off)];
+        LoggingLevel m_priority;
+        bool m_show_file;
+        bool m_show_time;
+        bool m_file_output;
     };
 }
+
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+    #define NK_LOG_TRACE_ENABLED TRUE
+    #define NK_LOG_DEBUG_ENABLED TRUE
+#else
+    #define NK_LOG_TRACE_ENABLED FALSE
+    #define NK_LOG_DEBUG_ENABLED FALSE
+#endif
+
+#define NK_LOG_INFO_ENABLED TRUE
+#define NK_LOG_WARN_ENABLED TRUE
+
+#if NK_LOG_TRACE_ENABLED
+    #define TraceLog(...) nk::LoggingSystem::log(nk::LoggingLevel::Trace, __FILE__, __LINE__, __VA_ARGS__)
+    #define TraceLogIf(condition, ...) \
+        if (condition)                 \
+        nk::LoggingSystem::log(nk::LoggingLevel::Trace, __FILE__, __LINE__, __VA_ARGS__)
+#else
+    #define TraceLog(...)
+    #define TraceLogIf(condition, ...)
+#endif
+
+#if NK_LOG_DEBUG_ENABLED
+    #define DebugLog(...) nk::LoggingSystem::log(nk::LoggingLevel::Debug, __FILE__, __LINE__, __VA_ARGS__)
+    #define DebugLogIf(condition, ...) \
+        if (condition)                 \
+        nk::LoggingSystem::log(nk::LoggingLevel::Debug, __FILE__, __LINE__, __VA_ARGS__)
+#else
+    #define DebugLog(...)
+    #define DebugLogIf(condition, ...)
+#endif
+
+#if NK_LOG_INFO_ENABLED
+    #define InfoLog(...) nk::LoggingSystem::log(nk::LoggingLevel::Info, __FILE__, __LINE__, __VA_ARGS__)
+    #define InfoLogIf(condition, ...) \
+        if (condition)                \
+        nk::LoggingSystem::log(nk::LoggingLevel::Info, __FILE__, __LINE__, __VA_ARGS__)
+#else
+    #define InfoLog(...)
+    #define InfoLogIf(condition, ...)
+#endif
+
+#if NK_LOG_WARN_ENABLED
+    #define WarnLog(...) nk::LoggingSystem::log(nk::LoggingLevel::Warning, __FILE__, __LINE__, __VA_ARGS__)
+    #define WarnLogIf(condition, ...) \
+        if (condition)                \
+        nk::LoggingSystem::log(nk::LoggingLevel::Warning, __FILE__, __LINE__, __VA_ARGS__)
+#else
+    #define WarnLog(...)
+    #define WarnLogIf(condition, ...)
+#endif
+
+#define ErrorLog(...) nk::LoggingSystem::log(nk::LoggingLevel::Error, __FILE__, __LINE__, __VA_ARGS__)
+#define ErrorLogIf(condition, ...) \
+    if (condition)                 \
+    nk::LoggingSystem::log(nk::LoggingLevel::Error, __FILE__, __LINE__, __VA_ARGS__)
+
+#define FatalLog(...) nk::LoggingSystem::log(nk::LoggingLevel::Fatal, __FILE__, __LINE__, __VA_ARGS__)
+#define FatalLogIf(condition, ...) \
+    if (condition)                 \
+    nk::LoggingSystem::log(nk::LoggingLevel::Fatal, __FILE__, __LINE__, __VA_ARGS__)

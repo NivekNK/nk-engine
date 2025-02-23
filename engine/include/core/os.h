@@ -1,14 +1,14 @@
 #pragma once
 
 namespace nk::os {
-    inline size_t get_thread_id() {
+    inline std::size_t get_thread_id() {
 #if defined(NK_PLATFORM_WINDOWS)
-        return static_cast<size_t>(::GetCurrentThreadId());
+        return static_cast<std::size_t>(::GetCurrentThreadId());
 #elif defined(NK_PLATFORM_LINUX)
     #if defined(__ANDROID__) && defined(__ANDROID_API__) && (__ANDROID_API__ < 21)
         #define SYS_gettid __NR_gettid
     #endif
-        return static_cast<size_t>(::syscall(SYS_gettid));
+        return static_cast<std::size_t>(::syscall(SYS_gettid));
 #else
         // APPLE
         // uint64_t tid;
@@ -31,12 +31,12 @@ namespace nk::os {
         // #else
         // pthread_threadid_np(nullptr, &tid);
         // #endif
-        // return static_cast<size_t>(tid);
-        return static_cast<size_t>(std::hash<std::thread::id>()(std::this_thread::get_id()));
+        // return static_cast<std::size_t>(tid);
+        return static_cast<std::size_t>(std::hash<std::thread::id>()(std::this_thread::get_id()));
 #endif
     }
 
-    inline void write(cstr message, size_t length) {
+    inline void write(cstr message, std::size_t length) {
 #if defined(NK_PLATFORM_WINDOWS)
         HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
         if (stdout == INVALID_HANDLE_VALUE) {
@@ -71,62 +71,62 @@ namespace nk::os {
 #endif
     }
 
-    void* native_allocate_impl(u64 size_bytes, u64 alignment);
+    void* _native_allocate(u64 size_bytes, u64 alignment);
 
-    void native_free_impl(void* data, u64 size_bytes);
+    void _native_free(void* data, u64 size_bytes);
 
     template <typename T>
-    T* native_allocate_lot_impl(u64 lot) {
-        return static_cast<T*>(native_allocate_impl(sizeof(T) * lot, alignof(T)));
+    T* _native_allocate_lot(u64 lot) {
+        return static_cast<T*>(_native_allocate(sizeof(T) * lot, alignof(T)));
     }
 
     template <typename T>
-    void native_free_lot_impl(T* data, u64 lot) {
-        native_free_impl(data, sizeof(T) * lot);
+    void _native_free_lot(T* data, u64 lot) {
+        _native_free(data, sizeof(T) * lot);
     }
 
     template <typename T, typename... Args>
-    inline T* native_construct_impl(Args&&... args) {
-        return new (os::native_allocate_impl(sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
+    inline T* _native_construct(Args&&... args) {
+        return new (_native_allocate(sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
     }
 
     template <typename T, typename V>
-    inline void native_deconstruct_impl(V* data) {
+    inline void _native_deconstruct(V* data) {
         if (data == nullptr)
             return;
 
         data->~V();
-        os::native_free_impl(data, sizeof(T));
+        _native_free(data, sizeof(T));
     }
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
-    void* _native_allocate_impl(cstr file, u32 line, u64 size_bytes, u64 alignment);
+    void* _native_allocate(cstr file, u32 line, u64 size_bytes, u64 alignment);
 
-    void _native_free_impl(cstr file, u32 line, void* data, u64 size_bytes);
+    void _native_free(cstr file, u32 line, void* data, u64 size_bytes);
 
     template <typename T>
-    T* _native_allocate_lot_impl(cstr file, u32 line, u64 lot) {
-        return static_cast<T*>(_native_allocate_impl(file, line, sizeof(T) * lot, alignof(T)));
+    T* _native_allocate_lot(cstr file, u32 line, u64 lot) {
+        return static_cast<T*>(_native_allocate(file, line, sizeof(T) * lot, alignof(T)));
     }
 
     template <typename T>
-    void _native_free_lot_impl(cstr file, u32 line, T* data, u64 lot) {
-        _native_free_impl(file, line, data, sizeof(T) * lot);
+    void _native_free_lot(cstr file, u32 line, T* data, u64 lot) {
+        _native_free(file, line, data, sizeof(T) * lot);
     }
 
     template <typename T, typename... Args>
-    inline T* _native_construct_impl(cstr file, u32 line, Args&&... args) {
-        return new (os::_native_allocate_impl(file, line, sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
+    inline T* _native_construct(cstr file, u32 line, Args&&... args) {
+        return new (_native_allocate(file, line, sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
     }
 
     template <typename T, typename V>
-    inline void _native_deconstruct_impl(cstr file, u32 line, V* data) {
+    inline void _native_deconstruct(cstr file, u32 line, V* data) {
         if (data == nullptr)
             return;
 
         data->~V();
-        os::_native_free_impl(file, line, data, sizeof(T));
+        _native_free(file, line, data, sizeof(T));
     }
 
 #endif
@@ -135,31 +135,31 @@ namespace nk::os {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
     #define native_allocate(size_bytes, alignment) \
-        nk::os::_native_allocate_impl(__FILE__, __LINE__, size_bytes, alignment)
+        nk::os::_native_allocate(__FILE__, __LINE__, size_bytes, alignment)
     #define native_free(data, size_bytes) \
-        nk::os::_native_free_impl(__FILE__, __LINE__, data, size_bytes)
+        nk::os::_native_free(__FILE__, __LINE__, data, size_bytes)
     #define native_allocate_lot(Type, lot) \
-        nk::os::_native_allocate_lot_impl<Type>(__FILE__, __LINE__, lot)
+        nk::os::_native_allocate_lot<Type>(__FILE__, __LINE__, lot)
     #define native_free_lot(Type, data, lot) \
-        nk::os::_native_free_lot_impl<Type>(__FILE__, __LINE__, data, lot)
+        nk::os::_native_free_lot<Type>(__FILE__, __LINE__, data, lot)
     #define native_construct(Type, ...) \
-        nk::os::_native_construct_impl<Type>(__FILE__, __LINE__ __VA_OPT__(, ) __VA_ARGS__)
+        nk::os::_native_construct<Type>(__FILE__, __LINE__ __VA_OPT__(, ) __VA_ARGS__)
     #define native_deconstruct(Type, data) \
-        nk::os::_native_deconstruct_impl<Type>(__FILE__, __LINE__, data)
+        nk::os::_native_deconstruct<Type>(__FILE__, __LINE__, data)
 
 #else
 
     #define native_allocate(size_bytes, alignment) \
-        nk::os::native_allocate_impl(size_bytes, alignment)
+        nk::os::_native_allocate(size_bytes, alignment)
     #define native_free(data, size_bytes) \
-        nk::os::native_free_impl(data, size_bytes)
+        nk::os::_native_free(data, size_bytes)
     #define native_allocate_lot(Type, lot) \
-        nk::os::native_allocate_lot_impl<Type>(lot)
+        nk::os::_native_allocate_lot<Type>(lot)
     #define native_free_lot(Type, data, lot) \
-        nk::os::native_free_lot_impl<Type>(data, lot)
+        nk::os::_native_free_lot<Type>(data, lot)
     #define native_construct(Type, ...) \
-        nk::os::native_construct_impl<Type>(__VA_ARGS__)
+        nk::os::_native_construct<Type>(__VA_ARGS__)
     #define native_deconstruct(Type, data) \
-        nk::os::native_deconstruct_impl<Type>(data)
+        nk::os::_native_deconstruct<Type>(data)
 
 #endif

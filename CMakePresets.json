@@ -14,8 +14,7 @@
             },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "gcc.exe",
-                "CMAKE_CXX_COMPILER": "g++.exe",
-                "CMAKE_CXX_STANDARD": "20"
+                "CMAKE_CXX_COMPILER": "g++.exe"
             },
             "condition": {
                 "type": "equals",

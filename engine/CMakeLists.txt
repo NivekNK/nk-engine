@@ -30,6 +30,7 @@ add_subdirectory(vendor/glm)
 #================== Source files ===================
 
 set(SOURCES
+    src/core/entry_point.cpp
     src/core/os.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp

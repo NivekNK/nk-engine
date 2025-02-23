@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
 
+# Set C++20 standard
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Disable exceptions
+add_compile_options(-fno-exceptions -D_HAS_EXCEPTIONS=0)
 
 if (UNIX AND NOT APPLE)
     set(OPERATIVE_SYSTEM "Linux")
@@ -28,5 +32,6 @@ add_compile_definitions(
     $<$<CONFIG:RelWithDebInfo>:NK_PROJECT_PATH=\"${CMAKE_HOME_DIRECTORY}\">
 )
 
-add_subdirectory(tests)
 add_subdirectory(engine)
+add_subdirectory(editor)
+add_subdirectory(tests)

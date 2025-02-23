@@ -16,22 +16,21 @@ namespace nk::mem {
         return *this;
     }
 
-    void MallocAllocator::init() {
+    void MallocAllocator::init() {}
+
+    void* MallocAllocator::_allocate_raw(const u64 size_bytes, const u64 alignment) {
+        m_allocation_count++;
+        m_size_bytes += size_bytes;
+        m_used_bytes += size_bytes;
+        m_data = std::calloc(1, size_bytes);
+        return m_data;
     }
 
-    void* MallocAllocator::allocate_raw_impl(const u64 size_bytes, const u64 alignment) {
-        this->allocation_count++;
-        this->size_bytes += size_bytes;
-        this->used_bytes += size_bytes;
-        this->data = std::calloc(1, size_bytes);
-        return this->data;
-    }
-
-    void MallocAllocator::free_raw_impl(void* const data, const u64 size_bytes) {
-        this->allocation_count--;
-        this->size_bytes -= size_bytes;
-        this->used_bytes -= size_bytes;
+    void MallocAllocator::_free_raw(void* const data, const u64 size_bytes) {
+        m_allocation_count--;
+        m_size_bytes -= size_bytes;
+        m_used_bytes -= size_bytes;
         std::free(data);
-        this->data = nullptr;
+        m_data = nullptr;
     }
 }

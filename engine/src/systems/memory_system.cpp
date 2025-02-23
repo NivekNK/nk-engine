@@ -71,7 +71,7 @@ namespace nk::mem {
     }
 
     void* get_memory_system_data() {
-        return MemorySystem::get().data;
+        return MemorySystem::get().m_data;
     }
 
     MemorySystemInfo& get_memory_system_info() {
@@ -94,7 +94,7 @@ namespace nk::mem {
             .allocator_log = {},
         };
         memory_system_info->allocations.push_back(stats);
-        instance.data = memory_system_info;
+        instance.m_data = memory_system_info;
 
         instance.log_title("nk::MemorySystem initialized.");
 
@@ -104,7 +104,7 @@ namespace nk::mem {
     void MemorySystem::shutdown() {
         auto& instance = get();
 
-        auto memory_system_info = static_cast<MemorySystemInfo*>(instance.data);
+        auto memory_system_info = static_cast<MemorySystemInfo*>(instance.m_data);
         memory_system_info->allocations.clear();
         delete memory_system_info;
 
@@ -131,17 +131,17 @@ namespace nk::mem {
         };
         memory_system_info.allocations.push_back(stats);
 
-        allocator->key = memory_system_info.allocations.size() - 1;
+        allocator->m_key = memory_system_info.allocations.size() - 1;
     }
 
     void MemorySystem::update_allocator(mem::Allocator* allocator, cstr file,
                                         u32 line, u64 size_bytes, AllocationType allocation_type) {
         auto& memory_system_info = get_memory_system_info();
 
-        if (allocator->key >= memory_system_info.allocations.size())
+        if (allocator->m_key >= memory_system_info.allocations.size())
             return;
 
-        auto& value = memory_system_info.allocations.at(allocator->key);
+        auto& value = memory_system_info.allocations.at(allocator->m_key);
         value.size_bytes = allocator->get_size_bytes();
         value.used_bytes = allocator->get_used_bytes();
         value.allocation_count = allocator->get_allocation_count();
@@ -264,7 +264,8 @@ namespace nk::mem {
         }
     }
 
-    std::string_view MemorySystem::get_allocator_name(u32 key) {
+    std::string_view MemorySystem::get_allocator_name(Allocator* allocator) {
+        const u32 key = allocator->m_key;
         auto& memory_system_info = get_memory_system_info();
 
         if (key >= memory_system_info.allocations.size())
@@ -274,7 +275,7 @@ namespace nk::mem {
         return value.name;
     }
 
-    void MemorySystem::log(cstr color, cstr msg, size_t msg_size) {
+    void MemorySystem::log(cstr color, cstr msg, std::size_t msg_size) {
         // TODO: Add general mutex for logging std::lock_guard<std::mutex> lock(mutex);
         os::write(color, 19);
         os::write(msg, msg_size);
