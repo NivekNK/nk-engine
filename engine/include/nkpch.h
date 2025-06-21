@@ -45,5 +45,4 @@
 #include "macros/util.h"
 #include "core/os.h"
 #include "core/assertion.h"
-#include "core/result.h"
 #include "systems/logging_system.h"

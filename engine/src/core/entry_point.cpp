@@ -1,13 +1,18 @@
 #include "nkpch.h"
 
+#include "systems/memory_system.h"
+
 namespace nk {
     int entry_point(int argc, char** argv) {
+        NK_MEMORY_SYSTEM_INIT();
+
         nk::LoggingSystem::init();
 
-        TraceLog("nk::entry_point called.");
-        DebugLog("nk::entry_point called.");
+        
 
         nk::LoggingSystem::shutdown();
+
+        NK_MEMORY_SYSTEM_SHUTDOWN();
 
         return EXIT_SUCCESS;
     }
