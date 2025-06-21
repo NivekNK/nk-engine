@@ -1,6 +1,12 @@
 #================ Default Config ===================
 project(engine)
 
+#===================== GLFW ========================
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+#===================================================
+
 add_library(${PROJECT_NAME} STATIC)
 
 #============== Platform Specific ==================
@@ -24,8 +30,9 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 #============== Vendor Subdirectory ================
 
 add_subdirectory(vendor/glm)
+add_subdirectory(vendor/glfw)
 
-# find_package(library REQUIRED)
+find_package(Vulkan REQUIRED)
 
 #================== Source files ===================
 
@@ -36,7 +43,7 @@ set(SOURCES
     src/memory/malloc_allocator.cpp
     src/systems/logging_system.cpp
 )
-    
+
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     list(APPEND SOURCES
         src/systems/memory_system.cpp
@@ -58,15 +65,20 @@ target_sources(${PROJECT_NAME} PRIVATE ${SOURCES})
 target_link_libraries(${PROJECT_NAME}
 PRIVATE
     glm
+    Vulkan::Vulkan
+    glfw
 )
 
 target_include_directories(${PROJECT_NAME}
 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${Vulkan_INCLUDE_DIR}
+
 PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-
+    
     # Libraries
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glm>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glfw/include>
 )
