@@ -6,24 +6,21 @@
 #include "memory/malloc_allocator.h"
 #include "systems/event_system.h"
 #include "systems/input_system.h"
-#include "core/application.h"
+#include "core/engine.h"
 
 namespace nk {
     int entry_point(int argc, char** argv) {
         NK_MEMORY_SYSTEM_INIT();
 
         {
-            mem::MallocAllocator system_allocator;
-            system_allocator.allocator_init(mem::MallocAllocator, "System", MemoryType::System);
-
             LoggingSystem::init();
             EventSystem::init();
             InputSystem::init();
 
-            Application::create(&system_allocator);
+            Engine::init();
             NK_MEMORY_SYSTEM_LOG_REPORT();
-            Application::run();
-            Application::destroy(&system_allocator);
+            Engine::run();
+            Engine::shutdown();
             NK_MEMORY_SYSTEM_LOG_REPORT();
 
             InputSystem::shutdown();

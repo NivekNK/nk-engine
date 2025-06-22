@@ -14,26 +14,20 @@ namespace nk {
 
     class App {
     public:
+        const ApplicationConfig initial_config;
+
         virtual ~App();
 
     protected:
-        App(const ApplicationConfig& config);
+        App(ApplicationConfig config);
 
         virtual bool update(f64 delta_time) { return true; }
         virtual bool render(f64 delta_time) { return true; }
-
+        
     private:
-        static void create(mem::Allocator* allocator);
-        static void destroy(mem::Allocator* allocator);
+        static App* create(mem::Allocator* allocator);
+        static void destroy(mem::Allocator* allocator, nk::App* app);
 
-        void run();
-
-        mem::Allocator* m_allocator;
-        Platform* m_platform;
-
-        f64 m_last_time;
-
-        static App* s_instance;
-        friend class Application;
+        friend class Engine;
     };
 }

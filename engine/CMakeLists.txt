@@ -33,7 +33,7 @@ set(SOURCES
     src/core/entry_point.cpp
     src/core/os.cpp
     src/core/app.cpp
-    src/core/application.cpp
+    src/core/engine.cpp
     src/core/input.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
