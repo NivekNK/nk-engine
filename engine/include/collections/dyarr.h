@@ -415,7 +415,7 @@ namespace nk::cl {
             return;
         }
 
-        delete m_allocator;
+        native_deconstruct(mem::Allocator, m_allocator);
         m_allocator = nullptr;
         m_own_allocator = false;
     }
@@ -430,7 +430,7 @@ namespace nk::cl {
             return;
         }
 
-        delete m_allocator;
+        native_deconstruct(mem::Allocator, m_allocator);
         m_allocator = nullptr;
         m_own_allocator = false;
     }
@@ -742,8 +742,8 @@ namespace nk::cl {
   #define dyarr_push_ptr(value) \
     _dyarr_push_ptr(__FILE__, __LINE__, (value))
 
-  #define dyarr_push_copy(value) \
-    _dyarr_push_copy(__FILE__, __LINE__, (value))
+  #define dyarr_push_copy(...) \
+    _dyarr_push_copy(__FILE__, __LINE__, (__VA_ARGS__))
 
   #define dyarr_insert(index, value) \
     _dyarr_insert(__FILE__, __LINE__, (index), (value))
@@ -751,8 +751,8 @@ namespace nk::cl {
   #define dyarr_insert_ptr(index, value) \
     _dyarr_insert_ptr(__FILE__, __LINE__, (index), (value))
 
-  #define dyarr_insert_copy(index, value) \
-    _dyarr_insert_copy(__FILE__, __LINE__, (index), (value))
+  #define dyarr_insert_copy(index, ...) \
+    _dyarr_insert_copy(__FILE__, __LINE__, (index), (__VA_ARGS__))
 
   #define dyarr_resize(length) \
     _dyarr_resize(__FILE__, __LINE__, (length))

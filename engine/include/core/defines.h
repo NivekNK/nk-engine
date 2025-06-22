@@ -15,6 +15,7 @@ namespace nk {
     using f64 = double;
 
     using cstr = const char*;
+    using str = std::string;
 
     namespace numeric {
         static constexpr const u8 u8_max = UINT8_MAX;

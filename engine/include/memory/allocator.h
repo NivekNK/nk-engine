@@ -41,7 +41,7 @@ namespace nk::mem {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         template <typename A, typename... Args>
             requires IAllocator<A, Args...>
-        Allocator* _allocator_init(cstr file, u32 line, cstr name, MemoryType::Value type, Args&&... args) {
+        Allocator* _allocator_init_args(cstr file, u32 line, cstr name, MemoryType::Value type, Args&&... args) {
             A* allocator = static_cast<A*>(this);
             allocator->init(std::forward<Args>(args)...);
             _allocator_init(file, line, name, type);
@@ -50,7 +50,7 @@ namespace nk::mem {
 
         template <typename A>
             requires IAllocator<A>
-        Allocator* _allocator_init(cstr file, u32 line, cstr name, MemoryType::Value type) {
+        Allocator* _allocator_init_args(cstr file, u32 line, cstr name, MemoryType::Value type) {
             A* allocator = static_cast<A*>(this);
             allocator->init();
             _allocator_init(file, line, name, type);
@@ -115,7 +115,7 @@ namespace nk::mem {
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         template <typename T, typename... Args>
-        T* _construct_t(cstr file, u32 line, Args&&... args) {
+        T* _construct_t_args(cstr file, u32 line, Args&&... args) {
             return new (_allocate_raw(file, line, sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
         }
 #endif
@@ -175,7 +175,7 @@ namespace nk::mem {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
     #define allocator_init(AllocatorType, name, type, ...) \
-        _allocator_init<AllocatorType>(__FILE__, __LINE__, name, type __VA_OPT__(, ) __VA_ARGS__)
+        _allocator_init_args<AllocatorType>(__FILE__, __LINE__, name, type __VA_OPT__(, ) __VA_ARGS__)
     #define allocate_t(Type) \
         _allocate_t<Type>(__FILE__, __LINE__)
     #define free_t(Type, data) \
@@ -184,8 +184,8 @@ namespace nk::mem {
         _allocate_lot_t<Type>(__FILE__, __LINE__, lot)
     #define free_lot_t(Type, data, lot) \
         _free_lot_t<Type>(__FILE__, __LINE__, data, lot)
-    #define contruct_t(Type, ...) \
-        _construct_t<Type>(__FILE__, __LINE__ __VA_OPT__(, ) __VA_ARGS__)
+    #define construct_t(Type, ...) \
+        _construct_t_args<Type>(__FILE__, __LINE__ __VA_OPT__(, ) __VA_ARGS__)
     #define deconstruct_t(Type, data) \
         _deconstruct_t<Type>(__FILE__, __LINE__, data)
     #define allocate_raw(size_bytes, alignment) \
@@ -207,7 +207,7 @@ namespace nk::mem {
         _allocate_lot_t<Type>(lot)
     #define free_lot_t(Type, data, lot) \
         _free_lot_t<Type>(data, lot)
-    #define contruct_t(Type, ...) \
+    #define construct_t(Type, ...) \
         _construct_t<Type>(__VA_ARGS__)
     #define deconstruct_t(Type, data) \
         _deconstruct_t<Type>(data)

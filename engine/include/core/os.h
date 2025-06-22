@@ -116,7 +116,7 @@ namespace nk::os {
     }
 
     template <typename T, typename... Args>
-    inline T* _native_construct(cstr file, u32 line, Args&&... args) {
+    inline T* _native_construct_args(cstr file, u32 line, Args&&... args) {
         return new (_native_allocate(file, line, sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
     }
 
@@ -143,7 +143,7 @@ namespace nk::os {
     #define native_free_lot(Type, data, lot) \
         nk::os::_native_free_lot<Type>(__FILE__, __LINE__, data, lot)
     #define native_construct(Type, ...) \
-        nk::os::_native_construct<Type>(__FILE__, __LINE__ __VA_OPT__(, ) __VA_ARGS__)
+        nk::os::_native_construct_args<Type>(__FILE__, __LINE__ __VA_OPT__(, ) __VA_ARGS__)
     #define native_deconstruct(Type, data) \
         nk::os::_native_deconstruct<Type>(__FILE__, __LINE__, data)
 
