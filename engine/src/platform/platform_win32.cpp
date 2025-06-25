@@ -28,7 +28,7 @@ namespace nk {
         wc.lpszClassName = "nk_window_class";
 
         if (!RegisterClassA(&wc)) {
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
             Assert(false, "Window registration failed");
 #else
             MessageBoxA(0, "Window registration failed", "Error", MB_ICONEXCLAMATION | MB_OK);
@@ -69,7 +69,7 @@ namespace nk {
         );
 
         if (handle == nullptr) {
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
             Assert(false, "Window creation failed!");
 #else
             MessageBoxA(NULL, "Window creation failed!", "Error", MB_ICONEXCLAMATION | MB_OK);

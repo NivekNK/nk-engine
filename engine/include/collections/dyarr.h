@@ -120,6 +120,8 @@ namespace nk::cl {
         void _dyarr_resize(cstr file, u32 line, u64 length);
 #endif
 
+        void reset() { m_length = 0; }
+
         std::optional<T> dyarr_pop();
         std::optional<T> dyarr_remove(u64 index);
 
@@ -228,10 +230,10 @@ namespace nk::cl {
     template <IArrT T>
     T& dyarr<T>::_dyarr_at(const u64 index) {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(m_length);
+                grow(index + 1);
+
+            m_length = index + 1;
         }
 
         return m_data[index];
@@ -241,10 +243,9 @@ namespace nk::cl {
     template <IArrT T>
     T& dyarr<T>::_dyarr_at(cstr file, u32 line, const u64 index) {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(file, line, m_length);
+                grow(file, line, index + 1);
+            m_length = index + 1;
         }
 
         return m_data[index];
@@ -294,53 +295,77 @@ namespace nk::cl {
     template <IArrT T>
     void dyarr<T>::_dyarr_init_list(mem::Allocator* allocator, std::initializer_list<T> list) {
         Assert(allocator != nullptr);
-        m_length = list.size();
         m_allocator = allocator;
+        grow(list.size());
 
-        if (m_length > 0) {
-            grow(m_length);
+        if (list.size() == 0)
+            return;
+
+        if constexpr (std::is_trivially_copyable_v<T> || std::is_same_v<T, cstr>) {
+            std::memcpy(m_data, list.begin(), list.size() * sizeof(T));
+        } else {
             std::uninitialized_move(list.begin(), list.end(), m_data);
         }
+
+        m_length = list.size();
     }
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
     template <IArrT T>
     void dyarr<T>::_dyarr_init_list(cstr file, u32 line, mem::Allocator* allocator, std::initializer_list<T> list) {
         Assert(allocator != nullptr);
-        m_length = list.size();
         m_allocator = allocator;
+        grow(file, line, list.size());
 
-        if (m_length > 0) {
-            grow(file, line, m_length);
+        if (list.size() == 0)
+            return;
+
+        if constexpr (std::is_trivially_copyable_v<T> || std::is_same_v<T, cstr>) {
+            std::memcpy(m_data, list.begin(), list.size() * sizeof(T));
+        } else {
             std::uninitialized_move(list.begin(), list.end(), m_data);
         }
+
+        m_length = list.size();
     }
 #endif
 
     template <IArrT T>
     void dyarr<T>::_dyarr_init_list_own(mem::Allocator* allocator, std::initializer_list<T> list) {
         Assert(allocator != nullptr);
-        m_length = list.size();
         m_allocator = allocator;
         m_own_allocator = true;
+        grow(list.size());
 
-        if (m_length > 0) {
-            grow(m_length);
+        if (list.size() == 0)
+            return;
+
+        if constexpr (std::is_trivially_copyable_v<T> || std::is_same_v<T, cstr>) {
+            std::memcpy(m_data, list.begin(), list.size() * sizeof(T));
+        } else {
             std::uninitialized_move(list.begin(), list.end(), m_data);
         }
+
+        m_length = list.size();
     }
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
     template <IArrT T>
     void dyarr<T>::_dyarr_init_list_own(cstr file, u32 line, mem::Allocator* allocator, std::initializer_list<T> list) {
         Assert(allocator != nullptr);
-        m_length = list.size();
         m_allocator = allocator;
         m_own_allocator = true;
+        grow(file, line, list.size());
 
-        if (m_length > 0) {
-            grow(file, line, m_length);
+        if (list.size() == 0)
+            return;
+
+        if constexpr (std::is_trivially_copyable_v<T> || std::is_same_v<T, cstr>) {
+            std::memcpy(m_data, list.begin(), list.size() * sizeof(T));
+        } else {
             std::uninitialized_move(list.begin(), list.end(), m_data);
         }
+
+        m_length = list.size();
     }
 #endif
 
@@ -527,10 +552,9 @@ namespace nk::cl {
     template <IArrT T>
     void dyarr<T>::_dyarr_insert(u64 index, T& value) {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(m_length);
+                grow(index + 1);
+            m_length = index + 1;
         } else {
             m_length++;
         }
@@ -543,10 +567,9 @@ namespace nk::cl {
     template <IArrT T>
     void dyarr<T>::_dyarr_insert(cstr file, u32 line, u64 index, T& value) {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(file, line, m_length);
+                grow(file, line, index + 1);
+            m_length = index + 1;
         } else {
             m_length++;
         }
@@ -561,10 +584,9 @@ namespace nk::cl {
         requires std::is_pointer_v<T>
     {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(m_length);
+                grow(index + 1);
+            m_length = index + 1;
         } else {
             m_length++;
         }
@@ -579,10 +601,9 @@ namespace nk::cl {
         requires std::is_pointer_v<T>
     {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(file, line, m_length);
+                grow(file, line, index + 1);
+            m_length = index + 1;
         } else {
             m_length++;
         }
@@ -595,10 +616,9 @@ namespace nk::cl {
     template <IArrT T>
     void dyarr<T>::_dyarr_insert_copy(u64 index, const T& value) {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(m_length);
+                grow(index + 1);
+            m_length = index + 1;
         } else {
             m_length++;
         }
@@ -611,10 +631,9 @@ namespace nk::cl {
     template <IArrT T>
     void dyarr<T>::_dyarr_insert_copy(cstr file, u32 line, u64 index, const T& value) {
         if (index >= m_length) {
-            m_length = index + 1;
-
             if (m_length >= m_capacity)
-                grow(file, line, m_length);
+                grow(file, line, index + 1);
+            m_length = index + 1;
         } else {
             m_length++;
         }
@@ -715,90 +734,90 @@ namespace nk::cl {
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
-  #define dyarr_at(index) \
-    _dyarr_at(__FILE__, __LINE__, (index))
+    #define dyarr_at(index) \
+        _dyarr_at(__FILE__, __LINE__, (index))
 
-  #define dyarr_init(allocator, capacity) \
-    _dyarr_init(__FILE__, __LINE__, (allocator), (capacity))
+    #define dyarr_init(allocator, capacity) \
+        _dyarr_init(__FILE__, __LINE__, (allocator), (capacity))
 
-  #define dyarr_init_own(allocator, capacity) \
-    _dyarr_init_own(__FILE__, __LINE__, (allocator), (capacity))
+    #define dyarr_init_own(allocator, capacity) \
+        _dyarr_init_own(__FILE__, __LINE__, (allocator), (capacity))
 
-  #define dyarr_init_list(allocator, list) \
-    _dyarr_init_list(__FILE__, __LINE__, (allocator), (list))
+    #define dyarr_init_list(allocator, ...) \
+        _dyarr_init_list(__FILE__, __LINE__, (allocator), __VA_ARGS__)
 
-  #define dyarr_init_list_own(allocator, list) \
-    _dyarr_init_list_own(__FILE__, __LINE__, (allocator), (list))
+    #define dyarr_init_list_own(allocator, ...) \
+        _dyarr_init_list_own(__FILE__, __LINE__, (allocator), __VA_ARGS__)
 
-  #define dyarr_clear() \
-    _dyarr_clear(__FILE__, __LINE__)
+    #define dyarr_clear() \
+        _dyarr_clear(__FILE__, __LINE__)
 
-  #define dyarr_shutdown() \
-    _dyarr_shutdown(__FILE__, __LINE__)
+    #define dyarr_shutdown() \
+        _dyarr_shutdown(__FILE__, __LINE__)
 
-  #define dyarr_push(value) \
-    _dyarr_push(__FILE__, __LINE__, (value))
+    #define dyarr_push(value) \
+        _dyarr_push(__FILE__, __LINE__, (value))
 
-  #define dyarr_push_ptr(value) \
-    _dyarr_push_ptr(__FILE__, __LINE__, (value))
+    #define dyarr_push_ptr(value) \
+        _dyarr_push_ptr(__FILE__, __LINE__, (value))
 
-  #define dyarr_push_copy(...) \
-    _dyarr_push_copy(__FILE__, __LINE__, (__VA_ARGS__))
+    #define dyarr_push_copy(...) \
+        _dyarr_push_copy(__FILE__, __LINE__, (__VA_ARGS__))
 
-  #define dyarr_insert(index, value) \
-    _dyarr_insert(__FILE__, __LINE__, (index), (value))
+    #define dyarr_insert(index, value) \
+        _dyarr_insert(__FILE__, __LINE__, (index), (value))
 
-  #define dyarr_insert_ptr(index, value) \
-    _dyarr_insert_ptr(__FILE__, __LINE__, (index), (value))
+    #define dyarr_insert_ptr(index, value) \
+        _dyarr_insert_ptr(__FILE__, __LINE__, (index), (value))
 
-  #define dyarr_insert_copy(index, ...) \
-    _dyarr_insert_copy(__FILE__, __LINE__, (index), (__VA_ARGS__))
+    #define dyarr_insert_copy(index, ...) \
+        _dyarr_insert_copy(__FILE__, __LINE__, (index), (__VA_ARGS__))
 
-  #define dyarr_resize(length) \
-    _dyarr_resize(__FILE__, __LINE__, (length))
+    #define dyarr_resize(length) \
+        _dyarr_resize(__FILE__, __LINE__, (length))
 
 #else
 
-  #define dyarr_at(index) \
-    _dyarr_at((index))
+    #define dyarr_at(index) \
+        _dyarr_at((index))
 
-  #define dyarr_init(allocator, capacity) \
-    _dyarr_init((allocator), (capacity))
+    #define dyarr_init(allocator, capacity) \
+        _dyarr_init((allocator), (capacity))
 
-  #define dyarr_init_own(allocator, capacity) \
-    _dyarr_init_own((allocator), (capacity))
+    #define dyarr_init_own(allocator, capacity) \
+        _dyarr_init_own((allocator), (capacity))
 
-  #define dyarr_init_list(allocator, list) \
-    _dyarr_init_list((allocator), (list))
+    #define dyarr_init_list(allocator, ...) \
+        _dyarr_init_list((allocator), __VA_ARGS__)
 
-  #define dyarr_init_list_own(allocator, list) \
-    _dyarr_init_list_own((allocator), (list))
+    #define dyarr_init_list_own(allocator, ...) \
+        _dyarr_init_list_own((allocator), __VA_ARGS__)
 
-  #define dyarr_clear() \
-    _dyarr_clear()
+    #define dyarr_clear() \
+        _dyarr_clear()
 
-  #define dyarr_shutdown() \
-    _dyarr_shutdown()
+    #define dyarr_shutdown() \
+        _dyarr_shutdown()
 
-  #define dyarr_push(value) \
-    _dyarr_push((value))
+    #define dyarr_push(value) \
+        _dyarr_push((value))
 
-  #define dyarr_push_ptr(value) \
-    _dyarr_push_ptr((value))
+    #define dyarr_push_ptr(value) \
+        _dyarr_push_ptr((value))
 
-  #define dyarr_push_copy(...) \
-    _dyarr_push_copy((__VA_ARGS__))
+    #define dyarr_push_copy(...) \
+        _dyarr_push_copy((__VA_ARGS__))
 
-  #define dyarr_insert(index, value) \
-    _dyarr_insert((index), (value))
+    #define dyarr_insert(index, value) \
+        _dyarr_insert((index), (value))
 
-  #define dyarr_insert_ptr(index, value) \
-    _dyarr_insert_ptr((index), (value))
+    #define dyarr_insert_ptr(index, value) \
+        _dyarr_insert_ptr((index), (value))
 
-  #define dyarr_insert_copy(index, ...) \
-    _dyarr_insert_copy((index), (__VA_ARGS__))
+    #define dyarr_insert_copy(index, ...) \
+        _dyarr_insert_copy((index), (__VA_ARGS__))
 
-  #define dyarr_resize(length) \
-    _dyarr_resize((length))
+    #define dyarr_resize(length) \
+        _dyarr_resize((length))
 
 #endif

@@ -35,12 +35,18 @@ set(SOURCES
     src/core/app.cpp
     src/core/engine.cpp
     src/core/input.cpp
+    src/core/clock.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
     src/systems/logging_system.cpp
     src/systems/event_system.cpp
     src/systems/input_system.cpp
     src/platform/platform.cpp
+    src/renderer/renderer.cpp
+    src/renderer/vulkan/vulkan_renderer.cpp
+    src/renderer/vulkan/utils.cpp
+    src/renderer/vulkan/instance.cpp
+    src/renderer/vulkan/device.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -70,6 +76,7 @@ PRIVATE
 target_include_directories(${PROJECT_NAME}
 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer
     ${Vulkan_INCLUDE_DIR}
 
 PUBLIC

@@ -182,14 +182,7 @@ namespace nk::mem {
         u64 total_allocated = 0;
         u64 total_freed = 0;
 
-        u64 type_allocated[MemoryType::max()];
-        std::memset(type_allocated, 0, sizeof(type_allocated));
-
-        u64 type_freed[MemoryType::max()];
-        std::memset(type_freed, 0, sizeof(type_freed));
-
-        u64 type_count[MemoryType::max()];
-        std::memset(type_count, 0, sizeof(type_count));
+        std::vector<u64> types(MemoryType::max() * 3, 0);
 
         std::string details;
         bool there_are_details = false;
@@ -197,7 +190,8 @@ namespace nk::mem {
         auto& memory_system_info = get_memory_system_info();
 
         instance.log_title("\n\nGeneral Memory Usage:\n");
-        for (const AllocationStats& stats : memory_system_info.allocations) {
+        for (const AllocationStats& stats :
+             memory_system_info.allocations) {
             instance.log_text(
                 "Name: {}\n"
                 "Allocator: {}\n"
@@ -211,53 +205,65 @@ namespace nk::mem {
                 stats.allocation_count);
 
             if (detailed) {
-                if (stats.allocator_log.empty())
+                if (stats.allocator_log.empty()) {
                     continue;
+                }
 
                 details += std::format("- {}:\n", stats.name);
-                for (auto& log : stats.allocator_log) {
-                    std::string type;
+                for (const auto& log : stats.allocator_log) {
+                    std::string type_str;
                     switch (log.type) {
                         case AllocationType::Init:
-                            type = "Init";
-                            type_allocated[stats.type] += log.size_bytes;
+                            type_str = "Init";
+                            types[stats.type] += log.size_bytes;
                             total_allocated += log.size_bytes;
                             break;
                         case AllocationType::Allocate:
-                            type_count[stats.type] += 1;
-                            type_allocated[stats.type] += log.size_bytes;
+                            types[stats.type + (2 * MemoryType::max())] += 1;
+                            types[stats.type] += log.size_bytes;
                             total_allocated += log.size_bytes;
-                            type = "Allocate";
+                            type_str = "Allocate";
                             break;
                         case AllocationType::Free:
-                            type_freed[stats.type] += log.size_bytes;
+                            types[stats.type + MemoryType::max()] += log.size_bytes;
                             total_freed += log.size_bytes;
-                            type = "Free";
+                            type_str = "Free";
                             break;
                     }
-                    details += std::format("    {}: {} ({}:{})\n",
-                                           type,
-                                           memory_in_bytes(log.size_bytes),
-                                           log.file, log.line);
+                    details += std::format(
+                        "    {}: {} ({}:{})\n",
+                        type_str,
+                        memory_in_bytes(log.size_bytes),
+                        log.file,
+                        log.line);
                 }
                 details += "\n";
-
                 there_are_details = true;
             }
         }
 
         if (detailed && there_are_details) {
             details += "Memory Types:\n\n";
-            details += std::format("{:<15} {:<15} {:<15} {:<15}\n", "Types", "Allocated", "Freed", "Count");
+            details += std::format(
+                "{:<15} {:<15} {:<15} {:<15}\n",
+                "Types", "Allocated", "Freed", "Count");
 
             for (u32 i = 0; i < MemoryType::max(); i++) {
-                details += std::format("{:<15} {:<15} {:<15} {:<15}\n",
-                    MemoryType::to_cstr(i), memory_in_bytes(type_allocated[i]), memory_in_bytes(type_freed[i]), type_count[i]);
+                details += std::format(
+                    "{:<15} {:<15} {:<15} {:<15}\n",
+                    MemoryType::to_cstr(i),
+                    memory_in_bytes(types[i]),
+                    memory_in_bytes(types[i + MemoryType::max()]),
+                    types[i + (2 * MemoryType::max())]);
             }
 
-            details += std::format("\n\nTotal Allocated: {}\n", memory_in_bytes(total_allocated));
-            details += std::format("Total Freed: {}\n", memory_in_bytes(total_freed));
-            details += std::format("\nCurrent Memory Usage: {}\n", memory_in_bytes(total_allocated - total_freed));
+            details += std::format("\n\nTotal Allocated: {}\n",
+                                   memory_in_bytes(total_allocated));
+            details += std::format("Total Freed: {}\n",
+                                   memory_in_bytes(total_freed));
+            details += std::format(
+                "\nCurrent Memory Usage: {}\n",
+                memory_in_bytes(total_allocated - total_freed));
 
             instance.log_title("\n\nDetailed Memory Usage:\n");
             instance.log_text(details);

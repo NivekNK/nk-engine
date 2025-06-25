@@ -20,7 +20,7 @@ namespace nk {
 #endif
     }
     
-    void Platform::free(mem::Allocator* allocator, Platform* platform) {
+    void Platform::destroy(mem::Allocator* allocator, Platform* platform) {
 #if defined(NK_PLATFORM_WINDOWS)
         allocator->deconstruct_t(PlatformWin32, platform);
 #else

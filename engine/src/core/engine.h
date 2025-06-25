@@ -1,35 +1,25 @@
 #pragma once
 
 #include "systems/event_system.h"
-#include "platform/platform.h"
+#include "core/clock.h"
 
 namespace nk {
     namespace mem { class Allocator; }
     class App;
+    class Platform;
+    class Renderer;
 
     class Engine {
     public:
         ~Engine() = default;
 
-        static void init() {
-            Engine& instance = get();
-            instance.init_impl();
-        }
+        static void init() { get().init_impl(); }
 
-        static void shutdown() {
-            Engine& instance = get();
-            instance.shutdown_impl();
-        }
+        static void shutdown() { get().shutdown_impl(); }
 
-        static void run() {
-            Engine& instance = get();
-            instance.run_impl();
-        }
+        static void run() { get().run_impl(); }
 
-        static void exit() {
-            Engine& instance = get();
-            instance.m_platform->close();
-        }
+        static void exit();
 
         static Engine& get() {
             static Engine instance;
@@ -49,7 +39,9 @@ namespace nk {
         mem::Allocator* m_allocator;
         App* m_app;
         Platform* m_platform;
+        Renderer* m_renderer;
 
+        Clock m_clock;
         f64 m_last_time;
     };
 }

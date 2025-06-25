@@ -3,7 +3,6 @@
 #include "core/entry_point.h"
 
 #include "systems/memory_system.h"
-#include "memory/malloc_allocator.h"
 #include "systems/event_system.h"
 #include "systems/input_system.h"
 #include "core/engine.h"
@@ -18,17 +17,17 @@ namespace nk {
             InputSystem::init();
 
             Engine::init();
-            NK_MEMORY_SYSTEM_LOG_REPORT();
+            NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
             Engine::run();
             Engine::shutdown();
-            NK_MEMORY_SYSTEM_LOG_REPORT();
+            NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
 
             InputSystem::shutdown();
             EventSystem::shutdown();
             LoggingSystem::shutdown();
         }
 
-        NK_MEMORY_SYSTEM_LOG_REPORT();
+        NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
         NK_MEMORY_SYSTEM_SHUTDOWN();
 
         return EXIT_SUCCESS;

@@ -4,6 +4,8 @@
 
 #include "memory/malloc_allocator.h"
 #include "core/app.h"
+#include "platform/platform.h"
+#include "renderer/renderer.h"
 #include "systems/input_system.h"
 
 namespace nk {
@@ -38,12 +40,20 @@ namespace nk {
         return false;
     }
 
+    void Engine::exit() {
+        Engine& instance = get();
+        instance.m_platform->close();
+    }
+
     void Engine::init_impl() {
         m_allocator = native_construct(mem::MallocAllocator);
         m_allocator->allocator_init(mem::MallocAllocator, "App", MemoryType::App);
 
         m_app = App::create(m_allocator);
         m_platform = Platform::create(m_allocator, m_app->initial_config);
+        m_renderer = Renderer::create(m_allocator, m_platform, m_app->initial_config.name);
+
+        m_clock.init(m_platform);
 
         EventSystem::get().register_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
         EventSystem::get().register_event(SystemEventCode::KeyPressed, nullptr, on_key);
@@ -55,31 +65,72 @@ namespace nk {
         EventSystem::get().unregister_event(SystemEventCode::KeyPressed, nullptr, on_key);
         EventSystem::get().unregister_event(SystemEventCode::KeyReleased, nullptr, on_key);
 
+        Renderer::destroy(m_allocator, m_renderer);
+        Platform::destroy(m_allocator, m_platform);
         App::destroy(m_allocator, m_app);
-        Platform::free(m_allocator, m_platform);
         native_deconstruct(mem::MallocAllocator, m_allocator);
     }
 
     void Engine::run_impl() {
+        m_clock.start();
+        m_clock.update();
+        m_last_time = m_clock.elapsed();
+
+        f64 running_time = 0;
+        u8 frame_count = 0;
+        f64 target_frame_seconds = 1.0f / 60;
+
         while (m_platform->running()) {
             if (!m_platform->pump_messages()) {
                 m_platform->close();
             }
 
             if (!m_platform->suspended()) {
-                if (!update(0)) {
+                // Update clock and get delta time
+                m_clock.update();
+                f64 current_time = m_clock.elapsed();
+                f64 delta = current_time - m_last_time;
+                f64 frame_start_time = m_platform->get_absolute_time();
+
+                if (!update(delta)) {
                     FatalLog("nk::App::run update failed. shutting douwn.");
                     m_platform->close();
                     break;
                 }
 
-                if (!render(0)) {
+                if (!render(delta)) {
                     FatalLog("nk::App::run render failed. shutting douwn.");
                     m_platform->close();
                     break;
                 }
 
-                InputSystem::get().update(0);
+                // TODO: refactor packet creation
+                m_renderer->draw_frame({
+                    .delta_time = delta,
+                });
+
+                // Figure out how long the frame took
+                f64 frame_end_time = m_platform->get_absolute_time();
+                f64 frame_elapsed_time = frame_end_time - frame_start_time;
+                running_time += frame_elapsed_time;
+                f64 remaining_seconds = target_frame_seconds - frame_elapsed_time;
+
+                if (remaining_seconds > 0) {
+                    u64 remaining_ms = remaining_seconds * 1000;
+
+                    // If there is time left, give it back to the OS
+                    bool limit_frames = false;
+                    if (remaining_ms > 0 && limit_frames) {
+                        m_platform->sleep(remaining_ms - 1);
+                    }
+
+                    frame_count++;
+                }
+
+                InputSystem::get().update(delta);
+
+                // Update last time
+                m_last_time = current_time;
             }
         }
 

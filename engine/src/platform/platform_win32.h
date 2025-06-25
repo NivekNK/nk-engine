@@ -12,6 +12,9 @@ namespace nk {
         virtual f64 get_absolute_time() override;
         virtual void sleep(u64 ms) override;
 
+        HINSTANCE get_hinstance() { return m_hinstance; }
+        HWND get_hwnd() { return m_hwnd; }
+
     private:
         HINSTANCE m_hinstance;
         HWND m_hwnd;

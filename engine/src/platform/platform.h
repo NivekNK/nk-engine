@@ -23,7 +23,7 @@ namespace nk {
         void close() { m_running = false; }
 
         static Platform* create(mem::Allocator* allocator, const ApplicationConfig& config);
-        static void free(mem::Allocator* allocator, Platform* platform);
+        static void destroy(mem::Allocator* allocator, Platform* platform);
 
     protected:
         Platform(const ApplicationConfig& config);

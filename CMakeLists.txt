@@ -5,7 +5,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Disable exceptions
-add_compile_options(-fno-exceptions -D_HAS_EXCEPTIONS=0)
+add_compile_options(
+    -fno-exceptions
+    -D_HAS_EXCEPTIONS=0
+    -Wall
+    -Wextra
+    -pedantic-errors
+    -Wvla
+    -Werror=vla
+)
 
 if (UNIX AND NOT APPLE)
     set(OPERATIVE_SYSTEM "Linux")
