@@ -17,7 +17,7 @@ namespace nk {
         const VkPhysicalDeviceFeatures& features,
         const PhysicalDeviceRequirements& requirements);
 
-    void query_swapchain_support_info(
+    void internal_query_swapchain_support_info(
         SwapchainSupportInfo* out_swapchain_support_info,
         VkPhysicalDevice physical_device,
         VkSurfaceKHR surface);
@@ -51,7 +51,7 @@ namespace nk {
     void Device::shutdown() {
         vkDestroyCommandPool(m_logical_device, m_graphics_command_pool, m_vulkan_allocator);
         InfoLog("Vulkan Graphics Command Pool destroyed.");
-        
+
         m_graphics_queue = nullptr;
         m_present_queue = nullptr;
         m_transfer_queue = nullptr;
@@ -75,6 +75,31 @@ namespace nk {
         m_instance = nullptr;
 
         TraceLog("nk::Device shutdown.");
+    }
+
+    SwapchainSupportInfo& Device::query_swapchain_support_info() {
+        internal_query_swapchain_support_info(&m_swapchain_support_info, m_physical_device, m_surface);
+        return m_swapchain_support_info;
+    }
+
+    bool Device::find_memory_index(
+        const u32 type_filter,
+        VkMemoryPropertyFlags property_flags,
+        u32* out_memory_index) const {
+        VkPhysicalDeviceMemoryProperties memory_properties;
+        vkGetPhysicalDeviceMemoryProperties(m_physical_device, &memory_properties);
+
+        for (u32 i = 0; i < memory_properties.memoryTypeCount; i++) {
+            // Check each memory type to see if its bit is set to 1.
+            if (type_filter & (1 << i) && (memory_properties.memoryTypes[i].propertyFlags & property_flags) == property_flags) {
+                *out_memory_index = i;
+                return true;
+            }
+        }
+
+        WarnLog("nk::Device::find_memory_index Unable to find suitable memory type!");
+        *out_memory_index = numeric::u32_max;
+        return false;
     }
 
     bool Device::select_physical_device() {
@@ -398,7 +423,7 @@ namespace nk {
         DebugLog("Transfer Family Index: {}.", out_queue_family->transfer_family_index);
         DebugLog("Compute Family Index:  {}.", out_queue_family->compute_family_index);
 
-        query_swapchain_support_info(out_swapchain_support_info, physical_device, surface);
+        internal_query_swapchain_support_info(out_swapchain_support_info, physical_device, surface);
         if (out_swapchain_support_info->formats.empty() || out_swapchain_support_info->present_modes.empty()) {
             out_swapchain_support_info->formats.reset();
             out_swapchain_support_info->present_modes.reset();
@@ -434,7 +459,7 @@ namespace nk {
         return true;
     }
 
-    void query_swapchain_support_info(
+    void internal_query_swapchain_support_info(
         SwapchainSupportInfo* out_swapchain_support_info,
         VkPhysicalDevice physical_device,
         VkSurfaceKHR surface) {

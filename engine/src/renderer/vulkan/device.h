@@ -46,6 +46,20 @@ namespace nk {
         void init(Platform* platform, Instance* instance, mem::Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
+        SwapchainSupportInfo& query_swapchain_support_info();
+        bool find_memory_index(
+            const u32 type_filter,
+            VkMemoryPropertyFlags property_flags,
+            u32* out_memory_index) const;
+
+        VkSurfaceKHR get_surface() { return m_surface; }
+        const PhysicalDeviceQueueFamilyInfo& get_queue_family_info() const { return m_queue_family_info; }
+        const VkFormat get_depth_format() const { return m_depth_format; }
+
+        VkDevice get() { return m_logical_device; }
+        VkDevice operator()() { return m_logical_device; }
+        operator VkDevice() { return m_logical_device; }
+
     private:
         bool select_physical_device();
         bool detect_depth_format();

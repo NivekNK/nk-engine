@@ -25,12 +25,13 @@ namespace nk::mem {
             return instance;
         }
 
-        static void native_allocation(cstr file, u32 line, u64 size_bytes,
+        static void native_allocation(cstr file, u32 line, void* data, u64 size_bytes,
                                       AllocationType allocation_type);
         static void init_allocator(mem::Allocator* allocator, cstr file,
                                    u32 line, cstr name, MemoryType::Value type);
         static void update_allocator(mem::Allocator* allocator, cstr file,
-                                     u32 line, u64 size_bytes, AllocationType allocation_type);
+                                     u32 line, void* data, u64 size_bytes,
+                                     AllocationType allocation_type);
 
         static void log_report(bool detailed = false);
         static std::string_view get_allocator_name(mem::Allocator* allocator);
@@ -42,11 +43,20 @@ namespace nk::mem {
             log("\033[38;2;170;129;246m", msg.data(), msg.length());
         }
 
-        template <typename... Args>
-        void log_text(std::string_view fmt, Args&&... args) {
-            std::string buffer;
-            std::vformat_to(std::back_inserter(buffer), fmt, std::make_format_args(args...));
-            log("\033[38;2;255;255;255m", buffer.c_str(), buffer.size());
+        void log_info(std::string_view msg) {
+            log("\033[38;2;255;255;255m", msg.data(), msg.length());
+        }
+
+        void log_warn(std::string_view msg) {
+            log("\033[38;2;255;128;0m", msg.data(), msg.length());
+        }
+
+        void log_error(std::string_view msg) {
+            log("\033[38;2;233;38;109m", msg.data(), msg.length());
+        }
+
+        void log_trace(std::string_view msg) {
+            log("\033[38;2;218;218;218m", msg.data(), msg.length());
         }
 
         void log(cstr color, cstr msg, std::size_t msg_size);

@@ -4,6 +4,7 @@
 
 #include "memory/allocator.h"
 
+#include <unordered_map>
 #include <vector>
 #include <memory>
 
@@ -19,11 +20,21 @@ namespace nk::mem {
         }
     }
 
-    struct AllocatorInfo {
+    struct AllocationInfo {
         u64 size_bytes;
         std::string file;
         u32 line;
-        AllocationType type;
+    };
+
+    struct FreeInfo {
+        u64 size_bytes;
+        std::string file;
+        u32 line;
+    };
+
+    struct AllocatorInfo {
+        AllocationInfo allocated;
+        FreeInfo freed;
     };
 
     struct AllocationStats {
@@ -35,7 +46,8 @@ namespace nk::mem {
         u64 used_bytes;
         u64 allocation_count;
 
-        std::vector<AllocatorInfo> allocator_log;
+        AllocationInfo init;
+        std::unordered_map<void*, AllocatorInfo> allocator_log;
     };
 
     struct MemorySystemInfo {
@@ -91,6 +103,11 @@ namespace nk::mem {
             .size_bytes = 0,
             .used_bytes = 0,
             .allocation_count = 0,
+            .init = {
+                .size_bytes = 0,
+                .file = __FILE__,
+                .line = __LINE__,
+            },
             .allocator_log = {},
         };
         memory_system_info->allocations.push_back(stats);
@@ -122,12 +139,12 @@ namespace nk::mem {
             .size_bytes = allocator->get_size_bytes(),
             .used_bytes = allocator->get_used_bytes(),
             .allocation_count = allocator->get_allocation_count(),
-            .allocator_log = {{
+            .init = {
                 .size_bytes = allocator->get_size_bytes(),
                 .file = file,
                 .line = line,
-                .type = AllocationType::Init,
-            }},
+            },
+            .allocator_log = {},
         };
         memory_system_info.allocations.push_back(stats);
 
@@ -135,7 +152,8 @@ namespace nk::mem {
     }
 
     void MemorySystem::update_allocator(mem::Allocator* allocator, cstr file,
-                                        u32 line, u64 size_bytes, AllocationType allocation_type) {
+                                        u32 line, void* data, u64 size_bytes,
+                                        AllocationType allocation_type) {
         auto& memory_system_info = get_memory_system_info();
 
         if (allocator->m_key >= memory_system_info.allocations.size())
@@ -145,15 +163,40 @@ namespace nk::mem {
         value.size_bytes = allocator->get_size_bytes();
         value.used_bytes = allocator->get_used_bytes();
         value.allocation_count = allocator->get_allocation_count();
-        value.allocator_log.push_back({
-            .size_bytes = size_bytes,
-            .file = file,
-            .line = line,
-            .type = allocation_type,
-        });
+
+        if (allocation_type == AllocationType::Allocate) {
+            auto [it, emplaced] = value.allocator_log.try_emplace(data, AllocatorInfo {
+                .allocated = {
+                    .size_bytes = size_bytes,
+                    .file = file,
+                    .line = line,
+                },
+                .freed = {
+                    .size_bytes = 0,
+                },
+            });
+
+            if (emplaced)
+                return;
+
+            it->second.allocated = AllocationInfo {
+                .size_bytes = size_bytes,
+                .file = file,
+                .line = line,
+            };
+        } else if (allocation_type == AllocationType::Free) {
+            auto it = value.allocator_log.find(data);
+            if (it != value.allocator_log.end()) {
+                it->second.freed = FreeInfo {
+                    .size_bytes = size_bytes,
+                    .file = file,
+                    .line = line,
+                };
+            }
+        }
     }
 
-    void MemorySystem::native_allocation(cstr file, u32 line, u64 size_bytes,
+    void MemorySystem::native_allocation(cstr file, u32 line, void* data, u64 size_bytes,
                                          AllocationType allocation_type) {
         auto& memory_system_info = get_memory_system_info();
         auto& value = memory_system_info.allocations.at(0);
@@ -162,112 +205,123 @@ namespace nk::mem {
             value.size_bytes += size_bytes;
             value.used_bytes += size_bytes;
             value.allocation_count++;
-        } else {
+
+            auto [it, emplaced] = value.allocator_log.try_emplace(data, AllocatorInfo {
+                .allocated = {
+                    .size_bytes = size_bytes,
+                    .file = file,
+                    .line = line,
+                },
+                .freed = {
+                    .size_bytes = 0,
+                },
+            });
+
+            if (emplaced)
+                return;
+
+            it->second.allocated = AllocationInfo {
+                .size_bytes = size_bytes,
+                .file = file,
+                .line = line,
+            };
+        } else if (allocation_type == AllocationType::Free) {
             value.size_bytes -= size_bytes;
             value.used_bytes -= size_bytes;
             value.allocation_count--;
-        }
 
-        value.allocator_log.push_back({
-            .size_bytes = size_bytes,
-            .file = file,
-            .line = line,
-            .type = allocation_type,
-        });
+            auto it = value.allocator_log.find(data);
+            if (it != value.allocator_log.end()) {
+                it->second.freed = FreeInfo {
+                    .size_bytes = size_bytes,
+                    .file = file,
+                    .line = line,
+                };
+            }
+        }
     }
 
     void MemorySystem::log_report(bool detailed) {
         auto& instance = get();
-
-        u64 total_allocated = 0;
-        u64 total_freed = 0;
-
-        std::vector<u64> types(MemoryType::max() * 3, 0);
-
-        std::string details;
-        bool there_are_details = false;
-
         auto& memory_system_info = get_memory_system_info();
 
-        instance.log_title("\n\nGeneral Memory Usage:\n");
-        for (const AllocationStats& stats :
-             memory_system_info.allocations) {
-            instance.log_text(
-                "Name: {}\n"
-                "Allocator: {}\n"
-                "Type: {}\n"
-                "Memory: {}\n"
-                "Allocation Count: {}\n",
-                stats.name,
-                stats.allocator,
-                MemoryType::to_cstr(stats.type),
-                memory_in_bytes(stats.size_bytes, stats.used_bytes),
-                stats.allocation_count);
+        instance.log_title("nk::MemorySystem Report");
 
-            if (detailed) {
-                if (stats.allocator_log.empty()) {
-                    continue;
-                }
+        for (const auto& stats : memory_system_info.allocations) {
+            std::string header = std::format("[Allocator: {}] ({})", stats.name, stats.allocator);
+            instance.log_info(header.c_str());
 
-                details += std::format("- {}:\n", stats.name);
-                for (const auto& log : stats.allocator_log) {
-                    std::string type_str;
-                    switch (log.type) {
-                        case AllocationType::Init:
-                            type_str = "Init";
-                            types[stats.type] += log.size_bytes;
-                            total_allocated += log.size_bytes;
-                            break;
-                        case AllocationType::Allocate:
-                            types[stats.type + (2 * MemoryType::max())] += 1;
-                            types[stats.type] += log.size_bytes;
-                            total_allocated += log.size_bytes;
-                            type_str = "Allocate";
-                            break;
-                        case AllocationType::Free:
-                            types[stats.type + MemoryType::max()] += log.size_bytes;
-                            total_freed += log.size_bytes;
-                            type_str = "Free";
-                            break;
+            if (stats.type != MemoryType::Native) {
+                std::string init_info = std::format("  - Initialized at: {}:{} with size {}",
+                                                    stats.init.file,
+                                                    stats.init.line,
+                                                    memory_in_bytes(stats.init.size_bytes));
+                instance.log_info(init_info.c_str());
+            }
+
+            std::string usage_info;
+            if (stats.type == MemoryType::Native) {
+                usage_info = std::format("  - Usage: {}, {} allocations",
+                                        memory_in_bytes(stats.used_bytes),
+                                        stats.allocation_count);
+            } else {
+                usage_info = std::format("  - Usage: {}, {} allocations",
+                                        memory_in_bytes(stats.used_bytes, stats.size_bytes),
+                                        stats.allocation_count);
+            }
+            instance.log_info(usage_info.c_str());
+
+            u64 leak_count = 0;
+            u64 leaked_bytes = 0;
+
+            for (const auto& [address, info] : stats.allocator_log) {
+                if (info.freed.size_bytes == 0) {
+                    leak_count++;
+                    leaked_bytes += info.allocated.size_bytes;
+                    if (detailed) {
+                        std::string leak_msg = std::format("  [LEAK] {} allocated at {}:{} was never freed. Address: {}",
+                                                        memory_in_bytes(info.allocated.size_bytes),
+                                                        info.allocated.file,
+                                                        info.allocated.line,
+                                                        address);
+                        instance.log_error(leak_msg.c_str());
                     }
-                    details += std::format(
-                        "    {}: {} ({}:{})\n",
-                        type_str,
-                        memory_in_bytes(log.size_bytes),
-                        log.file,
-                        log.line);
+                } else if (info.freed.size_bytes != info.allocated.size_bytes) {
+                    std::string partial_free_msg = std::format("  [WARN] Mismatch at Address: {}. Allocated {}, but freed {}.",
+                                                            address,
+                                                            memory_in_bytes(info.allocated.size_bytes),
+                                                            memory_in_bytes(info.freed.size_bytes));
+                    instance.log_warn(partial_free_msg.c_str());
+                    if (detailed) {
+                        std::string alloc_details = std::format("    - Allocated at: {}:{}", info.allocated.file, info.allocated.line);
+                        instance.log_info(alloc_details.c_str());
+                        std::string free_details = std::format("    - Freed at: {}:{}", info.freed.file, info.freed.line);
+                        instance.log_info(free_details.c_str());
+                    }
+                } else {
+                    if (detailed) {
+                        std::string ok_msg = std::format("  [OK] {} at Address: {}",
+                                                        memory_in_bytes(info.allocated.size_bytes),
+                                                        address);
+                        instance.log_trace(ok_msg.c_str());
+                        std::string alloc_details = std::format("    - Allocated at: {}:{}", info.allocated.file, info.allocated.line);
+                        instance.log_trace(alloc_details.c_str());
+                        std::string free_details = std::format("    - Freed at: {}:{}", info.freed.file, info.freed.line);
+                        instance.log_trace(free_details.c_str());
+                    }
                 }
-                details += "\n";
-                there_are_details = true;
-            }
-        }
-
-        if (detailed && there_are_details) {
-            details += "Memory Types:\n\n";
-            details += std::format(
-                "{:<15} {:<15} {:<15} {:<15}\n",
-                "Types", "Allocated", "Freed", "Count");
-
-            for (u32 i = 0; i < MemoryType::max(); i++) {
-                details += std::format(
-                    "{:<15} {:<15} {:<15} {:<15}\n",
-                    MemoryType::to_cstr(i),
-                    memory_in_bytes(types[i]),
-                    memory_in_bytes(types[i + MemoryType::max()]),
-                    types[i + (2 * MemoryType::max())]);
             }
 
-            details += std::format("\n\nTotal Allocated: {}\n",
-                                   memory_in_bytes(total_allocated));
-            details += std::format("Total Freed: {}\n",
-                                   memory_in_bytes(total_freed));
-            details += std::format(
-                "\nCurrent Memory Usage: {}\n",
-                memory_in_bytes(total_allocated - total_freed));
-
-            instance.log_title("\n\nDetailed Memory Usage:\n");
-            instance.log_text(details);
+            if (leak_count > 0) {
+                std::string leak_summary = std::format("  - Leaks: {} leak(s) found, totalling {}.",
+                                                    leak_count,
+                                                    memory_in_bytes(leaked_bytes));
+                instance.log_error(leak_summary.c_str());
+            } else {
+                instance.log_info("  - Leaks: 0 leak(s) found.");
+            }
         }
+        instance.log_title("End of nk::MemorySystem Report");
     }
 
     std::string_view MemorySystem::get_allocator_name(Allocator* allocator) {

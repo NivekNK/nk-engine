@@ -63,13 +63,13 @@ namespace nk::mem {
 
     void* Allocator::_allocate_raw(cstr file, u32 line, const u64 size_bytes, const u64 alignment) {
         void* data = _allocate_raw(size_bytes, alignment);
-        mem::MemorySystem::update_allocator(this, file, line, size_bytes, mem::AllocationType::Allocate);
+        mem::MemorySystem::update_allocator(this, file, line, data, size_bytes, mem::AllocationType::Allocate);
         return data;
     }
 
     void Allocator::_free_raw(cstr file, u32 line, void* const data, const u64 size_bytes) {
+        mem::MemorySystem::update_allocator(this, file, line, data, size_bytes, mem::AllocationType::Free);
         _free_raw(data, size_bytes);
-        mem::MemorySystem::update_allocator(this, file, line, size_bytes, mem::AllocationType::Free);
     }
 
     std::string_view Allocator::_allocator_name() {
