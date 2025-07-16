@@ -19,7 +19,7 @@ namespace nk {
 
         static void run() { get().run_impl(); }
 
-        static void exit();
+        static void exit() { get().exit_impl(); }
 
         static Engine& get() {
             static Engine instance;
@@ -32,6 +32,7 @@ namespace nk {
         void init_impl();
         void shutdown_impl();
         void run_impl();
+        void exit_impl();
 
         bool update(f64 delta_time);
         bool render(f64 delta_time);

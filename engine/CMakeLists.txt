@@ -32,7 +32,6 @@ find_package(Vulkan REQUIRED)
 set(SOURCES
     src/core/entry_point.cpp
     src/core/os.cpp
-    src/core/app.cpp
     src/core/engine.cpp
     src/core/input.cpp
     src/core/clock.cpp
@@ -47,7 +46,6 @@ set(SOURCES
     src/renderer/vulkan/utils.cpp
     src/renderer/vulkan/instance.cpp
     src/renderer/vulkan/device.cpp
-    src/renderer/vulkan/swapchain.cpp
     src/renderer/vulkan/image.cpp
 )
 

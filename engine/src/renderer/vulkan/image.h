@@ -29,6 +29,11 @@ namespace nk {
         void init(const VulkanImageCreateInfo& create_info, Device* device, VkAllocationCallbacks* allocator);
         void shutdown();
 
+        void renew(const VulkanImageCreateInfo& create_info, Device* device, VkAllocationCallbacks* allocator) {
+            shutdown();
+            init(create_info, device, allocator);
+        }
+
         void create_view(VkImageAspectFlags aspect_flags);
 
         VkImageView get_view() const { return m_view; }

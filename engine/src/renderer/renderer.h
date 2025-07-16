@@ -17,7 +17,7 @@ namespace nk {
 
         bool draw_frame(const RenderPacket& packet);
 
-        virtual void on_resized(u32 with, u32 height) = 0;
+        virtual void on_resized(u32 width, u32 height) = 0;
     
     protected:
         virtual void init() = 0;

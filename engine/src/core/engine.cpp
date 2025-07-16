@@ -40,9 +40,8 @@ namespace nk {
         return false;
     }
 
-    void Engine::exit() {
-        Engine& instance = get();
-        instance.m_platform->close();
+    void Engine::exit_impl() {
+        m_platform->close();
     }
 
     void Engine::init_impl() {
@@ -127,7 +126,7 @@ namespace nk {
                     frame_count++;
                 }
 
-                InputSystem::get().update(delta);
+                InputSystem::update(delta);
 
                 // Update last time
                 m_last_time = current_time;

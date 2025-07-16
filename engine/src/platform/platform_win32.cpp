@@ -129,7 +129,7 @@ namespace nk {
                 PostQuitMessage(0);
                 return 0;
             case WM_CLOSE:
-                EventSystem::get().fire_event(SystemEventCode::ApplicationQuit, nullptr, EventContext{});
+                EventSystem::fire_event(SystemEventCode::ApplicationQuit, nullptr, EventContext{});
                 return 0;
             case WM_SIZE: {
                 // WINDOWPLACEMENT placement;
@@ -192,12 +192,12 @@ namespace nk {
                 //     default:
                 //         break;
                 // };
-                InputSystem::get().process_key(keycode, pressed);
+                InputSystem::process_key(keycode, pressed);
             } break;
             case WM_MOUSEMOVE: {
                 i16 x_position = GET_X_LPARAM(lparam);
                 i16 y_position = GET_Y_LPARAM(lparam);
-                InputSystem::get().process_mouse_move(x_position, y_position);
+                InputSystem::process_mouse_move(x_position, y_position);
             } break;
             case WM_MOUSEWHEEL: {
                 f32 z_delta = GET_WHEEL_DELTA_WPARAM(wparam);
@@ -205,26 +205,26 @@ namespace nk {
                     // Flatten the input to an OS-independent (-1, 1)
                     // z_delta /= 120.0f;
                     i8 z_delta_normalized = z_delta < 0 ? -1 : 1;
-                    InputSystem::get().process_mouse_wheel(z_delta_normalized);
+                    InputSystem::process_mouse_wheel(z_delta_normalized);
                 }
             } break;
             case WM_LBUTTONDOWN: {
-                InputSystem::get().process_mouse_button(MouseButton::Left, true);
+                InputSystem::process_mouse_button(MouseButton::Left, true);
             } break;
             case WM_MBUTTONDOWN: {
-                InputSystem::get().process_mouse_button(MouseButton::Middle, true);
+                InputSystem::process_mouse_button(MouseButton::Middle, true);
             } break;
             case WM_RBUTTONDOWN: {
-                InputSystem::get().process_mouse_button(MouseButton::Right, true);
+                InputSystem::process_mouse_button(MouseButton::Right, true);
             } break;
             case WM_LBUTTONUP: {
-                InputSystem::get().process_mouse_button(MouseButton::Left, false);
+                InputSystem::process_mouse_button(MouseButton::Left, false);
             } break;
             case WM_MBUTTONUP: {
-                InputSystem::get().process_mouse_button(MouseButton::Middle, false);
+                InputSystem::process_mouse_button(MouseButton::Middle, false);
             } break;
             case WM_RBUTTONUP: {
-                InputSystem::get().process_mouse_button(MouseButton::Right, false);
+                InputSystem::process_mouse_button(MouseButton::Right, false);
             } break;
         }
 

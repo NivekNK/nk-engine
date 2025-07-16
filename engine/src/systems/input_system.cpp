@@ -47,12 +47,12 @@ namespace nk {
         out_y = m_previous_mouse_state.y;
     }
 
-    void InputSystem::update(f64 delta_time) {
+    void InputSystem::update_impl(f64 delta_time) {
         memcpy(&m_previous_keyboard_state, &m_current_keyboard_state, sizeof(KeyboardState));
         memcpy(&m_previous_mouse_state, &m_current_mouse_state, sizeof(MouseState));
     }
 
-    void InputSystem::process_key(KeyCodeFlag keycode, bool pressed) {
+    void InputSystem::process_key_impl(KeyCodeFlag keycode, bool pressed) {
         if (m_current_keyboard_state.keys[keycode] == pressed)
             return;
 
@@ -64,7 +64,7 @@ namespace nk {
         EventSystem::fire_event(code, nullptr, context);
     }
 
-    void InputSystem::process_mouse_button(MouseButton button, bool pressed) {
+    void InputSystem::process_mouse_button_impl(MouseButton button, bool pressed) {
         const u8 button_value = static_cast<u8>(button);
 
         if (m_current_mouse_state.buttons[button_value] == pressed)
@@ -78,7 +78,7 @@ namespace nk {
         EventSystem::fire_event(code, nullptr, context);
     }
 
-    void InputSystem::process_mouse_move(i16 x, i16 y) {
+    void InputSystem::process_mouse_move_impl(i16 x, i16 y) {
         if (m_current_mouse_state.x == x && m_current_mouse_state.y == y)
             return;
 
@@ -91,7 +91,7 @@ namespace nk {
         EventSystem::fire_event(SystemEventCode::MouseMoved, nullptr, context);
     }
 
-    void InputSystem::process_mouse_wheel(i8 z_delta) {
+    void InputSystem::process_mouse_wheel_impl(i8 z_delta) {
         EventContext context;
         context.data.i8[0] = z_delta;
         EventSystem::fire_event(SystemEventCode::MouseWheel, nullptr, context);

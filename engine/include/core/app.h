@@ -16,10 +16,11 @@ namespace nk {
     public:
         const ApplicationConfig initial_config;
 
-        virtual ~App();
+        virtual ~App() {}
 
     protected:
-        App(ApplicationConfig config);
+        App(ApplicationConfig config)
+            : initial_config{config} {}
 
         virtual bool update(f64 delta_time) { return true; }
         virtual bool render(f64 delta_time) { return true; }
