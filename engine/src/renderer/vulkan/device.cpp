@@ -425,8 +425,8 @@ namespace nk {
 
         internal_query_swapchain_support_info(out_swapchain_support_info, physical_device, surface);
         if (out_swapchain_support_info->formats.empty() || out_swapchain_support_info->present_modes.empty()) {
-            out_swapchain_support_info->formats.reset();
-            out_swapchain_support_info->present_modes.reset();
+            out_swapchain_support_info->formats.dyarr_reset();
+            out_swapchain_support_info->present_modes.dyarr_reset();
             DebugLog("Required swapchain support not present, skipping device {}.", properties.deviceName);
             return false;
         }
@@ -449,8 +449,8 @@ namespace nk {
             if (!found_extension) {
                 DebugLog("Required extension not found: '{}', skipping device {}.", requirements.extensions[i], properties.deviceName);
                 allocator->free_lot_t(VkExtensionProperties, available_extensions_properties, available_extension_count);
-                out_swapchain_support_info->formats.reset();
-                out_swapchain_support_info->present_modes.reset();
+                out_swapchain_support_info->formats.dyarr_reset();
+                out_swapchain_support_info->present_modes.dyarr_reset();
                 return false;
             }
         }
@@ -479,7 +479,7 @@ namespace nk {
                 &format_count,
                 out_swapchain_support_info->formats.data()));
         } else {
-            out_swapchain_support_info->formats.reset();
+            out_swapchain_support_info->formats.dyarr_reset();
         }
 
         // Present modes
@@ -495,7 +495,7 @@ namespace nk {
                 &present_mode_count,
                 out_swapchain_support_info->present_modes.data()));
         } else {
-            out_swapchain_support_info->present_modes.reset();
+            out_swapchain_support_info->present_modes.dyarr_reset();
         }
     }
 }

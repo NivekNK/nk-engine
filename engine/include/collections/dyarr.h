@@ -75,12 +75,6 @@ namespace nk::cl {
         void _dyarr_shutdown(cstr file, u32 line);
 #endif
 
-        T& dyarr_first();
-        const T& dyarr_first() const;
-
-        T& dyarr_last();
-        const T& dyarr_last() const;
-
         void _dyarr_push(T& value);
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         void _dyarr_push(cstr file, u32 line, T& value);
@@ -120,7 +114,13 @@ namespace nk::cl {
         void _dyarr_resize(cstr file, u32 line, u64 length);
 #endif
 
-        void reset() { m_length = 0; }
+        void dyarr_reset() { m_length = 0; }
+
+        T& dyarr_first();
+        const T& dyarr_first() const;
+
+        T& dyarr_last();
+        const T& dyarr_last() const;
 
         std::optional<T> dyarr_pop();
         std::optional<T> dyarr_remove(u64 index);
@@ -462,30 +462,6 @@ namespace nk::cl {
 #endif
 
     template <IArrT T>
-    T& dyarr<T>::dyarr_first() {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
-        return m_data[0];
-    }
-
-    template <IArrT T>
-    const T& dyarr<T>::dyarr_first() const {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
-        return m_data[0];
-    }
-
-    template <IArrT T>
-    T& dyarr<T>::dyarr_last() {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
-        return m_data[m_length - 1];
-    }
-
-    template <IArrT T>
-    const T& dyarr<T>::dyarr_last() const {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
-        return m_data[m_length - 1];
-    }
-
-    template <IArrT T>
     void dyarr<T>::_dyarr_push(T& value) {
         if (m_length >= m_capacity)
             grow(m_capacity);
@@ -683,6 +659,30 @@ namespace nk::cl {
         m_length--;
 
         return std::move(value);
+    }
+
+    template <IArrT T>
+    T& dyarr<T>::dyarr_first() {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
+        return m_data[0];
+    }
+
+    template <IArrT T>
+    const T& dyarr<T>::dyarr_first() const {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
+        return m_data[0];
+    }
+
+    template <IArrT T>
+    T& dyarr<T>::dyarr_last() {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
+        return m_data[m_length - 1];
+    }
+
+    template <IArrT T>
+    const T& dyarr<T>::dyarr_last() const {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
+        return m_data[m_length - 1];
     }
 
     template <IArrT T>

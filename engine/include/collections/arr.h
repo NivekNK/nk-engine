@@ -65,11 +65,11 @@ namespace nk::cl {
         void _arr_shutdown(cstr file, u32 line);
 #endif
 
-        T& first();
-        const T& first() const;
+        T& arr_first();
+        const T& arr_first() const;
 
-        T& last();
-        const T& last() const;
+        T& arr_last();
+        const T& arr_last() const;
 
         T* data() { return m_data; }
         u64 length() const { return m_length; }
@@ -424,6 +424,8 @@ namespace nk::cl {
 
     template <IArrT T>
     void arr<T>::_arr_shutdown() {
+        _arr_clear();
+
         if (m_own_allocator)
             native_deconstruct(mem::Allocator, m_allocator);
 
@@ -436,6 +438,8 @@ namespace nk::cl {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
     template <IArrT T>
     void arr<T>::_arr_shutdown(cstr file, u32 line) {
+        _arr_clear(file, line);
+
         if (m_own_allocator)
             os::_native_deconstruct<mem::Allocator>(file, line, m_allocator);
 
@@ -447,25 +451,25 @@ namespace nk::cl {
 #endif
 
     template <IArrT T>
-    T& arr<T>::first() {
+    T& arr<T>::arr_first() {
         Assert(m_length > 0);
         return m_data[0];
     }
 
     template <IArrT T>
-    const T& arr<T>::first() const {
+    const T& arr<T>::arr_first() const {
         Assert(m_length > 0);
         return m_data[0];
     }
 
     template <IArrT T>
-    T& arr<T>::last() {
+    T& arr<T>::arr_last() {
         Assert(m_length > 0);
         return m_data[m_length - 1];
     }
 
     template <IArrT T>
-    const T& arr<T>::last() const {
+    const T& arr<T>::arr_last() const {
         Assert(m_length > 0);
         return m_data[m_length - 1];
     }
