@@ -36,6 +36,7 @@ namespace nk {
 
         bool update(f64 delta_time);
         bool render(f64 delta_time);
+        bool resize(u32 width, u32 height);
 
         mem::Allocator* m_allocator;
         App* m_app;
@@ -44,5 +45,7 @@ namespace nk {
 
         Clock m_clock;
         f64 m_last_time;
+
+        friend bool on_resized(SystemEventCode, void*, void*, EventContext);
     };
 }

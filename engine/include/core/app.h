@@ -24,6 +24,7 @@ namespace nk {
 
         virtual bool update(f64 delta_time) { return true; }
         virtual bool render(f64 delta_time) { return true; }
+        virtual void on_resized(u32 width, u32 height) {}
         
     private:
         static App* create(mem::Allocator* allocator);

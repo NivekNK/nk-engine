@@ -132,12 +132,22 @@ namespace nk {
                 EventSystem::fire_event(SystemEventCode::ApplicationQuit, nullptr, EventContext{});
                 return 0;
             case WM_SIZE: {
-                // WINDOWPLACEMENT placement;
-                // placement.length = sizeof(WINDOWPLACEMENT);
-                // GetWindowPlacement(hwnd, &placement);
-                // u16 width = placement.rcNormalPosition.right - placement.rcNormalPosition.left;
-                // u16 height = placement.rcNormalPosition.bottom - placement.rcNormalPosition.top;
-                // EventSystem::get().window_resize.invoke(width, height);
+                WINDOWPLACEMENT placement;
+                placement.length = sizeof(WINDOWPLACEMENT);
+                GetWindowPlacement(hwnd, &placement);
+
+                u32 width = 0;
+                u32 height = 0;
+
+                if (placement.showCmd != SW_SHOWMINIMIZED) {
+                    width = LOWORD(lparam);
+                    height = HIWORD(lparam);
+                }
+
+                EventContext context;
+                context.data.u32[0] = width;
+                context.data.u32[1] = height;
+                EventSystem::fire_event(SystemEventCode::Resized, nullptr, context);
             } break;
             case WM_ACTIVATEAPP: {
                 // if (wparam) {

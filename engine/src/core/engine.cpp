@@ -40,6 +40,17 @@ namespace nk {
         return false;
     }
 
+    bool on_resized(SystemEventCode code, void* sender, void* listener, EventContext context) {
+        if (code != SystemEventCode::Resized)
+            return false;
+
+        const u32 width = context.data.u32[0];
+        const u32 height = context.data.u32[1];
+
+        Engine& engine = Engine::get();
+        return engine.resize(width, height);
+    }
+
     void Engine::exit_impl() {
         m_platform->close();
     }
@@ -54,15 +65,17 @@ namespace nk {
 
         m_clock.init(m_platform);
 
-        EventSystem::get().register_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
-        EventSystem::get().register_event(SystemEventCode::KeyPressed, nullptr, on_key);
-        EventSystem::get().register_event(SystemEventCode::KeyReleased, nullptr, on_key);
+        EventSystem::register_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
+        EventSystem::register_event(SystemEventCode::KeyPressed, nullptr, on_key);
+        EventSystem::register_event(SystemEventCode::KeyReleased, nullptr, on_key);
+        EventSystem::register_event(SystemEventCode::Resized, nullptr, on_resized);
     }
 
     void Engine::shutdown_impl() {
-        EventSystem::get().unregister_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
-        EventSystem::get().unregister_event(SystemEventCode::KeyPressed, nullptr, on_key);
-        EventSystem::get().unregister_event(SystemEventCode::KeyReleased, nullptr, on_key);
+        EventSystem::unregister_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
+        EventSystem::unregister_event(SystemEventCode::KeyPressed, nullptr, on_key);
+        EventSystem::unregister_event(SystemEventCode::KeyReleased, nullptr, on_key);
+        EventSystem::unregister_event(SystemEventCode::Resized, nullptr, on_resized);
 
         Renderer::destroy(m_allocator, m_renderer);
         Platform::destroy(m_allocator, m_platform);
@@ -142,5 +155,24 @@ namespace nk {
 
     bool Engine::render(f64 delta_time) {
         return m_app->render(delta_time);
+    }
+
+    bool Engine::resize(u32 width, u32 height) {
+        if (width != m_platform->width() || height != m_platform->height()) {
+            m_platform->on_resized(width, height);
+            if (width == 0 || height == 0) {
+                InfoLog("nk::Engine::on_resized Window minimized, suspending application.");
+                m_platform->set_suspended(true);
+            } else {
+                if (m_platform->suspended()) {
+                    InfoLog("nk::Engine::on_resized Window restored, resuming application.");
+                    m_platform->set_suspended(false);
+                }
+                m_app->on_resized(width, height);
+                m_renderer->on_resized(width, height);
+            }
+            return true;
+        }
+        return false;
     }
 }

@@ -4,6 +4,7 @@
 
 namespace nk {
     void VulkanRenderer::on_resized(u32 width, u32 height) {
+        DebugLog("nk::VulkanRenderer::on_resized: {}, {}", width, height);
     }
 
     void VulkanRenderer::init() {
