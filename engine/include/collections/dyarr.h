@@ -40,9 +40,19 @@ namespace nk::cl {
         void _dyarr_init(cstr file, u32 line, mem::Allocator* allocator, u64 capacity);
 #endif
 
+        void _dyarr_init_len(mem::Allocator* allocator, u64 capacity, u64 length);
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+        void _dyarr_init_len(cstr file, u32 line, mem::Allocator* allocator, u64 capacity, u64 length);
+#endif
+
         void _dyarr_init_own(mem::Allocator* allocator, u64 capacity);
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         void _dyarr_init_own(cstr file, u32 line, mem::Allocator* allocator, u64 capacity);
+#endif
+
+        void _dyarr_init_own_len(mem::Allocator* allocator, u64 capacity, u64 length);
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+        void _dyarr_init_own_len(cstr file, u32 line, mem::Allocator* allocator, u64 capacity, u64 length);
 #endif
 
         void _dyarr_init_list(mem::Allocator* allocator, std::initializer_list<T> list);
@@ -74,6 +84,12 @@ namespace nk::cl {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         void _dyarr_shutdown(cstr file, u32 line);
 #endif
+
+        T& dyarr_first();
+        const T& dyarr_first() const;
+
+        T& dyarr_last();
+        const T& dyarr_last() const;
 
         void _dyarr_push(T& value);
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
@@ -115,12 +131,6 @@ namespace nk::cl {
 #endif
 
         void dyarr_reset() { m_length = 0; }
-
-        T& dyarr_first();
-        const T& dyarr_first() const;
-
-        T& dyarr_last();
-        const T& dyarr_last() const;
 
         std::optional<T> dyarr_pop();
         std::optional<T> dyarr_remove(u64 index);
@@ -275,6 +285,24 @@ namespace nk::cl {
 #endif
 
     template <IArrT T>
+    void dyarr<T>::_dyarr_init_len(mem::Allocator* allocator, u64 capacity, u64 length) {
+        Assert(allocator != nullptr);
+        m_allocator = allocator;
+        grow(capacity);
+        m_length = length;
+    }
+
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+    template <IArrT T>
+    void dyarr<T>::_dyarr_init_len(cstr file, u32 line, mem::Allocator* allocator, u64 capacity, u64 length) {
+        Assert(allocator != nullptr);
+        m_allocator = allocator;
+        grow(file, line, capacity);
+        m_length = length;
+    }
+#endif
+
+    template <IArrT T>
     void dyarr<T>::_dyarr_init_own(mem::Allocator* allocator, u64 capacity) {
         Assert(allocator != nullptr);
         m_allocator = allocator;
@@ -289,6 +317,26 @@ namespace nk::cl {
         m_allocator = allocator;
         m_own_allocator = true;
         grow(file, line, capacity);
+    }
+#endif
+
+    template <IArrT T>
+    void dyarr<T>::_dyarr_init_own_len(mem::Allocator* allocator, u64 capacity, u64 length) {
+        Assert(allocator != nullptr);
+        m_allocator = allocator;
+        m_own_allocator = true;
+        grow(capacity);
+        m_length = length;
+    }
+
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+    template <IArrT T>
+    void dyarr<T>::_dyarr_init_own_len(cstr file, u32 line, mem::Allocator* allocator, u64 capacity, u64 length) {
+        Assert(allocator != nullptr);
+        m_allocator = allocator;
+        m_own_allocator = true;
+        grow(file, line, capacity);
+        m_length = length;
     }
 #endif
 
@@ -462,6 +510,30 @@ namespace nk::cl {
 #endif
 
     template <IArrT T>
+    T& dyarr<T>::dyarr_first() {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
+        return m_data[0];
+    }
+
+    template <IArrT T>
+    const T& dyarr<T>::dyarr_first() const {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
+        return m_data[0];
+    }
+
+    template <IArrT T>
+    T& dyarr<T>::dyarr_last() {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
+        return m_data[m_length - 1];
+    }
+
+    template <IArrT T>
+    const T& dyarr<T>::dyarr_last() const {
+        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
+        return m_data[m_length - 1];
+    }
+
+    template <IArrT T>
     void dyarr<T>::_dyarr_push(T& value) {
         if (m_length >= m_capacity)
             grow(m_capacity);
@@ -624,6 +696,13 @@ namespace nk::cl {
         if (length >= m_capacity)
             grow(length);
 
+        if constexpr (std::is_class_v<T>) {
+            if (m_length > length) {
+                for (u64 i = length; i < m_length; i++) {
+                    m_data[i].~T();
+                }
+            }
+        }
         m_length = length;
     }
 
@@ -633,6 +712,13 @@ namespace nk::cl {
         if (length >= m_capacity)
             grow(file, line, length);
 
+        if constexpr (std::is_class_v<T>) {
+            if (m_length > length) {
+                for (u64 i = length; i < m_length; i++) {
+                    m_data[i].~T();
+                }
+            }
+        }
         m_length = length;
     }
 #endif
@@ -659,30 +745,6 @@ namespace nk::cl {
         m_length--;
 
         return std::move(value);
-    }
-
-    template <IArrT T>
-    T& dyarr<T>::dyarr_first() {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
-        return m_data[0];
-    }
-
-    template <IArrT T>
-    const T& dyarr<T>::dyarr_first() const {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_first Array is empty!");
-        return m_data[0];
-    }
-
-    template <IArrT T>
-    T& dyarr<T>::dyarr_last() {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
-        return m_data[m_length - 1];
-    }
-
-    template <IArrT T>
-    const T& dyarr<T>::dyarr_last() const {
-        Assert(m_length > 0, "nk::cl::dyarr::dyarr_last Array is empty!");
-        return m_data[m_length - 1];
     }
 
     template <IArrT T>
@@ -740,8 +802,14 @@ namespace nk::cl {
     #define dyarr_init(allocator, capacity) \
         _dyarr_init(__FILE__, __LINE__, (allocator), (capacity))
 
+    #define dyarr_init_len(allocator, capacity, length) \
+        _dyarr_init_len(__FILE__, __LINE__, (allocator), (capacity), (length))
+
     #define dyarr_init_own(allocator, capacity) \
         _dyarr_init_own(__FILE__, __LINE__, (allocator), (capacity))
+
+    #define dyarr_init_own_len(allocator, capacity, length) \
+        _dyarr_init_own_len(__FILE__, __LINE__, (allocator), (capacity), (length))
 
     #define dyarr_init_list(allocator, ...) \
         _dyarr_init_list(__FILE__, __LINE__, (allocator), __VA_ARGS__)
@@ -784,8 +852,14 @@ namespace nk::cl {
     #define dyarr_init(allocator, capacity) \
         _dyarr_init((allocator), (capacity))
 
+    #define dyarr_init_len(allocator, capacity, length) \
+        _dyarr_init((allocator), (capacity), (length))
+
     #define dyarr_init_own(allocator, capacity) \
         _dyarr_init_own((allocator), (capacity))
+
+    #define dyarr_init_own_len(allocator, capacity, length) \
+        _dyarr_init_own((allocator), (capacity), (length))
 
     #define dyarr_init_list(allocator, ...) \
         _dyarr_init_list((allocator), __VA_ARGS__)

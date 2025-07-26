@@ -54,7 +54,7 @@ namespace nk {
 
         VkSurfaceKHR get_surface() { return m_surface; }
         const PhysicalDeviceQueueFamilyInfo& get_queue_family_info() const { return m_queue_family_info; }
-        const VkFormat get_depth_format() const { return m_depth_format; }
+        VkFormat get_depth_format() const { return m_depth_format; }
 
         VkDevice get() { return m_logical_device; }
         VkDevice operator()() { return m_logical_device; }
