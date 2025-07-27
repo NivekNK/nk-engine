@@ -94,7 +94,8 @@ namespace nk {
         dependency.dependencyFlags = 0;
 
         // Render pass create.
-        VkRenderPassCreateInfo render_pass_create_info = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+        VkRenderPassCreateInfo render_pass_create_info = {};
+        render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         render_pass_create_info.attachmentCount = attachment_description_count;
         render_pass_create_info.pAttachments = attachment_descriptions;
         render_pass_create_info.subpassCount = 1;
