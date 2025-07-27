@@ -24,9 +24,22 @@ namespace nk {
             &m_device,
             m_allocator,
             m_vulkan_allocator);
+
+        // clang-format off
+        m_main_render_pass.init(
+            {
+                .render_area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
+                .clear_color = {1.0f, 0.0f, 0.45f, 1.0f},
+                .depth = 1.0f,
+                .stencil = 0,
+            },
+            m_swapchain, &m_device, m_vulkan_allocator
+        );
+        // clang-format on
     }
 
     void VulkanRenderer::shutdown() {
+        m_main_render_pass.shutdown();
         m_swapchain.shutdown();
         m_device.shutdown();
         m_instance.shutdown();

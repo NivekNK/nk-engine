@@ -5,6 +5,7 @@
 #include "vulkan/instance.h"
 #include "vulkan/device.h"
 #include "vulkan/swapchain.h"
+#include "vulkan/render_pass.h"
 
 namespace nk {
     class VulkanRenderer : public Renderer {
@@ -24,6 +25,7 @@ namespace nk {
         Instance m_instance;
         Device m_device;
         Swapchain m_swapchain;
+        RenderPass m_main_render_pass;
 
         u32 m_framebuffer_width;
         u32 m_framebuffer_height;

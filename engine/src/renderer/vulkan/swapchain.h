@@ -20,6 +20,18 @@ namespace nk {
         void init(u32& width, u32& height, u32* current_frame, Device* device, mem::Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
+        VkSurfaceFormatKHR get_image_format() const { return m_image_format; }
+        u32 get_image_count() const { return m_image_count; }
+        VkImageView get_image_view_at(u32 index) {
+            if (index >= m_image_count) {
+                ErrorLog("nk::Swapchain::get_image_view_at Index '{}' out of bounds!", index);
+                return nullptr;
+            }
+            return m_views[index];
+        }
+        Image* get_depth_attachment() { return &m_depth_attachment; }
+        u8 get_max_frames_in_flight() const { return m_max_frames_in_flight; }
+
     private:
         void create_swapchain(u32& width, u32& height);
         void destroy_swapchain();
