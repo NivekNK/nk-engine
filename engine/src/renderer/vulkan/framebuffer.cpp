@@ -48,7 +48,6 @@ namespace nk {
                            cl::arr<VkImageView>& attachments,
                            Device* device,
                            RenderPass& render_pass,
-                           mem::Allocator* allocator,
                            VkAllocationCallbacks* vulkan_allocator) {
         m_width = width;
         m_height = height;
@@ -57,7 +56,8 @@ namespace nk {
         m_vulkan_allocator = vulkan_allocator;
 
         // Creation info
-        VkFramebufferCreateInfo framebuffer_create_info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        VkFramebufferCreateInfo framebuffer_create_info = {};
+        framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebuffer_create_info.renderPass = render_pass;
         framebuffer_create_info.attachmentCount = m_attachments.length();
         framebuffer_create_info.pAttachments = m_attachments.data();
@@ -84,9 +84,8 @@ namespace nk {
                             cl::arr<VkImageView>& attachments,
                             Device* device,
                             RenderPass& render_pass,
-                            mem::Allocator* allocator,
                             VkAllocationCallbacks* vulkan_allocator) {
         shutdown();
-        init(width, height, attachments, device, render_pass, allocator, vulkan_allocator);
+        init(width, height, attachments, device, render_pass, vulkan_allocator);
     }
 }

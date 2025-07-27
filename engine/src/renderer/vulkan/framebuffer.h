@@ -27,7 +27,6 @@ namespace nk {
                   cl::arr<VkImageView>& attachments,
                   Device* device,
                   RenderPass& render_pass,
-                  mem::Allocator* allocator,
                   VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
@@ -36,7 +35,6 @@ namespace nk {
                    cl::arr<VkImageView>& attachments,
                    Device* device,
                    RenderPass& render_pass,
-                   mem::Allocator* allocator,
                    VkAllocationCallbacks* vulkan_allocator);
 
         VkFramebuffer get() { return m_framebuffer; }
@@ -52,8 +50,8 @@ namespace nk {
         VkAllocationCallbacks* m_vulkan_allocator;
 
         VkFramebuffer m_framebuffer;
-        cl::arr<VkImageView> m_attachments;
         u32 m_width;
         u32 m_height;
+        cl::arr<VkImageView> m_attachments;
     };
 }

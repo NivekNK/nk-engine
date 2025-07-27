@@ -82,7 +82,6 @@ namespace nk {
                 attachments,
                 &m_device,
                 m_main_render_pass,
-                m_allocator,
                 m_vulkan_allocator);
         }
     }
