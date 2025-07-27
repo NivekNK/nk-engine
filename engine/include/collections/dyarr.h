@@ -758,6 +758,9 @@ namespace nk::cl {
         }
 
         T* data = m_allocator->allocate_lot_t(T, capacity);
+        if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T> || std::is_enum_v<T>) {
+            std::memset(data, 0, sizeof(T) * capacity);
+        }
 
         if (m_length > 0)
             mem::realocate_n(m_data, data, m_length);

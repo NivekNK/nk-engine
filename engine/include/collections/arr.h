@@ -202,12 +202,8 @@ namespace nk::cl {
         m_allocator = allocator;
         m_data = m_allocator->allocate_lot_t(T, m_length);
 
-        if constexpr (std::is_arithmetic_v<T>) {
+        if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T> || std::is_enum_v<T>) {
             std::memset(m_data, 0, sizeof(T) * m_length);
-        } else if constexpr (std::is_pointer_v<T>) {
-            std::memset(m_data, nullptr, sizeof(T) * m_length);
-        } else if constexpr (std::is_enum_v<T>) {
-            std::memset(m_data, static_cast<T>(0), sizeof(T) * m_length);
         }
 
         m_own_allocator = false;
@@ -222,11 +218,7 @@ namespace nk::cl {
         m_allocator = allocator;
         m_data = m_allocator->_allocate_lot_t<T>(file, line, m_length);
 
-        if constexpr (std::is_arithmetic_v<T>) {
-            std::memset(m_data, 0, sizeof(T) * m_length);
-        } else if constexpr (std::is_pointer_v<T>) {
-            std::memset(m_data, 0, sizeof(T) * m_length);
-        } else if constexpr (std::is_enum_v<T>) {
+        if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T> || std::is_enum_v<T>) {
             std::memset(m_data, 0, sizeof(T) * m_length);
         }
 
@@ -242,12 +234,8 @@ namespace nk::cl {
         m_allocator = allocator;
         m_data = m_allocator->allocate_lot_t(T, m_length);
 
-        if constexpr (std::is_arithmetic_v<T>) {
+        if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T> || std::is_enum_v<T>) {
             std::memset(m_data, 0, sizeof(T) * m_length);
-        } else if constexpr (std::is_pointer_v<T>) {
-            std::memset(m_data, nullptr, sizeof(T) * m_length);
-        } else if constexpr (std::is_enum_v<T>) {
-            std::memset(m_data, static_cast<T>(0), sizeof(T) * m_length);
         }
 
         m_own_allocator = true;
@@ -262,12 +250,8 @@ namespace nk::cl {
         m_allocator = allocator;
         m_data = m_allocator->_allocate_lot_t<T>(file, line, m_length);
 
-        if constexpr (std::is_arithmetic_v<T>) {
+        if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T> || std::is_enum_v<T>) {
             std::memset(m_data, 0, sizeof(T) * m_length);
-        } else if constexpr (std::is_pointer_v<T>) {
-            std::memset(m_data, nullptr, sizeof(T) * m_length);
-        } else if constexpr (std::is_enum_v<T>) {
-            std::memset(m_data, static_cast<T>(0), sizeof(T) * m_length);
         }
 
         m_own_allocator = true;
