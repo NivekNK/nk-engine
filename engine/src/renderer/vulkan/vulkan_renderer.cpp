@@ -38,12 +38,20 @@ namespace nk {
         // clang-format on
 
         const u32 image_count = m_swapchain.get_image_count();
+
         m_framebuffers.dyarr_init_len(m_allocator, image_count, image_count);
         recreate_framebuffers();
         InfoLog("Vulkan Framebuffers created ({}).", m_framebuffers.length());
+
+        m_graphics_command_buffers.dyarr_init_len(m_allocator, image_count, image_count);
+        recreate_command_buffers();
+        InfoLog("Vulkan Command Buffers created ({}).", m_graphics_command_buffers.length());
     }
 
     void VulkanRenderer::shutdown() {
+        m_graphics_command_buffers.dyarr_shutdown();
+        InfoLog("Vulkan Command Buffers shutdown.");
+
         m_framebuffers.dyarr_shutdown();
         InfoLog("Vulkan Framebuffers shutdown.");
 
@@ -83,6 +91,18 @@ namespace nk {
                 &m_device,
                 m_main_render_pass,
                 m_vulkan_allocator);
+        }
+    }
+
+    void VulkanRenderer::recreate_command_buffers() {
+        const u32 image_count = m_swapchain.get_image_count();
+
+        if (image_count != m_graphics_command_buffers.length()) {
+            m_graphics_command_buffers.dyarr_resize(image_count);
+        }
+
+        for (u32 i = 0; i < m_graphics_command_buffers.length(); i++) {
+            m_graphics_command_buffers[i].renew(m_device.get_graphics_command_pool(), &m_device, true, false);
         }
     }
 }

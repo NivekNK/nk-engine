@@ -8,6 +8,7 @@
 #include "vulkan/render_pass.h"
 #include "collections/dyarr.h"
 #include "vulkan/framebuffer.h"
+#include "vulkan/command_buffer.h"
 
 namespace nk {
     class VulkanRenderer : public Renderer {
@@ -24,6 +25,7 @@ namespace nk {
 
     private:
         void recreate_framebuffers();
+        void recreate_command_buffers();
 
         VkAllocationCallbacks* m_vulkan_allocator;
         Instance m_instance;
@@ -31,6 +33,7 @@ namespace nk {
         Swapchain m_swapchain;
         RenderPass m_main_render_pass;
         cl::dyarr<Framebuffer> m_framebuffers;
+        cl::dyarr<CommandBuffer> m_graphics_command_buffers;
 
         u32 m_framebuffer_width;
         u32 m_framebuffer_height;
