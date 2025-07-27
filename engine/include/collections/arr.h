@@ -64,12 +64,23 @@ namespace nk::cl {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         void _arr_shutdown(cstr file, u32 line);
 #endif
+        void _arr_shutdown(mem::Allocator* allocator);
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+        void _arr_shutdown(cstr file, u32 line, mem::Allocator* allocator);
+#endif
 
         T& first();
         const T& first() const;
 
         T& last();
         const T& last() const;
+
+        void arr_reset() {
+            m_data = nullptr;
+            m_length = 0;
+            m_allocator = nullptr;
+            m_own_allocator = false;
+        }
 
         T* data() { return m_data; }
         u64 length() const { return m_length; }
@@ -424,25 +435,43 @@ namespace nk::cl {
 
     template <IArrT T>
     void arr<T>::_arr_shutdown() {
+        if (m_length > 0)
+            _arr_clear();
+
         if (m_own_allocator)
             native_deconstruct(mem::Allocator, m_allocator);
 
-        m_data = nullptr;
-        m_length = 0;
-        m_allocator = nullptr;
-        m_own_allocator = false;
+        arr_reset();
     }
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
     template <IArrT T>
     void arr<T>::_arr_shutdown(cstr file, u32 line) {
+        if (m_length > 0)
+            _arr_clear(file, line);
+
         if (m_own_allocator)
             os::_native_deconstruct<mem::Allocator>(file, line, m_allocator);
 
-        m_data = nullptr;
-        m_length = 0;
-        m_allocator = nullptr;
-        m_own_allocator = false;
+        arr_reset();
+    }
+#endif
+
+    template <IArrT T>
+    void arr<T>::_arr_shutdown(mem::Allocator* allocator) {
+        if (m_length > 0)
+            _arr_clear(allocator);
+
+        arr_reset();
+    }
+
+#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+    template <IArrT T>
+    void arr<T>::_arr_shutdown(cstr file, u32 line, mem::Allocator* allocator) {
+        if (m_length > 0)
+            _arr_clear(file, line, allocator);
+
+        arr_reset();
     }
 #endif
 
@@ -494,6 +523,9 @@ namespace nk::cl {
     #define arr_shutdown() \
         _arr_shutdown(__FILE__, __LINE__)
 
+    #define arr_shutdown_allocator(allocator) \
+        _arr_shutdown(__FILE__, __LINE__, (allocator))
+
 #else
 
     #define arr_init(allocator, length) \
@@ -516,5 +548,8 @@ namespace nk::cl {
 
     #define arr_shutdown() \
         _arr_shutdown()
+
+    #define arr_shutdown_allocator(allocator) \
+        _arr_shutdown((allocator))
 
 #endif

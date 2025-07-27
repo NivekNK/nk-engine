@@ -6,6 +6,8 @@
 #include "vulkan/device.h"
 #include "vulkan/swapchain.h"
 #include "vulkan/render_pass.h"
+#include "collections/dyarr.h"
+#include "vulkan/framebuffer.h"
 
 namespace nk {
     class VulkanRenderer : public Renderer {
@@ -21,11 +23,14 @@ namespace nk {
         virtual bool end_frame(f64 delta_time) override;
 
     private:
+        void recreate_framebuffers();
+
         VkAllocationCallbacks* m_vulkan_allocator;
         Instance m_instance;
         Device m_device;
         Swapchain m_swapchain;
         RenderPass m_main_render_pass;
+        cl::dyarr<Framebuffer> m_framebuffers;
 
         u32 m_framebuffer_width;
         u32 m_framebuffer_height;
