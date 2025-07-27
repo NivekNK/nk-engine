@@ -46,9 +46,36 @@ namespace nk {
         m_graphics_command_buffers.dyarr_init_len(m_allocator, image_count, image_count);
         recreate_command_buffers();
         InfoLog("Vulkan Command Buffers created ({}).", m_graphics_command_buffers.length());
+
+        m_current_max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
+        m_image_available_semaphores.dyarr_init_len(m_allocator, m_current_max_frames_in_flight, m_current_max_frames_in_flight);
+        m_queue_complete_semaphores.dyarr_init_len(m_allocator, m_current_max_frames_in_flight, m_current_max_frames_in_flight);
+        m_in_flight_fences.dyarr_init_len(m_allocator, m_current_max_frames_in_flight, m_current_max_frames_in_flight);
+        m_images_in_flight.dyarr_init_len(m_allocator, image_count, image_count);
+        recreate_sync_objects();
+        InfoLog("Vulkan Sync Objects created.");
     }
 
     void VulkanRenderer::shutdown() {
+        const u64 max_frames_in_flight = MaxValue(
+            m_image_available_semaphores.capacity(),
+            m_queue_complete_semaphores.capacity());
+        VkSemaphore* image_available_semaphores = m_image_available_semaphores.data();
+        VkSemaphore* queue_complete_semaphores = m_queue_complete_semaphores.data();
+
+        for (u64 i = 0; i < max_frames_in_flight; i++) {
+            if (image_available_semaphores[i] != nullptr)
+                vkDestroySemaphore(m_device, image_available_semaphores[i], m_vulkan_allocator);
+            if (queue_complete_semaphores[i] != nullptr)
+                vkDestroySemaphore(m_device, queue_complete_semaphores[i], m_vulkan_allocator);
+        }
+
+        m_image_available_semaphores.dyarr_shutdown();
+        m_queue_complete_semaphores.dyarr_shutdown();
+        m_in_flight_fences.dyarr_shutdown();
+        m_images_in_flight.dyarr_shutdown();
+        InfoLog("Vulkan Sync Objects shutdown.");
+
         m_graphics_command_buffers.dyarr_shutdown();
         InfoLog("Vulkan Command Buffers shutdown.");
 
@@ -104,5 +131,37 @@ namespace nk {
         for (u32 i = 0; i < m_graphics_command_buffers.length(); i++) {
             m_graphics_command_buffers[i].renew(m_device.get_graphics_command_pool(), &m_device, true, false);
         }
+    }
+
+    void VulkanRenderer::recreate_sync_objects() {
+        const u8 max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
+
+        if (max_frames_in_flight != m_current_max_frames_in_flight) {
+            m_image_available_semaphores.dyarr_resize(max_frames_in_flight);
+            m_queue_complete_semaphores.dyarr_resize(max_frames_in_flight);
+            m_in_flight_fences.dyarr_resize(max_frames_in_flight);
+        }
+
+        for (u8 i = 0; i < max_frames_in_flight; i++) {
+            VkSemaphoreCreateInfo semaphore_create_info = {};
+            semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            if (m_image_available_semaphores[i] == nullptr)
+                vkCreateSemaphore(m_device, &semaphore_create_info, m_vulkan_allocator, &m_image_available_semaphores[i]);
+            if (m_queue_complete_semaphores[i] == nullptr)
+                vkCreateSemaphore(m_device, &semaphore_create_info, m_vulkan_allocator, &m_queue_complete_semaphores[i]);
+
+            // Create the fence in a signaled state, indicating that the first frame has already been "rendered".
+            // This will prevent the application from waiting indefinitely for the first frame to render since it
+            // cannot be rendered until a frame is "rendered" before it.
+            m_in_flight_fences[i].renew(true, &m_device, m_vulkan_allocator);
+        }
+
+        const u32 image_count = m_swapchain.get_image_count();
+        if (image_count != m_images_in_flight.length()) {
+            m_images_in_flight.dyarr_resize(image_count);
+        }
+        std::memset(m_images_in_flight.data(), 0, sizeof(Fence) * m_images_in_flight.length());
+
+        m_current_max_frames_in_flight = max_frames_in_flight;
     }
 }

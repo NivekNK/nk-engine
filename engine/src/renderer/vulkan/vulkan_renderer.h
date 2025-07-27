@@ -9,6 +9,7 @@
 #include "collections/dyarr.h"
 #include "vulkan/framebuffer.h"
 #include "vulkan/command_buffer.h"
+#include "vulkan/fence.h"
 
 namespace nk {
     class VulkanRenderer : public Renderer {
@@ -26,6 +27,7 @@ namespace nk {
     private:
         void recreate_framebuffers();
         void recreate_command_buffers();
+        void recreate_sync_objects();
 
         VkAllocationCallbacks* m_vulkan_allocator;
         Instance m_instance;
@@ -34,6 +36,12 @@ namespace nk {
         RenderPass m_main_render_pass;
         cl::dyarr<Framebuffer> m_framebuffers;
         cl::dyarr<CommandBuffer> m_graphics_command_buffers;
+
+        u8 m_current_max_frames_in_flight;
+        cl::dyarr<VkSemaphore> m_image_available_semaphores;
+        cl::dyarr<VkSemaphore> m_queue_complete_semaphores;
+        cl::dyarr<Fence> m_in_flight_fences;
+        cl::dyarr<Fence*> m_images_in_flight;
 
         u32 m_framebuffer_width;
         u32 m_framebuffer_height;
