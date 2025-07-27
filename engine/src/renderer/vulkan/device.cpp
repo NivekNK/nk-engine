@@ -296,7 +296,8 @@ namespace nk {
         VkPhysicalDeviceFeatures device_features = {};
         device_features.samplerAnisotropy = VK_TRUE; // Request anistrophy
 
-        VkDeviceCreateInfo device_create_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+        VkDeviceCreateInfo device_create_info = {};
+        device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         device_create_info.queueCreateInfoCount = unique_queue_family_count;
         device_create_info.pQueueCreateInfos = queue_create_infos;
         device_create_info.pEnabledFeatures = &device_features;
@@ -321,7 +322,8 @@ namespace nk {
     }
 
     void Device::create_command_pool() {
-        VkCommandPoolCreateInfo pool_create_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        VkCommandPoolCreateInfo pool_create_info = {};
+        pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         pool_create_info.queueFamilyIndex = m_queue_family_info.graphics_family_index;
         pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         VulkanCheck(vkCreateCommandPool(m_logical_device, &pool_create_info, m_vulkan_allocator, &m_graphics_command_pool));
@@ -338,10 +340,10 @@ namespace nk {
         const VkPhysicalDeviceFeatures& features,
         const PhysicalDeviceRequirements& requirements) {
         // Evaluate device properties to determine if it meets the needs of our application.
-        out_queue_family->graphics_family_index = -1;
-        out_queue_family->present_family_index = -1;
-        out_queue_family->compute_family_index = -1;
-        out_queue_family->transfer_family_index = -1;
+        out_queue_family->graphics_family_index = numeric::u32_max;
+        out_queue_family->present_family_index = numeric::u32_max;
+        out_queue_family->compute_family_index = numeric::u32_max;
+        out_queue_family->transfer_family_index = numeric::u32_max;
 
         // Check if discrete GPU
         if (requirements.discrete_gpu && properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
@@ -397,10 +399,10 @@ namespace nk {
         allocator->free_lot_t(VkQueueFamilyProperties, queue_families, queue_family_count);
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
-        str graphics_family_index_str = out_queue_family->graphics_family_index != -1 ? "true" : "false";
-        str present_family_index_str = out_queue_family->present_family_index != -1 ? "true" : "false";
-        str compute_family_index_str = out_queue_family->compute_family_index != -1 ? "true" : "false";
-        str transfer_family_index_str = out_queue_family->transfer_family_index != -1 ? "true" : "false";
+        str graphics_family_index_str = out_queue_family->graphics_family_index != numeric::u32_max ? "true" : "false";
+        str present_family_index_str = out_queue_family->present_family_index != numeric::u32_max ? "true" : "false";
+        str compute_family_index_str = out_queue_family->compute_family_index != numeric::u32_max ? "true" : "false";
+        str transfer_family_index_str = out_queue_family->transfer_family_index != numeric::u32_max ? "true" : "false";
         DebugLog("Device selected:\n{:>12} | {:>12} | {:>12} | {:>12} | {:>12}\n{:>12} | {:>12} | {:>12} | {:>12} | {:>12}",
                  "Graphics", "Present", "Compute", "Transfer", "Name",
                  graphics_family_index_str,
@@ -410,10 +412,10 @@ namespace nk {
                  properties.deviceName);
 #endif
 
-        if ((requirements.graphics && out_queue_family->graphics_family_index == -1) ||
-            (requirements.present && out_queue_family->present_family_index == -1) ||
-            (requirements.compute && out_queue_family->compute_family_index == -1) ||
-            (requirements.transfer && out_queue_family->transfer_family_index == -1)) {
+        if ((requirements.graphics && out_queue_family->graphics_family_index == numeric::u32_max) ||
+            (requirements.present && out_queue_family->present_family_index == numeric::u32_max) ||
+            (requirements.compute && out_queue_family->compute_family_index == numeric::u32_max) ||
+            (requirements.transfer && out_queue_family->transfer_family_index == numeric::u32_max)) {
             return false;
         }
 

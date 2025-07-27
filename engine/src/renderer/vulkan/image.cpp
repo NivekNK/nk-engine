@@ -12,7 +12,8 @@ namespace nk {
         m_format = create_info.format;
 
         // Creation info.
-        VkImageCreateInfo image_create_info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        VkImageCreateInfo image_create_info = {};
+        image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         image_create_info.imageType = VK_IMAGE_TYPE_2D;
         image_create_info.extent.width = m_extent.width;
         image_create_info.extent.height = m_extent.height;
@@ -38,7 +39,8 @@ namespace nk {
         }
 
         // Allocate memory
-        VkMemoryAllocateInfo memory_allocate_info = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        VkMemoryAllocateInfo memory_allocate_info = {};
+        memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         memory_allocate_info.allocationSize = memory_requirements.size;
         memory_allocate_info.memoryTypeIndex = memory_type;
         VulkanCheck(vkAllocateMemory(m_device->get(), &memory_allocate_info, m_vulkan_allocator, &m_memory));
@@ -69,7 +71,8 @@ namespace nk {
     }
 
     void Image::create_view(VkImageAspectFlags aspect_flags) {
-        VkImageViewCreateInfo view_create_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        VkImageViewCreateInfo view_create_info = {};
+        view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view_create_info.image = m_image;
         view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D; // TODO: Make configurable.
         view_create_info.format = m_format;
