@@ -6,6 +6,8 @@
 namespace nk {
     class Device;
     class Swapchain;
+    class CommandBuffer;
+    class Framebuffer;
 
     struct RenderPassCreateInfo {
         VkRect2D render_area;
@@ -30,6 +32,9 @@ namespace nk {
                   VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
         
+        void begin(CommandBuffer& command_buffer, Framebuffer& frame_buffer);
+        void end(CommandBuffer& command_buffer);
+
         VkRect2D& get_render_area() { return m_render_area; }
 
         VkRenderPass get() { return m_render_pass; }

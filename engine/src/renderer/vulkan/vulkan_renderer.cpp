@@ -3,6 +3,7 @@
 #include "vulkan/vulkan_renderer.h"
 
 #include "platform/platform.h"
+#include "vulkan/utils.h"
 
 namespace nk {
     void VulkanRenderer::on_resized(u32 width, u32 height) {
@@ -47,10 +48,10 @@ namespace nk {
         recreate_command_buffers();
         InfoLog("Vulkan Command Buffers created ({}).", m_graphics_command_buffers.length());
 
-        m_current_max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
-        m_image_available_semaphores.dyarr_init_len(m_allocator, m_current_max_frames_in_flight, m_current_max_frames_in_flight);
-        m_queue_complete_semaphores.dyarr_init_len(m_allocator, m_current_max_frames_in_flight, m_current_max_frames_in_flight);
-        m_in_flight_fences.dyarr_init_len(m_allocator, m_current_max_frames_in_flight, m_current_max_frames_in_flight);
+        const u8 max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
+        m_image_available_semaphores.dyarr_init_len(m_allocator, max_frames_in_flight, max_frames_in_flight);
+        m_queue_complete_semaphores.dyarr_init_len(m_allocator, max_frames_in_flight, max_frames_in_flight);
+        m_in_flight_fences.dyarr_init_len(m_allocator, max_frames_in_flight, max_frames_in_flight);
         m_images_in_flight.dyarr_init_len(m_allocator, image_count, image_count);
         recreate_sync_objects();
         InfoLog("Vulkan Sync Objects created.");
@@ -89,10 +90,129 @@ namespace nk {
     }
 
     bool VulkanRenderer::begin_frame(f64 delta_time) {
+        // Check if the framebuffer has been resized. If so, a new swapchain must be created
+        if (m_framebuffer_size_generation != m_framebuffer_last_generation) {
+            VkResult result = vkDeviceWaitIdle(m_device);
+            if (!vk::is_success(result)) {
+                ErrorLog("nk::VulkanRenderer::begin_frame vkDeviceWaitIdle failed: '{}'.", vk::result_to_cstr(result, true));
+                return false;
+            }
+
+            recreate_swapchain();
+            InfoLog("nk::VulkanRenderer::begin_frame Resized, booting.");
+            return false;
+        }
+
+        // Wait for the execution of the current frame to complete.
+        // The fence being free will allow this one to move on.
+        if (!m_in_flight_fences[m_current_frame].wait(numeric::u64_max)) {
+            WarnLog("nk::VulkanRenderer::begin_frame In-flight fence wait failure!");
+            return false;
+        }
+
+        // Acquire the next image from the swap chain.
+        // Pass along the semaphore that should signaled when this completes.
+        // This same semaphore will later be waited on by the queue submission
+        // to ensure this image is available.
+        if (!m_swapchain.acquire_next_image_index(
+                &m_image_index,
+                numeric::u64_max,
+                m_image_available_semaphores[m_current_frame],
+                nullptr)) {
+            m_framebuffer_size_generation++;
+            return false;
+        }
+
+        CommandBuffer& command_buffer = m_graphics_command_buffers[m_image_index];
+        command_buffer.reset();
+        command_buffer.begin(false, false);
+
+        // Dynamic state
+        VkViewport viewport;
+        viewport.x = 0.0f;
+        viewport.y = static_cast<f32>(m_framebuffer_height);
+        viewport.width = static_cast<f32>(m_framebuffer_width);
+        viewport.height = -static_cast<f32>(m_framebuffer_height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        // Scissor
+        VkRect2D scissor;
+        scissor.offset.x = 0;
+        scissor.offset.y = 0;
+        scissor.extent.width = m_framebuffer_width;
+        scissor.extent.height = m_framebuffer_height;
+
+        vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+        vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+        m_main_render_pass.begin(command_buffer, m_framebuffers[m_image_index]);
+
         return true;
     }
 
     bool VulkanRenderer::end_frame(f64 delta_time) {
+        CommandBuffer& command_buffer = m_graphics_command_buffers[m_image_index];
+
+        // End renderpass
+        m_main_render_pass.end(command_buffer);
+        command_buffer.end();
+
+        // Make sure the previous frame is not using this image (i.e. its fence is being waited on)
+        if (m_images_in_flight[m_image_index] != nullptr) { // was frame
+            m_images_in_flight[m_image_index]->wait(numeric::u64_max);
+        }
+
+        // Mark the image fence as in-use by this frame.
+        m_images_in_flight[m_image_index] = &m_in_flight_fences[m_current_frame];
+
+        // Reset the fence for use on the next frame
+        m_images_in_flight[m_image_index]->reset();
+
+        // Submit the queue and wait for the operation to complete.
+        // > Begin queue submission
+        VkSubmitInfo submit_info = {};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+        // Command buffer(s) to be executed.
+        submit_info.commandBufferCount = 1;
+        VkCommandBuffer p_command_buffer = command_buffer.get();
+        submit_info.pCommandBuffers = &p_command_buffer;
+
+        // The semaphore(s) to be signaled when the queue is complete.
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &m_queue_complete_semaphores[m_current_frame];
+
+        // Wait semaphore ensures that the operation cannot begin until the image is available.
+        submit_info.waitSemaphoreCount = 1;
+        submit_info.pWaitSemaphores = &m_image_available_semaphores[m_current_frame];
+
+        // Each semaphore waits on the corresponding pipeline stage to complete. 1:1 ratio.
+        // VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT prevents subsequent colour attachment
+        // writes from executing until the semaphore signals (i.e. one frame is presented at a time)
+        VkPipelineStageFlags flags[1] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        submit_info.pWaitDstStageMask = flags;
+
+        VkResult result = vkQueueSubmit(
+            m_device.get_graphics_queue(),
+            1,
+            &submit_info,
+            m_in_flight_fences[m_current_frame]);
+        if (result != VK_SUCCESS) {
+            ErrorLog("nk::VulkanRenderer::end_frame vkQueueSubmit failed with result: '{}'.", vk::result_to_cstr(result, true));
+            return false;
+        }
+
+        command_buffer.set_state(CommandBufferState::Submitted);
+        // > End queue submission
+
+        m_swapchain.present(
+            m_device.get_present_queue(),
+            m_queue_complete_semaphores[m_current_frame],
+            m_image_index);
+
+        m_frame_number++;
+
         return true;
     }
 
@@ -134,25 +254,26 @@ namespace nk {
     }
 
     void VulkanRenderer::recreate_sync_objects() {
-        const u8 max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
+        const u8 new_max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
+        const u8 old_max_frames_in_flight = MaxValue(
+            m_image_available_semaphores.length(),
+            m_queue_complete_semaphores.length());
 
-        if (max_frames_in_flight != m_current_max_frames_in_flight) {
-            m_image_available_semaphores.dyarr_resize(max_frames_in_flight);
-            m_queue_complete_semaphores.dyarr_resize(max_frames_in_flight);
-            m_in_flight_fences.dyarr_resize(max_frames_in_flight);
+        if (new_max_frames_in_flight != old_max_frames_in_flight) {
+            m_image_available_semaphores.dyarr_resize(new_max_frames_in_flight);
+            m_queue_complete_semaphores.dyarr_resize(new_max_frames_in_flight);
+            m_in_flight_fences.dyarr_resize(new_max_frames_in_flight);
         }
 
-        for (u8 i = 0; i < max_frames_in_flight; i++) {
+        for (u8 i = 0; i < new_max_frames_in_flight; ++i) {
             VkSemaphoreCreateInfo semaphore_create_info = {};
             semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-            if (m_image_available_semaphores[i] == nullptr)
+            if (m_image_available_semaphores[i] == nullptr) {
                 vkCreateSemaphore(m_device, &semaphore_create_info, m_vulkan_allocator, &m_image_available_semaphores[i]);
-            if (m_queue_complete_semaphores[i] == nullptr)
+            }
+            if (m_queue_complete_semaphores[i] == nullptr) {
                 vkCreateSemaphore(m_device, &semaphore_create_info, m_vulkan_allocator, &m_queue_complete_semaphores[i]);
-
-            // Create the fence in a signaled state, indicating that the first frame has already been "rendered".
-            // This will prevent the application from waiting indefinitely for the first frame to render since it
-            // cannot be rendered until a frame is "rendered" before it.
+            }
             m_in_flight_fences[i].renew(true, &m_device, m_vulkan_allocator);
         }
 
@@ -160,8 +281,33 @@ namespace nk {
         if (image_count != m_images_in_flight.length()) {
             m_images_in_flight.dyarr_resize(image_count);
         }
-        std::memset(m_images_in_flight.data(), 0, sizeof(Fence) * m_images_in_flight.length());
+        std::memset(m_images_in_flight.data(), 0, sizeof(Fence*) * m_images_in_flight.length());
+    }
 
-        m_current_max_frames_in_flight = max_frames_in_flight;
+    void VulkanRenderer::recreate_swapchain() {
+        // Wait for any operations to complete.
+        vkDeviceWaitIdle(m_device);
+
+        m_swapchain.recreate(m_cached_framebuffer_width, m_cached_framebuffer_height);
+
+        recreate_sync_objects();
+
+        // Sync the framebuffer size with the cached sizes.
+        m_framebuffer_width = m_cached_framebuffer_width;
+        m_framebuffer_height = m_cached_framebuffer_height;
+        m_cached_framebuffer_width = 0;
+        m_cached_framebuffer_height = 0;
+
+        // Update framebuffer size generation
+        m_framebuffer_last_generation = m_framebuffer_size_generation;
+
+        VkRect2D& render_area = m_main_render_pass.get_render_area();
+        render_area.offset.x = 0;
+        render_area.offset.y = 0;
+        render_area.extent.width = m_framebuffer_width;
+        render_area.extent.height = m_framebuffer_height;
+
+        recreate_framebuffers();
+        recreate_command_buffers();
     }
 }

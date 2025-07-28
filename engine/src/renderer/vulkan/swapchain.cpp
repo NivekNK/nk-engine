@@ -4,6 +4,7 @@
 
 #include "vulkan/device.h"
 #include "memory/allocator.h"
+#include "vulkan/utils.h"
 
 namespace nk {
     VkSurfaceFormatKHR choose_swap_surface_format(const cl::dyarr<VkSurfaceFormatKHR>& available_formats);
@@ -21,6 +22,61 @@ namespace nk {
     void Swapchain::shutdown() {
         destroy_swapchain();
         TraceLog("nk::Swapchain shutdown.");
+    }
+
+    void Swapchain::recreate(u32& width, u32& height) {
+        destroy_swapchain();
+        create_swapchain(width, height);
+    }
+
+    bool Swapchain::acquire_next_image_index(
+        u32* out_image_index,
+        u64 timeout_ns,
+        VkSemaphore image_available_semaphore,
+        VkFence fence) {
+        VkResult result = vkAcquireNextImageKHR(
+            m_device->get(),
+            m_swapchain,
+            timeout_ns,
+            image_available_semaphore,
+            fence,
+            out_image_index);
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            return false;
+        } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            FatalLog("Failed to acquire Swapchain image! Result: {}", vk::result_to_cstr(result, true));
+            return false;
+        }
+
+        return true;
+    }
+
+    bool Swapchain::present(
+        VkQueue present_queue,
+        VkSemaphore render_complete_semaphore,
+        u32 present_image_index) {
+        // Return the image to the swapchain for presentation.
+        VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        present_info.waitSemaphoreCount = 1;
+        present_info.pWaitSemaphores = &render_complete_semaphore;
+        present_info.swapchainCount = 1;
+        present_info.pSwapchains = &m_swapchain;
+        present_info.pImageIndices = &present_image_index;
+        present_info.pResults = nullptr;
+
+        VkResult result = vkQueuePresentKHR(present_queue, &present_info);
+        if (result != VK_SUCCESS &&
+            result != VK_ERROR_OUT_OF_DATE_KHR &&
+            result != VK_SUBOPTIMAL_KHR) {
+            FatalLog("Failed to Present Swapchain image! {}",
+                     vk::result_to_cstr(result, true));
+            return false;
+        }
+
+        // Increment (and loop) the index.
+        *m_current_frame = (*m_current_frame + 1) % m_max_frames_in_flight;
+        return true;
     }
 
     void Swapchain::create_swapchain(u32& width, u32& height) {

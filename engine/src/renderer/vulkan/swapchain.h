@@ -5,7 +5,9 @@
 
 namespace nk {
     class Device;
-    namespace mem { class Allocator; }
+    namespace mem {
+        class Allocator;
+    }
 
     class Swapchain {
     public:
@@ -19,6 +21,19 @@ namespace nk {
 
         void init(u32& width, u32& height, u32* current_frame, Device* device, mem::Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
+
+        void recreate(u32& width, u32& height);
+
+        bool acquire_next_image_index(
+            u32* out_image_index,
+            u64 timeout_ns,
+            VkSemaphore image_available_semaphore,
+            VkFence fence);
+
+        bool present(
+            VkQueue present_queue,
+            VkSemaphore render_complete_semaphore,
+            u32 present_image_index);
 
         VkSurfaceFormatKHR get_image_format() const { return m_image_format; }
         u32 get_image_count() const { return m_image_count; }

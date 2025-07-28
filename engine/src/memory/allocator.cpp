@@ -15,7 +15,6 @@ namespace nk::mem {
     Allocator::~Allocator() {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         if (m_allocation_count != 0 || m_used_bytes != 0) {
-            // TODO: Add Fatal Log.
             NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
         }
 #endif

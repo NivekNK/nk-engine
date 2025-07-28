@@ -73,10 +73,7 @@ namespace nk {
             vkDestroyFramebuffer(m_device->get(), m_framebuffer, m_vulkan_allocator);
             m_framebuffer = nullptr;
         }
-
-        if (!m_attachments.empty()) {
-            m_attachments.arr_shutdown();
-        }
+        m_attachments.arr_shutdown();
     }
 
     void Framebuffer::renew(const u32 width,

@@ -4,6 +4,8 @@
 
 #include "vulkan/swapchain.h"
 #include "vulkan/device.h"
+#include "vulkan/command_buffer.h"
+#include "vulkan/framebuffer.h"
 #include "glm/vec4.hpp"
 
 namespace nk {
@@ -115,5 +117,32 @@ namespace nk {
             m_render_pass = nullptr;
         }
         TraceLog("nk::RenderPass shutdown.");
+    }
+
+    void RenderPass::begin(CommandBuffer& command_buffer, Framebuffer& framebuffer) {
+        VkRenderPassBeginInfo begin_info = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        begin_info.renderPass = m_render_pass;
+        begin_info.framebuffer = framebuffer;
+        begin_info.renderArea = m_render_area;
+
+        constexpr u32 clear_values_count = 2;
+        VkClearValue clear_values[clear_values_count];
+        clear_values[0].color.float32[0] = m_clear_color.r;
+        clear_values[0].color.float32[1] = m_clear_color.g;
+        clear_values[0].color.float32[2] = m_clear_color.b;
+        clear_values[0].color.float32[3] = m_clear_color.a;
+        clear_values[1].depthStencil.depth = m_depth;
+        clear_values[1].depthStencil.stencil = m_stencil;
+
+        begin_info.clearValueCount = clear_values_count;
+        begin_info.pClearValues = clear_values;
+
+        vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+        command_buffer.set_state(CommandBufferState::InRenderPass);
+    }
+
+    void RenderPass::end(CommandBuffer& command_buffer) {
+        vkCmdEndRenderPass(command_buffer);
+        command_buffer.set_state(CommandBufferState::Recording);
     }
 }

@@ -28,6 +28,7 @@ namespace nk {
         void recreate_framebuffers();
         void recreate_command_buffers();
         void recreate_sync_objects();
+        void recreate_swapchain();
 
         VkAllocationCallbacks* m_vulkan_allocator;
         Instance m_instance;
@@ -37,7 +38,6 @@ namespace nk {
         cl::dyarr<Framebuffer> m_framebuffers;
         cl::dyarr<CommandBuffer> m_graphics_command_buffers;
 
-        u8 m_current_max_frames_in_flight;
         cl::dyarr<VkSemaphore> m_image_available_semaphores;
         cl::dyarr<VkSemaphore> m_queue_complete_semaphores;
         cl::dyarr<Fence> m_in_flight_fences;
@@ -45,7 +45,18 @@ namespace nk {
 
         u32 m_framebuffer_width;
         u32 m_framebuffer_height;
+        u32 m_cached_framebuffer_width;
+        u32 m_cached_framebuffer_height;
 
+        // Current genration of frambuffer size. If it does not match m_framebuffer_last_generation
+        // a new one should be generated.
+        u64 m_framebuffer_size_generation;
+
+        // The generation of the framebuffer when it was last created. Set to m_framebuffer_size_generation
+        // when updated.
+        u64 m_framebuffer_last_generation;
+
+        u32 m_image_index;
         u32 m_current_frame;
     };
 }

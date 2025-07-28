@@ -56,6 +56,8 @@ namespace nk {
         const PhysicalDeviceQueueFamilyInfo& get_queue_family_info() const { return m_queue_family_info; }
         VkFormat get_depth_format() const { return m_depth_format; }
         VkCommandPool get_graphics_command_pool() { return m_graphics_command_pool; }
+        VkQueue get_graphics_queue() { return m_graphics_queue; }
+        VkQueue get_present_queue() { return m_present_queue; }
 
         VkDevice get() { return m_logical_device; }
         VkDevice operator()() { return m_logical_device; }
