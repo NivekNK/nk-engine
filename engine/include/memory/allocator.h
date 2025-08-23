@@ -71,14 +71,14 @@ namespace nk::mem {
 #endif
 
         template <typename T>
-        void _free_t(T* data) {
-            _free_raw(data, sizeof(T));
+        bool _free_t(T* data) {
+            return _free_raw(data, sizeof(T));
         }
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         template <typename T>
-        void _free_t(cstr file, u32 line, T* data) {
-            _free_raw(file, line, data, sizeof(T));
+        bool _free_t(cstr file, u32 line, T* data) {
+            return _free_raw(file, line, data, sizeof(T));
         }
 #endif
 
@@ -97,14 +97,14 @@ namespace nk::mem {
 #endif
 
         template <typename T>
-        void _free_lot_t(T* data, const u64 lot) {
-            _free_raw(data, sizeof(T) * lot);
+        bool _free_lot_t(T* data, const u64 lot) {
+            return _free_raw(data, sizeof(T) * lot);
         }
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         template <typename T>
-        void _free_lot_t(cstr file, u32 line, T* data, const u64 lot) {
-            _free_raw(file, line, data, sizeof(T) * lot);
+        bool _free_lot_t(cstr file, u32 line, T* data, const u64 lot) {
+            return _free_raw(file, line, data, sizeof(T) * lot);
         }
 #endif
 
@@ -121,29 +121,29 @@ namespace nk::mem {
 #endif
 
         template <typename T, typename V>
-        void _deconstruct_t(V* data) {
+        bool _deconstruct_t(V* data) {
             if (data == nullptr)
-                return;
+                return false;
             data->~V();
-            _free_raw(data, sizeof(T));
+            return _free_raw(data, sizeof(T));
         }
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         template <typename T, typename V>
-        void _deconstruct_t(cstr file, u32 line, V* data) {
+        bool _deconstruct_t(cstr file, u32 line, V* data) {
             if (data == nullptr)
-                return;
+                return false;
             data->~V();
-            _free_raw(file, line, data, sizeof(T));
+            return _free_raw(file, line, data, sizeof(T));
         }
 #endif
 
         virtual void* _allocate_raw(const u64 size_bytes, const u64 alignment) = 0;
-        virtual void _free_raw(void* const data, const u64 size_bytes) = 0;
+        virtual bool _free_raw(void* const data, const u64 size_bytes) = 0;
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
         void* _allocate_raw(cstr file, u32 line, const u64 size_bytes, const u64 alignment);
-        void _free_raw(cstr file, u32 line, void* const data, const u64 size_bytes);
+        bool _free_raw(cstr file, u32 line, void* const data, const u64 size_bytes);
 
         std::string_view _allocator_name();
 #endif

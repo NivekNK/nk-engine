@@ -55,7 +55,7 @@
                 }                                                                                \
             })
 
-_NK_DEFINE_MEMORY_TYPE(Native, System, Event, App, Renderer)
+_NK_DEFINE_MEMORY_TYPE(Native, Test, System, Event, App, Renderer)
 
 namespace nk {
     void memory_system_extended_memory_type(const std::function<nk::MemoryType::Value()>& max_memory_type, const std::function<cstr(MemoryType::Value)>& memory_type_to_cstr);

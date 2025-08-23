@@ -23,18 +23,54 @@ namespace nk {
         if (code == SystemEventCode::KeyPressed) {
             // NOTE: Test code, remove later
             KeyCodeFlag keycode = context.data.u16[0];
-            if (keycode == KeyCode::A) {
-                DebugLog("Explicit - A key pressed!");
-            } else {
-                DebugLog("'{}' key pressed in window.", static_cast<char>(keycode));
+            switch (keycode) {
+                case KeyCode::RAlt:
+                    DebugLog("'Right Alt' key pressed in window.");
+                    break;
+                case KeyCode::LAlt:
+                    DebugLog("'Left Alt' key pressed in window.");
+                    break;
+                case KeyCode::RShift:
+                    DebugLog("'Right Shift' key pressed in window.");
+                    break;
+                case KeyCode::LShift:
+                    DebugLog("'Left Shift' key pressed in window.");
+                    break;
+                case KeyCode::RCtrl:
+                    DebugLog("'Right Ctrl' key pressed in window.");
+                    break;
+                case KeyCode::LCtrl:
+                    DebugLog("'Left Ctrl' key pressed in window.");
+                    break;
+                default:
+                    DebugLog("'{}' key pressed in window.", static_cast<char>(keycode));
+                    break;
             }
         } else if (code == SystemEventCode::KeyReleased) {
             // NOTE: Test code, remove later
             KeyCodeFlag keycode = context.data.u16[0];
-            if (keycode == KeyCode::B) {
-                DebugLog("Explicit - B key released!");
-            } else {
-                DebugLog("'{}' key released in window.", static_cast<char>(keycode));
+            switch (keycode) {
+                case KeyCode::RAlt:
+                    DebugLog("'Right Alt' key released in window.");
+                    break;
+                case KeyCode::LAlt:
+                    DebugLog("'Left Alt' key released in window.");
+                    break;
+                case KeyCode::RShift:
+                    DebugLog("'Right Shift' key released in window.");
+                    break;
+                case KeyCode::LShift:
+                    DebugLog("'Left Shift' key released in window.");
+                    break;
+                case KeyCode::RCtrl:
+                    DebugLog("'Right Ctrl' key released in window.");
+                    break;
+                case KeyCode::LCtrl:
+                    DebugLog("'Left Ctrl' key released in window.");
+                    break;
+                default:
+                    DebugLog("'{}' key released in window.", static_cast<char>(keycode));
+                    break;
             }
         }
         return false;

@@ -37,6 +37,7 @@ set(SOURCES
     src/core/clock.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
+    src/memory/linear_allocator.cpp
     src/systems/logging_system.cpp
     src/systems/event_system.cpp
     src/systems/input_system.cpp
@@ -91,3 +92,32 @@ PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glm>
 )
+
+#=======================================================================
+# COMPILE SHADERS
+#=======================================================================
+
+if (WIN32)
+    set(SLANGC "$ENV{VULKAN_SDK}/Bin/slangc.exe")
+endif()
+
+file(GLOB SLANG_SHADER_FILES
+    "assets/shaders/*.slang"
+)
+
+foreach(SLANG ${SLANG_SHADER_FILES})
+    get_filename_component(FILE_NAME ${SLANG} NAME_WLE)
+    get_filename_component(SHADER_EXT ${FILE_NAME} LAST_EXT)
+    string(REPLACE "." "" SHADER_STAGE ${SHADER_EXT})
+    set(SPIRV "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/shaders/${FILE_NAME}.spv")
+    add_custom_command(
+        OUTPUT ${SPIRV}
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/shaders/"
+        COMMAND ${SLANGC} ${SLANG} -entry main -stage ${SHADER_STAGE} -target spirv -o ${SPIRV}
+        DEPENDS ${SLANG}
+    )
+    list(APPEND SPIRV_BINARY_FILES ${SPIRV})
+endforeach(SLANG)
+
+add_custom_target(SHADERS DEPENDS ${SPIRV_BINARY_FILES})
+add_dependencies(engine SHADERS)

@@ -66,9 +66,11 @@ namespace nk::mem {
         return data;
     }
 
-    void Allocator::_free_raw(cstr file, u32 line, void* const data, const u64 size_bytes) {
-        mem::MemorySystem::update_allocator(this, file, line, data, size_bytes, mem::AllocationType::Free);
-        _free_raw(data, size_bytes);
+    bool Allocator::_free_raw(cstr file, u32 line, void* const data, const u64 size_bytes) {
+        bool freed = _free_raw(data, size_bytes);
+        if (freed)
+            mem::MemorySystem::update_allocator(this, file, line, data, size_bytes, mem::AllocationType::Free);
+        return freed;
     }
 
     std::string_view Allocator::_allocator_name() {

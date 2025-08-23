@@ -266,7 +266,7 @@ namespace nk::mem {
                                         stats.allocation_count);
             } else {
                 usage_info = std::format("  - Usage: {}, {} allocations",
-                                        memory_in_bytes(stats.used_bytes, stats.size_bytes),
+                                        memory_in_bytes(stats.size_bytes, stats.used_bytes),
                                         stats.allocation_count);
             }
             instance.log_info(usage_info.c_str());

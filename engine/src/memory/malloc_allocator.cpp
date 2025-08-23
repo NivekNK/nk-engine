@@ -26,11 +26,12 @@ namespace nk::mem {
         return m_data;
     }
 
-    void MallocAllocator::_free_raw(void* const data, const u64 size_bytes) {
+    bool MallocAllocator::_free_raw(void* const data, const u64 size_bytes) {
         m_allocation_count--;
         m_size_bytes -= size_bytes;
         m_used_bytes -= size_bytes;
         std::free(data);
         m_data = nullptr;
+        return true;
     }
 }

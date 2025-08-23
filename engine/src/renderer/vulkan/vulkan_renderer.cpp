@@ -58,6 +58,7 @@ namespace nk {
     }
 
     void VulkanRenderer::shutdown() {
+        vkDeviceWaitIdle(m_device);
         const u64 max_frames_in_flight = MaxValue(
             m_image_available_semaphores.capacity(),
             m_queue_complete_semaphores.capacity());

@@ -170,38 +170,28 @@ namespace nk {
                 // Key pressed or released
                 bool pressed = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
                 KeyCodeFlag keycode = static_cast<KeyCodeFlag>(wparam);
-                // if (wparam == VK_MENU) {
-                //     bool is_right_alt = lparam & (1 << 24);  // Check the 24th bit of lParam
-                //     if (is_right_alt) {
-                //         keycode = KeyCode::RAlt;
-                //     } else {
-                //         keycode = KeyCode::LAlt;
-                //     }
-                // }
 
-                // switch (wparam) {
-                //     case VK_RMENU:
-                //         DebugLog("Right Alt: {}", pressed);
-                //         keycode = KeyCode::RAlt;
-                //         break;
-                //     case VK_LMENU:
-                //         keycode = KeyCode::LAlt;
-                //         break;
-                //     case VK_RSHIFT:
-                //         keycode = KeyCode::RShift;
-                //         break;
-                //     case VK_LSHIFT:
-                //         keycode = KeyCode::LShift;
-                //         break;
-                //     case VK_RCONTROL:
-                //         keycode = KeyCode::RCtrl;
-                //         break;
-                //     case VK_LCONTROL:
-                //         keycode = KeyCode::LCtrl;
-                //         break;
-                //     default:
-                //         break;
-                // };
+                if (wparam == VK_MENU) {
+                    //bool is_right_alt = lparam & (1 << 24);  // Check the 24th bit of lParam
+                    if (GetKeyState(VK_RMENU) & 0x8000) {
+                        keycode = KeyCode::RAlt;
+                    } else if (GetKeyState(VK_LMENU) & 0x8000) {
+                        keycode = KeyCode::LAlt;
+                    }
+                } else if (wparam == VK_SHIFT) {
+                    if (GetKeyState(VK_RSHIFT) & 0x8000) {
+                        keycode = KeyCode::RShift;
+                    } else if (GetKeyState(VK_LSHIFT) & 0x8000) {
+                        keycode = KeyCode::LShift;
+                    }
+                } else if (wparam == VK_CONTROL) {
+                    if (GetKeyState(VK_RCONTROL) & 0x8000) {
+                        keycode = KeyCode::RCtrl;
+                    } else if (GetKeyState(VK_LCONTROL) & 0x8000) {
+                        keycode = KeyCode::LCtrl;
+                    }
+                }
+
                 InputSystem::process_key(keycode, pressed);
             } break;
             case WM_MOUSEMOVE: {
