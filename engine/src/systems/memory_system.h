@@ -33,6 +33,8 @@ namespace nk::mem {
                                      u32 line, void* data, u64 size_bytes,
                                      AllocationType allocation_type);
 
+        static void clear_allocator_tracking(mem::Allocator* allocator, cstr file, u32 line);
+
         static void log_report(bool detailed = false);
         static std::string_view get_allocator_name(mem::Allocator* allocator);
 

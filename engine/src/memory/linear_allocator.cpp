@@ -11,7 +11,7 @@ namespace nk::mem {
 
     LinearAllocator::~LinearAllocator() {
         if (m_owns_memory && m_data != nullptr) {
-            native_free(m_data, m_size_bytes);
+            std::free(m_data);
         }
     }
 
@@ -51,7 +51,7 @@ namespace nk::mem {
             return nullptr;
         }
 
-        void* block = static_cast<u8*>(m_data) + m_size_bytes;
+        void* block = static_cast<u8*>(m_data) + m_used_bytes;
         m_allocation_count++;
         m_used_bytes = used_bytes;
         return block;
@@ -70,11 +70,12 @@ namespace nk::mem {
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
     bool LinearAllocator::_free_linear_allocator(cstr file, u32 line) {
-        u64 size_bytes = m_size_bytes;
-        void* const data = m_data;
         bool freed = _free_linear_allocator();
-        if (freed)
-            mem::MemorySystem::update_allocator(this, file, line, data, size_bytes, mem::AllocationType::Free);
+        if (freed) {
+            // Clear all tracked allocations for this allocator
+            // Since linear allocator frees all allocations at once, we need to reset the tracking
+            mem::MemorySystem::clear_allocator_tracking(this, file, line);
+        }
         return freed;
     }
 #endif

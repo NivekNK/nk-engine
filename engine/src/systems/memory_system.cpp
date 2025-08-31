@@ -196,6 +196,23 @@ namespace nk::mem {
         }
     }
 
+    void MemorySystem::clear_allocator_tracking(mem::Allocator* allocator, cstr file, u32 line) {
+        auto& memory_system_info = get_memory_system_info();
+
+        if (allocator->m_key >= memory_system_info.allocations.size())
+            return;
+
+        auto& value = memory_system_info.allocations.at(allocator->m_key);
+        
+        // Clear all tracked allocations for this allocator
+        value.allocator_log.clear();
+        
+        // Update the allocator stats to reflect the reset
+        value.size_bytes = allocator->get_size_bytes();
+        value.used_bytes = allocator->get_used_bytes();
+        value.allocation_count = allocator->get_allocation_count();
+    }
+
     void MemorySystem::native_allocation(cstr file, u32 line, void* data, u64 size_bytes,
                                          AllocationType allocation_type) {
         auto& memory_system_info = get_memory_system_info();
