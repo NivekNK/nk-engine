@@ -50,5 +50,19 @@
                 "CMAKE_BUILD_TYPE": "Release"
             }
         }
+    ],
+    "buildPresets": [
+        {
+            "name": "Win32-Debug",
+            "configurePreset": "Win32-Debug"
+        },
+        {
+            "name": "Win32-RelWithDebInfo",
+            "configurePreset": "Win32-RelWithDebInfo"
+        },
+        {
+            "name": "Win32-Release",
+            "configurePreset": "Win32-Release"
+        }
     ]
 }

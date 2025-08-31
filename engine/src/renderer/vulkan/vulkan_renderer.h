@@ -38,6 +38,7 @@ namespace nk {
         cl::dyarr<Framebuffer> m_framebuffers;
         cl::dyarr<CommandBuffer> m_graphics_command_buffers;
 
+        // Per-frame semaphores for synchronization
         cl::dyarr<VkSemaphore> m_image_available_semaphores;
         cl::dyarr<VkSemaphore> m_queue_complete_semaphores;
         cl::dyarr<Fence> m_in_flight_fences;

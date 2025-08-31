@@ -59,12 +59,12 @@ namespace nk {
 
     void VulkanRenderer::shutdown() {
         vkDeviceWaitIdle(m_device);
-        const u64 max_frames_in_flight = MaxValue(
-            m_image_available_semaphores.capacity(),
-            m_queue_complete_semaphores.capacity());
+        const u64 max_frames_in_flight = m_image_available_semaphores.length();
+        
         VkSemaphore* image_available_semaphores = m_image_available_semaphores.data();
         VkSemaphore* queue_complete_semaphores = m_queue_complete_semaphores.data();
 
+        // Clean up per-frame semaphores
         for (u64 i = 0; i < max_frames_in_flight; i++) {
             if (image_available_semaphores[i] != nullptr)
                 vkDestroySemaphore(m_device, image_available_semaphores[i], m_vulkan_allocator);
@@ -110,6 +110,10 @@ namespace nk {
             WarnLog("nk::VulkanRenderer::begin_frame In-flight fence wait failure!");
             return false;
         }
+
+        // Ensure the semaphore we're about to use is not still in use by a previous frame
+        // This prevents the semaphore reuse issue that was causing the original errors
+        vkDeviceWaitIdle(m_device);
 
         // Acquire the next image from the swap chain.
         // Pass along the semaphore that should signaled when this completes.
@@ -255,30 +259,38 @@ namespace nk {
     }
 
     void VulkanRenderer::recreate_sync_objects() {
-        const u8 new_max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
-        const u8 old_max_frames_in_flight = MaxValue(
-            m_image_available_semaphores.length(),
-            m_queue_complete_semaphores.length());
+        const u32 image_count = m_swapchain.get_image_count();
+        const u8 max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
 
-        if (new_max_frames_in_flight != old_max_frames_in_flight) {
-            m_image_available_semaphores.dyarr_resize(new_max_frames_in_flight);
-            m_queue_complete_semaphores.dyarr_resize(new_max_frames_in_flight);
-            m_in_flight_fences.dyarr_resize(new_max_frames_in_flight);
+        // Resize semaphore arrays to match image count
+        if (max_frames_in_flight != m_image_available_semaphores.length()) {
+            m_image_available_semaphores.dyarr_resize(max_frames_in_flight);
+            m_queue_complete_semaphores.dyarr_resize(max_frames_in_flight);
         }
 
-        for (u8 i = 0; i < new_max_frames_in_flight; ++i) {
+        // Create semaphores for each image
+        for (u32 i = 0; i < max_frames_in_flight; ++i) {
             VkSemaphoreCreateInfo semaphore_create_info = {};
             semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            
             if (m_image_available_semaphores[i] == nullptr) {
                 vkCreateSemaphore(m_device, &semaphore_create_info, m_vulkan_allocator, &m_image_available_semaphores[i]);
             }
             if (m_queue_complete_semaphores[i] == nullptr) {
                 vkCreateSemaphore(m_device, &semaphore_create_info, m_vulkan_allocator, &m_queue_complete_semaphores[i]);
             }
+        }
+
+        // Handle fences (still per frame)
+        if (max_frames_in_flight != m_in_flight_fences.length()) {
+            m_in_flight_fences.dyarr_resize(max_frames_in_flight);
+        }
+
+        for (u8 i = 0; i < max_frames_in_flight; ++i) {
             m_in_flight_fences[i].renew(true, &m_device, m_vulkan_allocator);
         }
 
-        const u32 image_count = m_swapchain.get_image_count();
+        // Handle images in flight
         if (image_count != m_images_in_flight.length()) {
             m_images_in_flight.dyarr_resize(image_count);
         }
