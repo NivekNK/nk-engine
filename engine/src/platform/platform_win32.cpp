@@ -171,25 +171,19 @@ namespace nk {
                 bool pressed = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
                 KeyCodeFlag keycode = static_cast<KeyCodeFlag>(wparam);
 
+                // Check for extended scan code.
+                bool is_extended = (HIWORD(lparam) & KF_EXTENDED) == KF_EXTENDED;
+
+                // Keypres only determines if any alt/ctrl/shift/super key is pressed.
                 if (wparam == VK_MENU) {
-                    //bool is_right_alt = lparam & (1 << 24);  // Check the 24th bit of lParam
-                    if (GetKeyState(VK_RMENU) & 0x8000) {
-                        keycode = KeyCode::RAlt;
-                    } else if (GetKeyState(VK_LMENU) & 0x8000) {
-                        keycode = KeyCode::LAlt;
-                    }
-                } else if (wparam == VK_SHIFT) {
-                    if (GetKeyState(VK_RSHIFT) & 0x8000) {
-                        keycode = KeyCode::RShift;
-                    } else if (GetKeyState(VK_LSHIFT) & 0x8000) {
-                        keycode = KeyCode::LShift;
-                    }
+                    keycode = is_extended ? KeyCode::RAlt : KeyCode::LAlt;
                 } else if (wparam == VK_CONTROL) {
-                    if (GetKeyState(VK_RCONTROL) & 0x8000) {
-                        keycode = KeyCode::RCtrl;
-                    } else if (GetKeyState(VK_LCONTROL) & 0x8000) {
-                        keycode = KeyCode::LCtrl;
-                    }
+                    keycode = is_extended ? KeyCode::RCtrl : KeyCode::LCtrl;
+                } else if (wparam == VK_SHIFT) {
+                    // KF_EXTENDED is not set for shift keys.
+                    u32 left_shift = MapVirtualKey(VK_LSHIFT, MAPVK_VK_TO_VSC);
+                    u32 scan_code = (lparam & (0xFF << 16)) >> 16;
+                    keycode = scan_code == left_shift ? KeyCode::LShift : KeyCode::RShift;
                 }
 
                 InputSystem::process_key(keycode, pressed);

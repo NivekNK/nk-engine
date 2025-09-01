@@ -9,6 +9,7 @@
 
 namespace nk {
     int entry_point(int argc, char** argv) {
+        // TODO: Add usage of LinearAllocator, to improve performance of the engine
         NK_MEMORY_SYSTEM_INIT();
 
         {
