@@ -13,6 +13,7 @@
 #include <string_view>
 #include <optional>
 #include <cstdio>
+#include <sys/stat.h>
 #include <filesystem>
 #include <tuple>
 #include <initializer_list>

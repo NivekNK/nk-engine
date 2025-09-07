@@ -42,6 +42,7 @@ set(SOURCES
     src/systems/event_system.cpp
     src/systems/input_system.cpp
     src/platform/platform.cpp
+    src/platform/file.cpp
     src/renderer/renderer.cpp
     src/renderer/vulkan/vulkan_renderer.cpp
     src/renderer/vulkan/utils.cpp
@@ -53,6 +54,10 @@ set(SOURCES
     src/renderer/vulkan/framebuffer.cpp
     src/renderer/vulkan/command_buffer.cpp
     src/renderer/vulkan/fence.cpp
+
+    # Shaders
+    src/renderer/vulkan/shaders/utils.cpp
+    src/renderer/vulkan/shaders/object_shader.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")

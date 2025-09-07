@@ -11,6 +11,9 @@
 #include "vulkan/command_buffer.h"
 #include "vulkan/fence.h"
 
+// Shaders
+#include "vulkan/shaders/object_shader.h"
+
 namespace nk {
     class VulkanRenderer : public Renderer {
     public:
@@ -59,5 +62,8 @@ namespace nk {
 
         u32 m_image_index;
         u32 m_current_frame;
+
+        // Shaders
+        ObjectShader m_object_shader;
     };
 }

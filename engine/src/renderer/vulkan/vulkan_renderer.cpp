@@ -55,16 +55,21 @@ namespace nk {
         m_images_in_flight.dyarr_init_len(m_allocator, image_count, image_count);
         recreate_sync_objects();
         InfoLog("Vulkan Sync Objects created.");
+
+        m_object_shader.init(&m_device, m_vulkan_allocator);
+        InfoLog("Vulkan Object Shader created.");
     }
 
     void VulkanRenderer::shutdown() {
         vkDeviceWaitIdle(m_device);
-        const u64 max_frames_in_flight = m_image_available_semaphores.length();
-        
-        VkSemaphore* image_available_semaphores = m_image_available_semaphores.data();
-        VkSemaphore* queue_complete_semaphores = m_queue_complete_semaphores.data();
+
+        m_object_shader.shutdown();
+        InfoLog("Vulkan Object Shader shutdown.");
 
         // Clean up per-frame semaphores
+        const u64 max_frames_in_flight = m_image_available_semaphores.length();
+        VkSemaphore* image_available_semaphores = m_image_available_semaphores.data();
+        VkSemaphore* queue_complete_semaphores = m_queue_complete_semaphores.data();
         for (u64 i = 0; i < max_frames_in_flight; i++) {
             if (image_available_semaphores[i] != nullptr)
                 vkDestroySemaphore(m_device, image_available_semaphores[i], m_vulkan_allocator);
