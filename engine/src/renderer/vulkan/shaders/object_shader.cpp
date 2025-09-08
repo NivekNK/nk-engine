@@ -103,7 +103,7 @@ namespace nk {
         m_vulkan_allocator = nullptr;
     }
 
-    void ObjectShader::use() {
-        
+    void ObjectShader::use(CommandBuffer* command_buffer) {
+        m_pipeline.bind(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
     }
 }

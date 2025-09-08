@@ -41,6 +41,7 @@ namespace nk {
         VkMemoryAllocateInfo memory_allocate_info;
         memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
         memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        memory_allocate_info.allocationSize = memory_requirements.size;
         memory_allocate_info.memoryTypeIndex = m_memory_index;
 
         // Allocate memory.
@@ -91,6 +92,7 @@ namespace nk {
         VkMemoryAllocateInfo memory_allocate_info;
         memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
         memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        memory_allocate_info.allocationSize = memory_requirements.size;
         memory_allocate_info.memoryTypeIndex = m_memory_index;
 
         // Allocate the memory.

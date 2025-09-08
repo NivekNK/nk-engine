@@ -6,6 +6,7 @@
 
 namespace nk {
     class Device;
+    class CommandBuffer;
 
     struct ShaderStage {
         VkShaderModuleCreateInfo module_create_info;
@@ -28,7 +29,8 @@ namespace nk {
         void init(u32 width, u32 height, RenderPass* render_pass, Device* device, VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
-        void use();
+        // Bind to: m_graphics_command_buffers[image_index]
+        void use(CommandBuffer* command_buffer);
 
     private:
         Device* m_device;

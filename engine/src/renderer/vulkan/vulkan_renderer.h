@@ -35,6 +35,16 @@ namespace nk {
         void recreate_swapchain();
         void create_buffers();
 
+        void upload_data_range(
+            VkCommandPool pool,
+            VkFence fence,
+            VkQueue queue,
+            Buffer* buffer,
+            u64 offset,
+            u64 size,
+            void* data
+        );
+
         VkAllocationCallbacks* m_vulkan_allocator;
         Instance m_instance;
         Device m_device;

@@ -47,6 +47,10 @@ namespace nk {
 
         void copy_to(const BufferCopyInfo& copy_info);
 
+        VkBuffer get() const { return m_buffer; }
+        VkBuffer operator()() { return m_buffer; }
+        operator VkBuffer() { return m_buffer; }
+
     private:
         Device* m_device;
         VkAllocationCallbacks* m_vulkan_allocator;

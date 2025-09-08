@@ -67,6 +67,42 @@ namespace nk {
         InfoLog("Vulkan Object Shader created.");
 
         create_buffers();
+
+        // TODO: temporary test code START
+        constexpr u32 vertex_count = 3;
+        glm::Vertex3D vertices[vertex_count];
+        memset(vertices, 0, sizeof(glm::Vertex3D) * vertex_count);
+
+        vertices[0].position.x = 0.0f;
+        vertices[0].position.y = -0.5f;
+
+        vertices[1].position.x = 0.5f;
+        vertices[1].position.y = 0.5f;
+
+        vertices[2].position.x = 0.0f;
+        vertices[2].position.y = 0.5f;
+
+        constexpr u32 index_count = 3;
+        u32 indices[index_count] = {0, 1, 2};
+
+        upload_data_range(
+            m_device.get_graphics_command_pool(),
+            nullptr,
+            m_device.get_graphics_queue(),
+            &m_object_vertex_buffer,
+            0,
+            sizeof(glm::Vertex3D) * vertex_count,
+            vertices);
+
+        upload_data_range(
+            m_device.get_graphics_command_pool(),
+            nullptr,
+            m_device.get_graphics_queue(),
+            &m_object_index_buffer,
+            0,
+            sizeof(u32) * index_count,
+            indices);
+        // TODO: temporary test code END
     }
 
     void VulkanRenderer::shutdown() {
@@ -170,6 +206,21 @@ namespace nk {
         vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
         m_main_render_pass.begin(command_buffer, m_framebuffers[m_image_index]);
+
+        // TODO: temporary test code START
+        m_object_shader.use(&command_buffer);
+
+        // Bind the vertex buffer at offset.
+        VkDeviceSize offsets[1] = {0};
+        VkBuffer vertex_buffer = m_object_vertex_buffer.get();
+        vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, static_cast<VkDeviceSize*>(offsets));
+        
+        // Bind index buffer at offset.
+        vkCmdBindIndexBuffer(command_buffer, m_object_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+        // Issue the draw.
+        vkCmdDrawIndexed(command_buffer, 3, 1, 0, 0, 0);
+        // TODO: temporary test code END
 
         return true;
     }
@@ -365,5 +416,46 @@ namespace nk {
             memory_property_flags,
             true);
         m_geometry_index_offset = 0;
+
+        InfoLog("Vulkan Object Buffers created.");
+    }
+
+    void VulkanRenderer::upload_data_range(
+        VkCommandPool pool,
+        VkFence fence,
+        VkQueue queue,
+        Buffer* buffer,
+        u64 offset,
+        u64 size,
+        void* data
+    ) {
+        // Create a host visible staging buffer to upload to mark is as the source of the transfer
+        VkBufferUsageFlags flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        Buffer staging;
+        staging.init(
+            &m_device,
+            m_vulkan_allocator,
+            size,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            flags,
+            true);
+
+        // Load the data into the staging buffer.
+        staging.load_data(0, size, 0, data);
+
+        // Perform the copy from staging to the device local buffer.
+        staging.copy_to({
+            .pool = pool,
+            .fence = fence,
+            .queue = queue,
+            .source = staging,
+            .source_offset = 0,
+            .destination = buffer->get(),
+            .destination_offset = offset,
+            .size = size,
+        });
+
+        // Clean up the staging buffer.
+        staging.shutdown();
     }
 }
