@@ -3,7 +3,7 @@
 #include <glm/ext/vector_uint4_sized.hpp>
 
 namespace glm {
-    using color = glm::u8vec4;
+    using color = u8vec4;
 }
 
 static constexpr glm::color rgb(const nk::u8 r, const nk::u8 g, const nk::u8 b) {

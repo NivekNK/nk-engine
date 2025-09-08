@@ -56,7 +56,12 @@ namespace nk {
         recreate_sync_objects();
         InfoLog("Vulkan Sync Objects created.");
 
-        m_object_shader.init(&m_device, m_vulkan_allocator);
+        m_object_shader.init(
+            m_framebuffer_width,
+            m_framebuffer_height,
+            &m_main_render_pass,
+            &m_device,
+            m_vulkan_allocator);
         InfoLog("Vulkan Object Shader created.");
     }
 

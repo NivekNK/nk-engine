@@ -54,6 +54,7 @@ set(SOURCES
     src/renderer/vulkan/framebuffer.cpp
     src/renderer/vulkan/command_buffer.cpp
     src/renderer/vulkan/fence.cpp
+    src/renderer/vulkan/pipeline.cpp
 
     # Shaders
     src/renderer/vulkan/shaders/utils.cpp
@@ -92,6 +93,7 @@ PRIVATE
 
 PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/vendor>
     
     # Libraries
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>

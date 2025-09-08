@@ -25,7 +25,7 @@ namespace nk {
         ObjectShader(ObjectShader&&) = delete;
         ObjectShader& operator=(ObjectShader&&) = delete;
 
-        void init(Device* device, VkAllocationCallbacks* vulkan_allocator);
+        void init(u32 width, u32 height, RenderPass* render_pass, Device* device, VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
         void use();
