@@ -32,7 +32,7 @@ namespace nk {
         m_main_render_pass.init(
             {
                 .render_area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
-                .clear_color = {1.0f, 0.0f, 0.45f, 1.0f},
+                .clear_color = {0.0f, 0.0f, 0.45f, 1.0f},
                 .depth = 1.0f,
                 .stencil = 0,
             },
@@ -69,7 +69,7 @@ namespace nk {
         create_buffers();
 
         // TODO: temporary test code START
-        constexpr u32 vertex_count = 3;
+        constexpr u32 vertex_count = 4;
         glm::Vertex3D vertices[vertex_count];
         memset(vertices, 0, sizeof(glm::Vertex3D) * vertex_count);
 
@@ -82,8 +82,11 @@ namespace nk {
         vertices[2].position.x = 0.0f;
         vertices[2].position.y = 0.5f;
 
-        constexpr u32 index_count = 3;
-        u32 indices[index_count] = {0, 1, 2};
+        vertices[3].position.x = 0.5f;
+        vertices[3].position.y = -0.5f;
+
+        constexpr u32 index_count = 6;
+        u32 indices[index_count] = {0, 1, 2, 0, 3, 1};
 
         upload_data_range(
             m_device.get_graphics_command_pool(),
@@ -219,7 +222,7 @@ namespace nk {
         vkCmdBindIndexBuffer(command_buffer, m_object_index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
         // Issue the draw.
-        vkCmdDrawIndexed(command_buffer, 3, 1, 0, 0, 0);
+        vkCmdDrawIndexed(command_buffer, 6, 1, 0, 0, 0);
         // TODO: temporary test code END
 
         return true;
