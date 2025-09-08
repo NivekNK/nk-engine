@@ -36,6 +36,7 @@ namespace nk::mem {
         static void clear_allocator_tracking(mem::Allocator* allocator, cstr file, u32 line);
 
         static void log_report(bool detailed = false);
+        static void log_report_intermediate();
         static std::string_view get_allocator_name(mem::Allocator* allocator);
 
     private:
@@ -77,6 +78,8 @@ namespace nk::mem {
         nk::mem::MemorySystem::log_report()
     #define NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT() \
         nk::mem::MemorySystem::log_report(true)
+    #define NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT() \
+        nk::mem::MemorySystem::log_report_intermediate()
 
 #else
 
@@ -84,5 +87,6 @@ namespace nk::mem {
     #define NK_MEMORY_SYSTEM_SHUTDOWN()
     #define NK_MEMORY_SYSTEM_LOG_REPORT()
     #define NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT()
+    #define NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT()
 
 #endif

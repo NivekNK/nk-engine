@@ -55,6 +55,7 @@ set(SOURCES
     src/renderer/vulkan/command_buffer.cpp
     src/renderer/vulkan/fence.cpp
     src/renderer/vulkan/pipeline.cpp
+    src/renderer/vulkan/buffer.cpp
 
     # Shaders
     src/renderer/vulkan/shaders/utils.cpp

@@ -18,10 +18,10 @@ namespace nk {
             InputSystem::init();
 
             Engine::init();
-            NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
+            NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
             Engine::run();
             Engine::shutdown();
-            NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
+            NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
 
             InputSystem::shutdown();
             EventSystem::shutdown();

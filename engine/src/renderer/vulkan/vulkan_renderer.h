@@ -10,6 +10,7 @@
 #include "vulkan/framebuffer.h"
 #include "vulkan/command_buffer.h"
 #include "vulkan/fence.h"
+#include "vulkan/buffer.h"
 
 // Shaders
 #include "vulkan/shaders/object_shader.h"
@@ -32,6 +33,7 @@ namespace nk {
         void recreate_command_buffers();
         void recreate_sync_objects();
         void recreate_swapchain();
+        void create_buffers();
 
         VkAllocationCallbacks* m_vulkan_allocator;
         Instance m_instance;
@@ -65,5 +67,12 @@ namespace nk {
 
         // Shaders
         ObjectShader m_object_shader;
+
+        // Buffers
+        Buffer m_object_vertex_buffer;
+        Buffer m_object_index_buffer;
+
+        u64 m_geometry_vertex_offset;
+        u64 m_geometry_index_offset;
     };
 }

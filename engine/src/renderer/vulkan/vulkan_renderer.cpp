@@ -5,6 +5,8 @@
 #include "platform/platform.h"
 #include "vulkan/utils.h"
 
+#include <glm/vertex_3d.h>
+
 namespace nk {
     void VulkanRenderer::on_resized(u32 width, u32 height) {
         DebugLog("nk::VulkanRenderer::on_resized: {}, {}", width, height);
@@ -63,10 +65,16 @@ namespace nk {
             &m_device,
             m_vulkan_allocator);
         InfoLog("Vulkan Object Shader created.");
+
+        create_buffers();
     }
 
     void VulkanRenderer::shutdown() {
         vkDeviceWaitIdle(m_device);
+
+        m_object_vertex_buffer.shutdown();
+        m_object_index_buffer.shutdown();
+        InfoLog("Vulkan Object Buffers shutdown.");
 
         m_object_shader.shutdown();
         InfoLog("Vulkan Object Shader shutdown.");
@@ -332,5 +340,30 @@ namespace nk {
 
         recreate_framebuffers();
         recreate_command_buffers();
+    }
+
+    void VulkanRenderer::create_buffers() {
+        VkMemoryPropertyFlags memory_property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+        constexpr u64 vertex_buffer_size = sizeof(glm::Vertex3D) * 1024 * 1024;
+        m_object_vertex_buffer.init(
+            &m_device,
+            m_vulkan_allocator,
+            vertex_buffer_size,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            memory_property_flags,
+            true);
+        m_geometry_vertex_offset = 0;
+        
+
+        constexpr u64 index_buffer_size = sizeof(u32) * 1024 * 1024;
+        m_object_index_buffer.init(
+            &m_device,
+            m_vulkan_allocator,
+            index_buffer_size,
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            memory_property_flags,
+            true);
+        m_geometry_index_offset = 0;
     }
 }

@@ -341,6 +341,62 @@ namespace nk::mem {
         instance.log_title("End of nk::MemorySystem Report");
     }
 
+    void MemorySystem::log_report_intermediate() {
+        auto& instance = get();
+        auto& memory_system_info = get_memory_system_info();
+
+        instance.log_title("nk::MemorySystem Usage Report");
+
+        for (const auto& stats : memory_system_info.allocations) {
+            std::string header = std::format("[Allocator: {}] ({})", stats.name, stats.allocator);
+            instance.log_info(header.c_str());
+
+            if (stats.type != MemoryType::Native) {
+                std::string init_info = std::format("  - Initialized at: {}:{} with size {}",
+                                                    stats.init.file,
+                                                    stats.init.line,
+                                                    memory_in_bytes(stats.init.size_bytes));
+                instance.log_info(init_info.c_str());
+            }
+
+            std::string usage_info;
+            if (stats.type == MemoryType::Native) {
+                usage_info = std::format("  - Usage: {}, {} allocations",
+                                        memory_in_bytes(stats.used_bytes),
+                                        stats.allocation_count);
+            } else {
+                usage_info = std::format("  - Usage: {}, {} allocations",
+                                        memory_in_bytes(stats.size_bytes, stats.used_bytes),
+                                        stats.allocation_count);
+            }
+            instance.log_info(usage_info.c_str());
+
+            u64 active_count = 0;
+            u64 active_bytes = 0;
+
+            for (const auto& [address, info] : stats.allocator_log) {
+                if (info.freed.size_bytes == 0) {
+                    active_count++;
+                    active_bytes += info.allocated.size_bytes;
+                } else if (info.freed.size_bytes != info.allocated.size_bytes) {
+                    // Count partially freed allocations as still active
+                    active_count++;
+                    active_bytes += (info.allocated.size_bytes - info.freed.size_bytes);
+                }
+            }
+
+            if (active_count > 0) {
+                std::string active_summary = std::format("  - Active: {} allocation(s) in use, totalling {}.",
+                                                        active_count,
+                                                        memory_in_bytes(active_bytes));
+                instance.log_info(active_summary.c_str());
+            } else {
+                instance.log_info("  - Active: 0 allocations in use.");
+            }
+        }
+        instance.log_title("End of nk::MemorySystem Usage Report");
+    }
+
     std::string_view MemorySystem::get_allocator_name(Allocator* allocator) {
         const u32 key = allocator->m_key;
         auto& memory_system_info = get_memory_system_info();
