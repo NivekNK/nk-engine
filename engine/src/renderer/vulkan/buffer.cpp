@@ -167,7 +167,7 @@ namespace nk {
 
         // Create a one time use command buffer.
         CommandBuffer command_buffer;
-        command_buffer.init(copy_info.pool, m_device, false, true);
+        command_buffer.init(copy_info.pool, m_device, true, true);
 
         // Prepare the copy command and add it to the command buffer.
         VkBufferCopy copy_region;

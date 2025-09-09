@@ -127,7 +127,7 @@ namespace nk {
         m_global_uniform_buffer.init(
             m_device,
             m_vulkan_allocator,
-            sizeof(GlobalUniformObject),
+            sizeof(GlobalUniformObject) * 3,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             true);
@@ -190,7 +190,6 @@ namespace nk {
             nullptr
         );
 
-        // Configure the descriptors for the given index
         u32 range = sizeof(GlobalUniformObject);
         u64 offset = 0;
 
