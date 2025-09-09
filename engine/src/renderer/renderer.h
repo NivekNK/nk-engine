@@ -1,5 +1,8 @@
 #pragma once
 
+#include <glm/ext/matrix_float4x4.hpp>
+#include <glm/ext/vector_float3.hpp>
+
 namespace nk {
     namespace mem { class Allocator; }
     class Platform;
@@ -23,6 +26,12 @@ namespace nk {
         virtual void init() = 0;
         virtual void shutdown() = 0;
         virtual bool begin_frame(f64 delta_time) = 0;
+        virtual void update_global_state(
+            glm::mat4 projection,
+            glm::mat4 view,
+            glm::vec3 view_position,
+            glm::vec4 ambient_color,
+            i32 mode) = 0;
         virtual bool end_frame(f64 delta_time) = 0;
 
         str m_application_name;

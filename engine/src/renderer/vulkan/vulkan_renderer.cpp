@@ -73,17 +73,19 @@ namespace nk {
         glm::Vertex3D vertices[vertex_count];
         memset(vertices, 0, sizeof(glm::Vertex3D) * vertex_count);
 
-        vertices[0].position.x = 0.0f;
-        vertices[0].position.y = -0.5f;
+        constexpr f32 f = 10.0f;
 
-        vertices[1].position.x = 0.5f;
-        vertices[1].position.y = 0.5f;
+        vertices[0].position.x = -0.5f * f;
+        vertices[0].position.y = -0.5f * f;
 
-        vertices[2].position.x = 0.0f;
-        vertices[2].position.y = 0.5f;
+        vertices[1].position.y = 0.5f * f;
+        vertices[1].position.x = 0.5f * f;
 
-        vertices[3].position.x = 0.5f;
-        vertices[3].position.y = -0.5f;
+        vertices[2].position.x = -0.5f * f;
+        vertices[2].position.y = 0.5f * f;
+
+        vertices[3].position.x = 0.5f * f;
+        vertices[3].position.y = -0.5f * f;
 
         constexpr u32 index_count = 6;
         u32 indices[index_count] = {0, 1, 2, 0, 3, 1};
@@ -210,21 +212,6 @@ namespace nk {
 
         m_main_render_pass.begin(command_buffer, m_framebuffers[m_image_index]);
 
-        // TODO: temporary test code START
-        m_object_shader.use(&command_buffer);
-
-        // Bind the vertex buffer at offset.
-        VkDeviceSize offsets[1] = {0};
-        VkBuffer vertex_buffer = m_object_vertex_buffer.get();
-        vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, static_cast<VkDeviceSize*>(offsets));
-        
-        // Bind index buffer at offset.
-        vkCmdBindIndexBuffer(command_buffer, m_object_index_buffer, 0, VK_INDEX_TYPE_UINT32);
-
-        // Issue the draw.
-        vkCmdDrawIndexed(command_buffer, 6, 1, 0, 0, 0);
-        // TODO: temporary test code END
-
         return true;
     }
 
@@ -291,6 +278,35 @@ namespace nk {
         m_frame_number++;
 
         return true;
+    }
+
+    void VulkanRenderer::update_global_state(glm::mat4 projection, glm::mat4 view, glm::vec3 view_position, glm::vec4 ambient_color, i32 mode) {
+        CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
+        m_object_shader.use(command_buffer);
+
+        m_object_shader.set_global_ubo({
+            .projection = projection,
+            .view = view,
+        });
+
+        // TODO: Other ubo properties
+
+        m_object_shader.update_global_state(m_graphics_command_buffers, m_image_index);
+
+        // TODO: temporary test code START
+        m_object_shader.use(command_buffer);
+
+        // Bind the vertex buffer at offset.
+        VkDeviceSize offsets[1] = {0};
+        VkBuffer vertex_buffer = m_object_vertex_buffer.get();
+        vkCmdBindVertexBuffers(command_buffer->get(), 0, 1, &vertex_buffer, static_cast<VkDeviceSize*>(offsets));
+        
+        // Bind index buffer at offset.
+        vkCmdBindIndexBuffer(command_buffer->get(), m_object_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+        // Issue the draw.
+        vkCmdDrawIndexed(command_buffer->get(), 6, 1, 0, 0, 0);
+        // TODO: temporary test code END
     }
 
     void VulkanRenderer::recreate_framebuffers() {

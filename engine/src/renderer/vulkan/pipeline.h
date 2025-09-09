@@ -37,6 +37,8 @@ namespace nk {
 
         void bind(CommandBuffer* command_buffer, VkPipelineBindPoint bind_point);
 
+        VkPipelineLayout get_layout() const { return m_layout; }
+
     private:
         Device* m_device;
         VkAllocationCallbacks* m_vulkan_allocator;

@@ -26,8 +26,14 @@ namespace nk {
         virtual void init() override;
         virtual void shutdown() override;
         virtual bool begin_frame(f64 delta_time) override;
+        virtual void update_global_state(
+            glm::mat4 projection,
+            glm::mat4 view,
+            glm::vec3 view_position,
+            glm::vec4 ambient_color,
+            i32 mode) override;
         virtual bool end_frame(f64 delta_time) override;
-
+    
     private:
         void recreate_framebuffers();
         void recreate_command_buffers();
