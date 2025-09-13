@@ -5,6 +5,12 @@ cbuffer GlobalUniformObject : register(b0, space0)
     float4x4 view;
 };
 
+[[vk::push_constant]]
+cbuffer PushConstants : register(b1, space0)
+{
+    float4x4 model;
+};
+
 struct VSInput {
     float3 position : POSITION;
 };
@@ -15,7 +21,8 @@ struct VSOutput {
 
 VSOutput main(VSInput input) {
     VSOutput output;
-    float4 position = float4(input.position, 1.0);
-    output.position = mul(projection, mul(view, position));
+    float4 world_position = mul(model, float4(input.position, 1.0));
+    float4 view_position  = mul(view, world_position);
+    output.position = mul(projection, view_position);
     return output;
 }

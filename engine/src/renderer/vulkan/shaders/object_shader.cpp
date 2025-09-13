@@ -220,4 +220,9 @@ namespace nk {
 
         vkUpdateDescriptorSets(m_device->get(), 1, &global_descriptor_write, 0, nullptr);
     }
+
+    void ObjectShader::update_object(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, glm::mat4 model) {
+        VkCommandBuffer command_buffer = command_buffers[image_index].get();
+        vkCmdPushConstants(command_buffer, m_pipeline.get_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &model);
+    }
 }

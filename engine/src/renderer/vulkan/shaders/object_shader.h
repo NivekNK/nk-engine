@@ -38,6 +38,7 @@ namespace nk {
         void use(CommandBuffer* command_buffer);
 
         void update_global_state(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index);
+        void update_object(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, glm::mat4 model);
 
         void set_global_ubo(const GlobalUniformObject& global_ubo) { m_global_ubo = global_ubo; }
 

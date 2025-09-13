@@ -32,6 +32,7 @@ namespace nk {
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) = 0;
+        virtual void update_object(glm::mat4 model) = 0;
         virtual bool end_frame(f64 delta_time) = 0;
 
         str m_application_name;

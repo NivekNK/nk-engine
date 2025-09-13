@@ -2,12 +2,13 @@
 
 #include "vulkan/pipeline.h"
 
-#include <glm/vertex_3d.h>
-
 #include "vulkan/device.h"
 #include "vulkan/render_pass.h"
 #include "vulkan/command_buffer.h"
 #include "vulkan/utils.h"
+
+#include <glm/vertex_3d.h>
+#include <glm/ext/matrix_float4x4.hpp>
 
 namespace nk {
     void Pipeline::init(const PipelineCreateInfo& create_info) {
@@ -124,7 +125,17 @@ namespace nk {
         VkPipelineLayoutCreateInfo pipeline_layout_create_info;
         memset(&pipeline_layout_create_info, 0, sizeof(pipeline_layout_create_info));
         pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipeline_layout_create_info.setLayoutCount = create_info.descriptor_set_layout_count; // Descriptor set layouts
+
+        // Push constants
+        VkPushConstantRange push_constant;
+        push_constant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        push_constant.offset = sizeof(glm::mat4) * 0;
+        push_constant.size = sizeof(glm::mat4) * 2;
+        pipeline_layout_create_info.pushConstantRangeCount = 1;
+        pipeline_layout_create_info.pPushConstantRanges = &push_constant;
+
+        // Descriptor set layouts
+        pipeline_layout_create_info.setLayoutCount = create_info.descriptor_set_layout_count;
         pipeline_layout_create_info.pSetLayouts = create_info.descriptor_set_layouts;
 
         DebugLog("Creating pipeline layout with {} descriptor set layouts.", create_info.descriptor_set_layout_count);

@@ -292,6 +292,12 @@ namespace nk {
         // TODO: Other ubo properties
 
         m_object_shader.update_global_state(m_graphics_command_buffers, m_image_index);
+    }
+
+    void VulkanRenderer::update_object(glm::mat4 model) {
+        CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
+        
+        m_object_shader.update_object(m_graphics_command_buffers, m_image_index, model);
 
         // TODO: temporary test code START
         m_object_shader.use(command_buffer);
