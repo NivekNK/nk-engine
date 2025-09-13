@@ -148,6 +148,12 @@ namespace nk {
     }
 
     void ObjectShader::shutdown() {
+        // Guard against double shutdown
+        if (m_device == nullptr) {
+            DebugLog("ObjectShader::shutdown() - Already shutdown, skipping");
+            return;
+        }
+        
         // Destroy global uniform buffer
         m_global_uniform_buffer.shutdown();
 
