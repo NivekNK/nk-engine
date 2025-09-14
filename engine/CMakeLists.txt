@@ -60,6 +60,9 @@ set(SOURCES
     # Shaders
     src/renderer/vulkan/shaders/utils.cpp
     src/renderer/vulkan/shaders/object_shader.cpp
+
+    # Temporal
+    src/core/camera.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")

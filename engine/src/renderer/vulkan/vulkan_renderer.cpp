@@ -9,6 +9,7 @@
 
 namespace nk {
     void VulkanRenderer::on_resized(u32 width, u32 height) {
+        m_framebuffer_size_generation++;
         DebugLog("nk::VulkanRenderer::on_resized: {}, {}", width, height);
     }
 
@@ -183,7 +184,7 @@ namespace nk {
                 numeric::u64_max,
                 m_image_available_semaphores[m_current_frame],
                 nullptr)) {
-            m_framebuffer_size_generation++;
+            // m_framebuffer_size_generation++;
             return false;
         }
 

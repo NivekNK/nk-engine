@@ -4,6 +4,7 @@
 
 #include "memory/malloc_allocator.h"
 #include "vulkan/vulkan_renderer.h"
+#include "platform/platform.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/matrix_transform.hpp>
@@ -22,6 +23,15 @@ namespace nk {
 
         renderer->m_frame_number = 0;
 
+        renderer->m_near_clip = 0.1f;
+        renderer->m_far_clip = 1000.0f;
+
+        f32 aspect = platform->width() / static_cast<f32>(platform->height());
+        renderer->m_projection = glm::perspective(
+            glm::radians(45.0f), aspect, renderer->m_near_clip, renderer->m_far_clip);
+        renderer->m_view = glm::inverse(
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -30.0f)));
+
         renderer->init();
         return renderer;
     }
@@ -34,16 +44,9 @@ namespace nk {
 
     bool Renderer::draw_frame(const RenderPacket& packet) {
         if (begin_frame(packet.delta_time)) {
-            glm::mat4 projection = glm::perspective(
-                glm::radians(45.0f), 1280.0f / 720.0f, 0.1f, 1000.0f);
-            static f32 z = 0.0f;
-            z += 0.01f;
-            glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, z)); // -30.0f
-            view = glm::inverse(view);
-                
             update_global_state(
-                projection,
-                view,
+                m_projection,
+                m_view,
                 glm::vec3(0.0f),
                 glm::vec4(1.0f),
                 0
@@ -63,6 +66,12 @@ namespace nk {
             }
         }
         return true;
+    }
+
+    void Renderer::resize(u32 width, u32 height) {
+        m_projection = glm::perspective(
+            glm::radians(45.0f), width / static_cast<f32>(height), m_near_clip, m_far_clip);
+        on_resized(width, height);
     }
 
     bool Renderer::end_frame_impl(f64 delta_time) {

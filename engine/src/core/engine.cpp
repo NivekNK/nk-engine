@@ -8,6 +8,9 @@
 #include "renderer/renderer.h"
 #include "systems/input_system.h"
 
+// TODO: Temporal include
+#include "core/camera.h"
+
 namespace nk {
     bool on_event(SystemEventCode code, void* sender, void* listener, EventContext context) {
         switch (code) {
@@ -98,6 +101,8 @@ namespace nk {
         m_app = App::create(m_allocator);
         m_platform = Platform::create(m_allocator, m_app->initial_config);
         m_renderer = Renderer::create(m_allocator, m_platform, m_app->initial_config.name);
+
+        Camera::init(m_renderer);
 
         m_clock.init(m_platform);
 
@@ -205,7 +210,7 @@ namespace nk {
                     m_platform->set_suspended(false);
                 }
                 m_app->on_resized(width, height);
-                m_renderer->on_resized(width, height);
+                m_renderer->resize(width, height);
             }
             return true;
         }

@@ -20,11 +20,14 @@ namespace nk {
 
         bool draw_frame(const RenderPacket& packet);
 
-        virtual void on_resized(u32 width, u32 height) = 0;
-    
+        void resize(u32 width, u32 height);
+
+        void set_view(glm::mat4 view) { m_view = view; }
+
     protected:
         virtual void init() = 0;
         virtual void shutdown() = 0;
+        virtual void on_resized(u32 width, u32 height) = 0;
         virtual bool begin_frame(f64 delta_time) = 0;
         virtual void update_global_state(
             glm::mat4 projection,
@@ -41,6 +44,11 @@ namespace nk {
         mem::Allocator* m_allocator;
 
         u64 m_frame_number;
+
+        glm::mat4 m_projection;
+        glm::mat4 m_view;
+        f32 m_near_clip;
+        f32 m_far_clip;
 
     private:
         bool end_frame_impl(f64 delta_time);
