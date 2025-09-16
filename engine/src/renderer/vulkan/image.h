@@ -4,6 +4,7 @@
 
 namespace nk {
     class Device;
+    class CommandBuffer;
 
     struct VulkanImageCreateInfo {
         VkImageType image_type;
@@ -35,6 +36,10 @@ namespace nk {
         }
 
         void create_view(VkImageAspectFlags aspect_flags);
+
+        void transition_layout(CommandBuffer* command_buffer, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout);
+
+        void copy_from_buffer(CommandBuffer* command_buffer,VkBuffer buffer);
 
         VkImageView get_view() const { return m_view; }
 

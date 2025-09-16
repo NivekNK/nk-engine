@@ -35,6 +35,17 @@ namespace nk {
         virtual void update_object(glm::mat4 model) override;
         virtual bool end_frame(f64 delta_time) override;
     
+        virtual void create_texture(
+            cstr name,
+            bool auto_release,
+            u32 width,
+            u32 height,
+            u32 channel_count,
+            const u8* pixels,
+            bool has_transparency,
+            Texture* out_texture) override;
+        virtual void destroy_texture(Texture* texture) override;
+
     private:
         void recreate_framebuffers();
         void recreate_command_buffers();

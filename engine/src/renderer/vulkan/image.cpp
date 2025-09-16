@@ -3,6 +3,7 @@
 #include "vulkan/image.h"
 
 #include "vulkan/device.h"
+#include "vulkan/command_buffer.h"
 
 namespace nk {
     void Image::init(const VulkanImageCreateInfo& create_info, Device* device, VkAllocationCallbacks* vulkan_allocator) {
@@ -85,5 +86,91 @@ namespace nk {
         view_create_info.subresourceRange.layerCount = 1;
 
         VulkanCheck(vkCreateImageView(m_device->get(), &view_create_info, m_vulkan_allocator, &m_view));
+    }
+
+    void Image::transition_layout(
+        CommandBuffer* command_buffer,
+        VkFormat format,
+        VkImageLayout old_layout,
+        VkImageLayout new_layout) {
+        // Get queue family indices
+        const u32 graphics_queue_index = m_device->get_queue_family_info().graphics_family_index;
+
+        // Create barrier
+        VkImageMemoryBarrier barrier;
+        memset(&barrier, 0, sizeof(VkImageMemoryBarrier));
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
+        barrier.srcQueueFamilyIndex = graphics_queue_index;
+        barrier.dstQueueFamilyIndex = graphics_queue_index;
+        barrier.image = m_image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+
+        VkPipelineStageFlags source_stage;
+        VkPipelineStageFlags dest_stage;
+
+        // Don't care about the old layout - transition to optimal layout (for the underlying implementation).
+        if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+            // Don't care what stage the pipeline is in at the start.
+            source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+            // Used for copying
+            dest_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        } else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            // Transitioning from a transfer destination layout to a shader-readonly layout.
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            // From a copying stage to...
+            source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+            // The fragment stage.
+            dest_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else {
+            FatalLog("nk::Image::transition_layout > Unsupported layout transition.");
+            return;
+        }
+
+        vkCmdPipelineBarrier(
+            command_buffer->get(),
+            source_stage, dest_stage,
+            0,
+            0, 0,
+            0, 0,
+            1, &barrier);
+    }
+
+    void Image::copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer) {
+        // Region to copy
+        VkBufferImageCopy region;
+        memset(&region, 0, sizeof(VkBufferImageCopy));
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+
+        region.imageExtent.width = m_extent.width;
+        region.imageExtent.height = m_extent.height;
+        region.imageExtent.depth = 1;
+
+        vkCmdCopyBufferToImage(
+            command_buffer->get(),
+            buffer,
+            m_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1,
+            &region);
     }
 }

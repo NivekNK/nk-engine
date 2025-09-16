@@ -4,6 +4,7 @@
 
 #include "platform/platform.h"
 #include "vulkan/utils.h"
+#include "vulkan/resources/texture_data.h"
 
 #include <glm/vertex_3d.h>
 
@@ -314,6 +315,130 @@ namespace nk {
         // Issue the draw.
         vkCmdDrawIndexed(command_buffer->get(), 6, 1, 0, 0, 0);
         // TODO: temporary test code END
+    }
+
+    void VulkanRenderer::create_texture(
+        cstr name,
+        bool auto_release,
+        u32 width,
+        u32 height,
+        u32 channel_count,
+        const u8* pixels,
+        bool has_transparency,
+        Texture* out_texture) {
+        if (out_texture == nullptr) {
+            ErrorLog("nk::VulkanRenderer::create_texture out_texture is nullptr.");
+            return;
+        }
+
+        out_texture->width = width;
+        out_texture->height = height;
+        out_texture->channel_count = channel_count;
+        out_texture->generation = 0;
+
+        // TODO: Use an allocator for this.
+        out_texture->m_internal_data = m_allocator->allocate_t(TextureData);
+        TextureData* texture_data = static_cast<TextureData*>(out_texture->m_internal_data);
+        VkDeviceSize image_size = width * height * channel_count;
+
+        // NOTE: Assumes 8 bits per channel.
+        VkFormat image_format = VK_FORMAT_R8G8B8A8_UNORM;
+
+        // Create a staging buffer and load data into it.
+        VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        VkMemoryPropertyFlags memory_prop_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        Buffer staging;
+        staging.init(
+            &m_device,
+            m_vulkan_allocator,
+            image_size,
+            usage,
+            memory_prop_flags,
+            true);
+
+        staging.load_data(0, image_size, 0, pixels);
+
+        // NOTE: Lots of assumptions here, different texture types will require
+        // different options here.
+        texture_data->image.init(
+            {
+                .image_type = VK_IMAGE_TYPE_2D,
+                .extent = {width, height},
+                .format = image_format,
+                .tiling = VK_IMAGE_TILING_OPTIMAL,
+                .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                .memory_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .create_view = true,
+                .view_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT,
+            },
+            &m_device, m_vulkan_allocator);
+
+        CommandBuffer temp_buffer;
+        VkCommandPool pool = m_device.get_graphics_command_pool();
+        VkQueue queue = m_device.get_graphics_queue();
+        temp_buffer.init(pool, &m_device, true, true);
+
+        // Transition the layout from whatever it is currently to optimal for recieving data.
+        texture_data->image.transition_layout(
+            &temp_buffer,
+            image_format,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        // Copy the data from the buffer.
+        texture_data->image.copy_from_buffer(&temp_buffer, staging);
+
+        // Transition from optimal for data reciept to shader-read-only optimal layout.
+        texture_data->image.transition_layout(
+            &temp_buffer,
+            image_format,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        temp_buffer.end_single_use(queue);
+
+        // Create a sampler for the texture
+        VkSamplerCreateInfo sampler_info;
+        memset(&sampler_info, 0, sizeof(VkSamplerCreateInfo));
+        sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        // TODO: These filters should be configurable.
+        sampler_info.magFilter = VK_FILTER_LINEAR;
+        sampler_info.minFilter = VK_FILTER_LINEAR;
+        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_info.anisotropyEnable = VK_TRUE;
+        sampler_info.maxAnisotropy = 16;
+        sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        sampler_info.unnormalizedCoordinates = VK_FALSE;
+        sampler_info.compareEnable = VK_FALSE;
+        sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+        sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        sampler_info.mipLodBias = 0.0f;
+        sampler_info.minLod = 0.0f;
+        sampler_info.maxLod = 0.0f;
+
+        VkResult result = vkCreateSampler(m_device, &sampler_info, m_vulkan_allocator, &texture_data->sampler);
+        if (!vk::is_success(result)) {
+            ErrorLog("nk::VulkanRenderer::create_texture vkCreateSampler failed with result: '{}'.", vk::result_to_cstr(result, true));
+            return;
+        }
+
+        out_texture->has_transparency = has_transparency;
+        out_texture->generation++;
+    }
+
+    void VulkanRenderer::destroy_texture(Texture* texture) {
+        TextureData* texture_data = static_cast<TextureData*>(texture->m_internal_data);
+
+        texture_data->image.shutdown();
+        vkDestroySampler(m_device, texture_data->sampler, m_vulkan_allocator);
+        texture_data->sampler = nullptr;
+
+        m_allocator->free_t(TextureData, texture_data);
+        texture->m_internal_data = nullptr;
+
+        memset(texture, 0, sizeof(Texture));
     }
 
     void VulkanRenderer::recreate_framebuffers() {

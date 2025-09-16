@@ -3,6 +3,8 @@
 #include <glm/ext/matrix_float4x4.hpp>
 #include <glm/ext/vector_float3.hpp>
 
+#include "resources/texture.h"
+
 namespace nk {
     namespace mem { class Allocator; }
     class Platform;
@@ -21,9 +23,20 @@ namespace nk {
         bool draw_frame(const RenderPacket& packet);
 
         void resize(u32 width, u32 height);
+        
+        virtual void create_texture(
+            cstr name,
+            bool auto_release,
+            u32 width,
+            u32 height,
+            u32 channel_count,
+            const u8* pixels,
+            bool has_transparency,
+            Texture* out_texture) = 0;
+        virtual void destroy_texture(Texture* texture) = 0;
 
         void set_view(glm::mat4 view) { m_view = view; }
-
+        
     protected:
         virtual void init() = 0;
         virtual void shutdown() = 0;
