@@ -192,7 +192,8 @@ namespace nk {
     }
 
     void SimpleVulkanRenderer::create_command_buffers() {
-        m_command_buffers.resize(lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT);
+        // Allocate one command buffer per swap chain image
+        m_command_buffers.resize(m_swap_chain->imageCount());
 
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -206,6 +207,9 @@ namespace nk {
     }
 
     void SimpleVulkanRenderer::free_command_buffers() {
+        if (m_command_buffers.empty()) {
+            return;
+        }
         vkFreeCommandBuffers(
             m_device.device(),
             m_device.getCommandPool(),
@@ -217,6 +221,11 @@ namespace nk {
     void SimpleVulkanRenderer::recreate_swap_chain() {
         vkDeviceWaitIdle(m_device.device());
 
+        // Free existing command buffers before recreating swap chain
+        if (!m_command_buffers.empty()) {
+            free_command_buffers();
+        }
+
         if (m_swap_chain == nullptr) {
             m_swap_chain = std::make_unique<lve::LveSwapChain>(m_device, VkExtent2D{m_platform->width(), m_platform->height()});
         } else {
@@ -226,21 +235,26 @@ namespace nk {
                 Assert(false, "Swap chain image(or depth) format has changed!");
             }
         }
+
+        // Recreate command buffers with the new swap chain image count
+        create_command_buffers();
     }
 
     void SimpleVulkanRenderer::load_game_objects() {
-        std::shared_ptr<lve::LveModel> lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/flat_vase.obj");
+        std::shared_ptr<lve::LveModel> lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/little_dragon.obj");
         auto flatVase = lve::LveGameObject::createGameObject();
         flatVase.model = lveModel;
-        flatVase.transform.translation = {-.5f, .5f, 0.f};
-        flatVase.transform.scale = {3.f, 1.5f, 3.f};
+        flatVase.transform.translation = {-.5f, 0.25f, 0.f};
+        flatVase.transform.scale = {0.4f, 0.4f, 0.4f};
+        flatVase.transform.rotation = {glm::pi<float>(), glm::radians(15.f), 0.f};
         m_game_objects.emplace(flatVase.getId(), std::move(flatVase));
 
-        lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/smooth_vase.obj");
+        lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/little_dragon.obj");
         auto smoothVase = lve::LveGameObject::createGameObject();
         smoothVase.model = lveModel;
-        smoothVase.transform.translation = {.5f, .5f, 0.f};
-        smoothVase.transform.scale = {3.f, 1.5f, 3.f};
+        smoothVase.transform.translation = {.5f, 0.25f, 0.f};
+        smoothVase.transform.scale = {0.3f, 0.3f, 0.3f};
+        smoothVase.transform.rotation = {glm::pi<float>(), glm::radians(-15.f), 0.f};
         m_game_objects.emplace(smoothVase.getId(), std::move(smoothVase));
 
         lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/quad.obj");
