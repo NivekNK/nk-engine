@@ -9,6 +9,11 @@
 #include <memory>
 #include <unordered_map>
 
+// forward declaration
+namespace lve {
+class LveTexture;
+}
+
 namespace lve {
 
 struct TransformComponent {
@@ -53,7 +58,9 @@ class LveGameObject {
 
   // Optional pointer components
   std::shared_ptr<LveModel> model{};
+  std::shared_ptr<LveTexture> texture{};
   std::unique_ptr<PointLightComponent> pointLight = nullptr;
+  VkDescriptorSet textureDescriptorSet = VK_NULL_HANDLE;  // Optional texture descriptor set
 
   LveGameObject() = default;
 

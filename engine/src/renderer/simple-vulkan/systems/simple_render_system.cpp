@@ -27,15 +27,22 @@ SimpleRenderSystem::SimpleRenderSystem(
 
 SimpleRenderSystem::~SimpleRenderSystem() {
   vkDestroyPipelineLayout(lveDevice.device(), pipelineLayout, nullptr);
+  textureSetLayout.reset();
 }
 
 void SimpleRenderSystem::createPipelineLayout(VkDescriptorSetLayout globalSetLayout) {
+  // Create texture descriptor set layout
+  // Using combined image sampler for binding 1
+  textureSetLayout = LveDescriptorSetLayout::Builder(lveDevice)
+                         .addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)
+                         .build();
+
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(SimplePushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout, textureSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -79,6 +86,20 @@ void SimpleRenderSystem::renderGameObjects(FrameInfo& frameInfo) {
   for (auto& kv : frameInfo.gameObjects) {
     auto& obj = kv.second;
     if (obj.model == nullptr) continue;
+    
+    // Bind texture descriptor set if available
+    if (obj.textureDescriptorSet != VK_NULL_HANDLE) {
+      vkCmdBindDescriptorSets(
+          frameInfo.commandBuffer,
+          VK_PIPELINE_BIND_POINT_GRAPHICS,
+          pipelineLayout,
+          1,
+          1,
+          &obj.textureDescriptorSet,
+          0,
+          nullptr);
+    }
+    
     SimplePushConstantData push{};
     push.modelMatrix = obj.transform.mat4();
     push.normalMatrix = obj.transform.normalMatrix();

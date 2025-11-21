@@ -17,6 +17,17 @@ namespace nk {
                             .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT)
                             .build();
 
+        // Create texture descriptor set layout
+        m_texture_set_layout = lve::LveDescriptorSetLayout::Builder(m_device)
+                                  .addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)
+                                  .build();
+
+        // Create texture descriptor pool (enough for multiple textures)
+        m_texture_pool = lve::LveDescriptorPool::Builder(m_device)
+                            .setMaxSets(100)  // Enough for multiple textures
+                            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100)
+                            .build();
+
         load_game_objects();
 
         m_ubo_buffers.resize(lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT);
@@ -241,21 +252,51 @@ namespace nk {
     }
 
     void SimpleVulkanRenderer::load_game_objects() {
+        // Load dragon texture
+        auto dragonTexture = lve::LveTexture::createTextureFromFile(m_device, "assets/textures/dragon_texture.png");
+        std::shared_ptr<lve::LveTexture> dragonTextureShared = std::move(dragonTexture);
+        
+        // Prepare texture descriptor info (combined image sampler)
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = dragonTextureShared->imageView();
+        imageInfo.sampler = dragonTextureShared->sampler();
+        
         std::shared_ptr<lve::LveModel> lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/little_dragon.obj");
         auto flatVase = lve::LveGameObject::createGameObject();
         flatVase.model = lveModel;
+        flatVase.texture = dragonTextureShared;
         flatVase.transform.translation = {-.5f, 0.25f, 0.f};
         flatVase.transform.scale = {0.4f, 0.4f, 0.4f};
         flatVase.transform.rotation = {glm::pi<float>(), glm::radians(15.f), 0.f};
-        m_game_objects.emplace(flatVase.getId(), std::move(flatVase));
+        
+        // Create texture descriptor set for flatVase
+        VkDescriptorSet flatVaseTextureSet = VK_NULL_HANDLE;
+        lve::LveDescriptorWriter(*m_texture_set_layout, *m_texture_pool)
+            .writeImage(1, &imageInfo)
+            .build(flatVaseTextureSet);
+        
+        auto flatVaseId = flatVase.getId();
+        m_game_objects.emplace(flatVaseId, std::move(flatVase));
+        m_game_objects[flatVaseId].textureDescriptorSet = flatVaseTextureSet;
 
         lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/little_dragon.obj");
         auto smoothVase = lve::LveGameObject::createGameObject();
         smoothVase.model = lveModel;
+        smoothVase.texture = dragonTextureShared;  // Share the same texture
         smoothVase.transform.translation = {.5f, 0.25f, 0.f};
         smoothVase.transform.scale = {0.3f, 0.3f, 0.3f};
         smoothVase.transform.rotation = {glm::pi<float>(), glm::radians(-15.f), 0.f};
-        m_game_objects.emplace(smoothVase.getId(), std::move(smoothVase));
+        
+        // Create texture descriptor set for smoothVase
+        VkDescriptorSet smoothVaseTextureSet = VK_NULL_HANDLE;
+        lve::LveDescriptorWriter(*m_texture_set_layout, *m_texture_pool)
+            .writeImage(1, &imageInfo)
+            .build(smoothVaseTextureSet);
+        
+        auto smoothVaseId = smoothVase.getId();
+        m_game_objects.emplace(smoothVaseId, std::move(smoothVase));
+        m_game_objects[smoothVaseId].textureDescriptorSet = smoothVaseTextureSet;
 
         lveModel = lve::LveModel::createModelFromFile(m_device, "assets/models/quad.obj");
         auto floor = lve::LveGameObject::createGameObject();

@@ -75,6 +75,7 @@ set(SOURCES
     src/renderer/simple-vulkan/lve_model.cpp
     src/renderer/simple-vulkan/lve_pipeline.cpp
     src/renderer/simple-vulkan/lve_swap_chain.cpp
+    src/renderer/simple-vulkan/lve_texture.cpp
     src/renderer/simple-vulkan/systems/point_light_system.cpp
     src/renderer/simple-vulkan/systems/simple_render_system.cpp
 )

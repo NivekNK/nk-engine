@@ -26,6 +26,12 @@ struct PushConstants {
 [[vk::binding(0, 0)]]
 ConstantBuffer<GlobalUbo> ubo;
 
+[[vk::binding(1, 1)]]
+Texture2D textureSampler;
+
+[[vk::binding(1, 1)]]
+SamplerState textureSamplerState;
+
 [[vk::push_constant]]
 PushConstants push;
 
@@ -40,6 +46,7 @@ struct FragmentInput {
     [[vk::location(0)]] float3 fragColor;
     [[vk::location(1)]] float3 fragPosWorld;
     [[vk::location(2)]] float3 fragNormalWorld;
+    [[vk::location(3)]] float2 fragUv;
 };
 
 // -----------------------------------------------------------
@@ -48,6 +55,22 @@ struct FragmentInput {
 
 [shader("fragment")]
 float4 main(FragmentInput input) : SV_Target {
+    // Sample texture
+    float4 textureColor = textureSampler.Sample(textureSamplerState, input.fragUv);
+    
+    // Determine base color
+    // If texture is bound, use it; if not bound (returns black), use vertex color
+    float3 baseColor = input.fragColor;
+    
+    // Simple check: if texture has any non-zero component, use it
+    // Unbound textures in Vulkan typically return (0,0,0,0)
+    if (textureColor.a > 0.0 || 
+        textureColor.r > 0.0 || 
+        textureColor.g > 0.0 || 
+        textureColor.b > 0.0) {
+        baseColor = textureColor.rgb;
+    }
+    
     float3 diffuseLight = ubo.ambientLightColor.xyz * ubo.ambientLightColor.w;
     float3 specularLight = float3(0.0);
     float3 surfaceNormal = normalize(input.fragNormalWorld);
@@ -81,5 +104,5 @@ float4 main(FragmentInput input) : SV_Target {
         specularLight += intensity * blinnTerm;
     }
     
-    return float4(diffuseLight * input.fragColor + specularLight * input.fragColor, 1.0);
+    return float4(diffuseLight * baseColor + specularLight * baseColor, 1.0);
 }

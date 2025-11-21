@@ -6,6 +6,7 @@
 #include "lve_swap_chain.hpp"
 #include "lve_descriptors.hpp"
 #include "lve_game_object.hpp"
+#include "lve_texture.hpp"
 #include "systems/point_light_system.hpp"
 #include "systems/simple_render_system.hpp"
 
@@ -66,10 +67,12 @@ namespace nk {
         bool m_window_resized = false;
 
         std::unique_ptr<lve::LveDescriptorPool> m_global_pool;
+        std::unique_ptr<lve::LveDescriptorPool> m_texture_pool;
         lve::LveGameObject::Map m_game_objects;
 
         std::vector<std::unique_ptr<lve::LveBuffer>> m_ubo_buffers;
         std::unique_ptr<lve::LveDescriptorSetLayout> m_global_set_layout;
+        std::unique_ptr<lve::LveDescriptorSetLayout> m_texture_set_layout;
         std::vector<VkDescriptorSet> m_global_descriptor_sets;
         std::unique_ptr<lve::SimpleRenderSystem> m_simple_render_system;
         std::unique_ptr<lve::PointLightSystem> m_point_light_system;

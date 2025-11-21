@@ -45,6 +45,7 @@ struct VertexOutput {
     [[vk::location(0)]] float3 fragColor;
     [[vk::location(1)]] float3 fragPosWorld;
     [[vk::location(2)]] float3 fragNormalWorld;
+    [[vk::location(3)]] float2 fragUv;
 };
 
 // -----------------------------------------------------------
@@ -69,6 +70,7 @@ VertexOutput main(VertexInput input) {
     output.fragNormalWorld = normalize(mul(normalMat, input.normal));
     output.fragPosWorld = positionWorld.xyz;
     output.fragColor = input.color;
+    output.fragUv = input.uv;
 
     return output;
 }
