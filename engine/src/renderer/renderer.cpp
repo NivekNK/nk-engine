@@ -1,9 +1,11 @@
 #include "nkpch.h"
+#include "core/input.h"
 
 #include "renderer/renderer.h"
 
 #include "memory/malloc_allocator.h"
-#include "vulkan/vulkan_renderer.h"
+// #include "vulkan/vulkan_renderer.h"
+#include "simple-vulkan/simple_vulkan_renderer.h"
 #include "platform/platform.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -13,7 +15,7 @@
 
 namespace nk {
     Renderer* Renderer::create(mem::Allocator* allocator, Platform* platform, str application_name) {
-        auto renderer = allocator->construct_t(VulkanRenderer);
+        auto renderer = allocator->construct_t(SimpleVulkanRenderer);
 
         renderer->m_application_name = application_name;
         renderer->m_platform = platform;
@@ -33,13 +35,13 @@ namespace nk {
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -30.0f)));
 
         renderer->init();
-        return renderer;
+        return static_cast<Renderer*>(renderer);
     }
 
     void Renderer::destroy(mem::Allocator* allocator, Renderer* renderer) {
         renderer->shutdown();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
-        allocator->deconstruct_t(VulkanRenderer, renderer);
+        allocator->deconstruct_t(SimpleVulkanRenderer, renderer);
     }
 
     bool Renderer::draw_frame(const RenderPacket& packet) {
@@ -53,12 +55,21 @@ namespace nk {
             );
 
             static f32 angle = 0.01f;
-            angle += 0.001f;
-            glm::vec3 forward = glm::vec3(0.0f, 0.0f, -1.0f);
-            glm::quat rotation = glm::angleAxis(angle, forward);
+            glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+
+            if (Input::is_key_down(KeyCode::F)) {
+                m_temp_active_rotation = !m_temp_active_rotation;
+            }
+
+            if (m_temp_active_rotation) {
+                angle += 0.001f;
+                glm::vec3 forward = glm::vec3(0.0f, 0.0f, -1.0f);
+                rotation = glm::angleAxis(angle, forward);
+            }
+
             glm::mat4 model = glm::toMat4(rotation);
             update_object(model);
-
+            
             bool result = end_frame_impl(packet.delta_time);
             if (!result) {
                 ErrorLog("nk::Renderer::end_frame failed. Application shutting down.");

@@ -20,7 +20,7 @@ namespace nk {
         static Renderer* create(mem::Allocator* allocator, Platform* platform, str application_name);
         static void destroy(mem::Allocator* allocator, Renderer* renderer);
 
-        bool draw_frame(const RenderPacket& packet);
+        virtual bool draw_frame(const RenderPacket& packet);
 
         void resize(u32 width, u32 height);
         
@@ -36,7 +36,7 @@ namespace nk {
         virtual void destroy_texture(Texture* texture) = 0;
 
         void set_view(glm::mat4 view) { m_view = view; }
-        
+
     protected:
         virtual void init() = 0;
         virtual void shutdown() = 0;
@@ -65,5 +65,7 @@ namespace nk {
 
     private:
         bool end_frame_impl(f64 delta_time);
+
+        bool m_temp_active_rotation = true;
     };
 }

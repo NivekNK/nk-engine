@@ -557,7 +557,6 @@ namespace nk {
             true);
         m_geometry_vertex_offset = 0;
         
-
         constexpr u64 index_buffer_size = sizeof(u32) * 1024 * 1024;
         m_object_index_buffer.init(
             &m_device,

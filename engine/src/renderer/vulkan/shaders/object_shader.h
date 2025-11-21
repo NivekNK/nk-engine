@@ -22,6 +22,8 @@ namespace nk {
     class ObjectShader {
     public:
         static constexpr u32 shader_stage_count = 2;
+        static constexpr u32 descriptor_count = 1;
+        static constexpr u32 object_max_object_count = 1024;
 
         ObjectShader() = default;
         ~ObjectShader() { shutdown(); }

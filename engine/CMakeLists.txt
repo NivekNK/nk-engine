@@ -24,6 +24,7 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 #============== Vendor Subdirectory ================
 
 add_subdirectory(vendor/glm)
+add_subdirectory(vendor/tinyobjloader)
 
 find_package(Vulkan REQUIRED)
 
@@ -63,6 +64,19 @@ set(SOURCES
 
     # Temporal
     src/core/camera.cpp
+
+    # Simple Vulkan Renderer
+    src/renderer/simple-vulkan/simple_vulkan_renderer.cpp
+    src/renderer/simple-vulkan/lve_buffer.cpp
+    src/renderer/simple-vulkan/lve_camera.cpp
+    src/renderer/simple-vulkan/lve_descriptors.cpp
+    src/renderer/simple-vulkan/lve_device.cpp
+    src/renderer/simple-vulkan/lve_game_object.cpp
+    src/renderer/simple-vulkan/lve_model.cpp
+    src/renderer/simple-vulkan/lve_pipeline.cpp
+    src/renderer/simple-vulkan/lve_swap_chain.cpp
+    src/renderer/simple-vulkan/systems/point_light_system.cpp
+    src/renderer/simple-vulkan/systems/simple_render_system.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -87,6 +101,7 @@ target_link_libraries(${PROJECT_NAME}
 PRIVATE
     glm
     Vulkan::Vulkan
+    tinyobjloader
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -132,3 +147,19 @@ endforeach(SLANG)
 
 add_custom_target(SHADERS DEPENDS ${SPIRV_BINARY_FILES})
 add_dependencies(engine SHADERS)
+
+file(GLOB MODEL_FILES "assets/models/*.obj")
+
+# The name of the models are simply for example "flat_vase.obj" i just need to copy them to the build directory, copy it with the extension file
+foreach(MODEL ${MODEL_FILES})
+    get_filename_component(MODEL_NAME ${MODEL} NAME_WLE)
+    add_custom_command(
+        OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MODEL} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj
+        DEPENDS ${MODEL}
+    )
+    list(APPEND MODEL_BINARY_FILES ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj)
+endforeach(MODEL)
+
+add_custom_target(MODELS DEPENDS ${MODEL_BINARY_FILES})
+add_dependencies(engine MODELS)

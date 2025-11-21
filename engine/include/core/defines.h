@@ -45,6 +45,10 @@ namespace nk {
             }
         }
     }
+
+    namespace id {
+        static constexpr const u32 invalid = UINT32_MAX;
+    }
 }
 
 #define TRUE                   1
