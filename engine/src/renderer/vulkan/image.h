@@ -39,7 +39,7 @@ namespace nk {
 
         void transition_layout(CommandBuffer* command_buffer, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout);
 
-        void copy_from_buffer(CommandBuffer* command_buffer,VkBuffer buffer);
+        void copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer);
 
         VkImageView get_view() const { return m_view; }
 

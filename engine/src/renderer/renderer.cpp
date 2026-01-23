@@ -4,8 +4,8 @@
 #include "renderer/renderer.h"
 
 #include "memory/malloc_allocator.h"
-// #include "vulkan/vulkan_renderer.h"
-#include "simple-vulkan/simple_vulkan_renderer.h"
+#include "vulkan/vulkan_renderer.h"
+// #include "simple-vulkan/simple_vulkan_renderer.h"
 #include "platform/platform.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -15,7 +15,7 @@
 
 namespace nk {
     Renderer* Renderer::create(mem::Allocator* allocator, Platform* platform, str application_name) {
-        auto renderer = allocator->construct_t(SimpleVulkanRenderer);
+        auto renderer = allocator->construct_t(VulkanRenderer);
 
         renderer->m_application_name = application_name;
         renderer->m_platform = platform;
@@ -41,7 +41,7 @@ namespace nk {
     void Renderer::destroy(mem::Allocator* allocator, Renderer* renderer) {
         renderer->shutdown();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
-        allocator->deconstruct_t(SimpleVulkanRenderer, renderer);
+        allocator->deconstruct_t(VulkanRenderer, renderer);
     }
 
     bool Renderer::draw_frame(const RenderPacket& packet) {
@@ -51,8 +51,7 @@ namespace nk {
                 m_view,
                 glm::vec3(0.0f),
                 glm::vec4(1.0f),
-                0
-            );
+                0);
 
             static f32 angle = 0.01f;
             glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -69,7 +68,7 @@ namespace nk {
 
             glm::mat4 model = glm::toMat4(rotation);
             update_object(model);
-            
+
             bool result = end_frame_impl(packet.delta_time);
             if (!result) {
                 ErrorLog("nk::Renderer::end_frame failed. Application shutting down.");

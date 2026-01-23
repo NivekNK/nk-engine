@@ -66,6 +66,6 @@ namespace nk {
     private:
         bool end_frame_impl(f64 delta_time);
 
-        bool m_temp_active_rotation = true;
+        bool m_temp_active_rotation = false;
     };
 }
