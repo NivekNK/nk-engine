@@ -32,7 +32,7 @@ namespace nk {
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) override;
-        virtual void update_object(glm::mat4 model) override;
+        virtual void update_object(GeometryRenderData data) override;
         virtual bool end_frame(f64 delta_time) override;
     
         virtual void create_texture(
@@ -102,5 +102,7 @@ namespace nk {
 
         u64 m_geometry_vertex_offset;
         u64 m_geometry_index_offset;
+
+        f32 m_frame_delta_time;
     };
 }

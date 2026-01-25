@@ -1,3 +1,4 @@
+#include "geometry_render_data.h"
 #include "nkpch.h"
 #include "core/input.h"
 
@@ -67,7 +68,10 @@ namespace nk {
             }
 
             glm::mat4 model = glm::toMat4(rotation);
-            update_object(model);
+            GeometryRenderData data = {};
+            data.object_id = 0; // TODO: actual object_id
+            data.model = model;
+            update_object(data);
 
             bool result = end_frame_impl(packet.delta_time);
             if (!result) {

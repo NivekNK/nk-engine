@@ -33,7 +33,7 @@ namespace nk {
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) override {}
-        virtual void update_object(glm::mat4 model) override {}
+        virtual void update_object(GeometryRenderData data) override {}
 
         virtual void create_texture(
             cstr name,

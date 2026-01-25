@@ -30,6 +30,8 @@ namespace nk {
 
         static constexpr const f32 f32_max = std::numeric_limits<float>::max();
         static constexpr const f64 f64_max = std::numeric_limits<double>::max();
+
+        static constexpr const u32 invalid_id = UINT32_MAX;
     }
 
     namespace mem {
@@ -44,10 +46,6 @@ namespace nk {
                 }
             }
         }
-    }
-
-    namespace id {
-        static constexpr const u32 invalid = UINT32_MAX;
     }
 }
 

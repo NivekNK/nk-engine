@@ -4,6 +4,7 @@
 #include <glm/ext/vector_float3.hpp>
 
 #include "resources/texture.h"
+#include "renderer/geometry_render_data.h"
 
 namespace nk {
     namespace mem { class Allocator; }
@@ -48,7 +49,7 @@ namespace nk {
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) = 0;
-        virtual void update_object(glm::mat4 model) = 0;
+        virtual void update_object(GeometryRenderData data) = 0;
         virtual bool end_frame(f64 delta_time) = 0;
 
         str m_application_name;

@@ -2,11 +2,13 @@
 
 #include "vulkan/vk.h"
 
-#include "vulkan/pipeline.h"
-
 #include "renderer/global_uniform_object.h"
+#include "renderer/geometry_render_data.h"
+#include "vulkan/pipeline.h"
 #include "vulkan/buffer.h"
 #include "vulkan/command_buffer.h"
+
+#include "vulkan/shaders/object_shader_object_state.h"
 
 #include "collections/dyarr.h"
 
@@ -22,7 +24,6 @@ namespace nk {
     class ObjectShader {
     public:
         static constexpr u32 shader_stage_count = 2;
-        static constexpr u32 descriptor_count = 1;
         static constexpr u32 object_max_object_count = 1024;
 
         ObjectShader() = default;
@@ -39,8 +40,11 @@ namespace nk {
         // Bind to: m_graphics_command_buffers[image_index]
         void use(CommandBuffer* command_buffer);
 
-        void update_global_state(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index);
-        void update_object(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, glm::mat4 model);
+        void update_global_state(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, f32 delta_time);
+        void update_object(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, GeometryRenderData data, f32 delta_time);
+
+        bool acquire_resources(u32* out_object_id);
+        void release_resources(u32 object_id);
 
         void set_global_ubo(const GlobalUniformObject& global_ubo) { m_global_ubo = global_ubo; }
 
@@ -55,13 +59,23 @@ namespace nk {
         VkDescriptorSetLayout m_global_descriptor_set_layout;
 
         // One descriptor set per frame - max 3 for triple buffering
-        static constexpr u32 global_descriptor_set_count = 3;
-        VkDescriptorSet m_global_descriptor_sets[global_descriptor_set_count];
+        static constexpr u32 m_global_descriptor_set_count = 3;
+        VkDescriptorSet m_global_descriptor_sets[m_global_descriptor_set_count];
 
         // Global Uniform Object
         GlobalUniformObject m_global_ubo;
 
         // Global uniform buffer
         Buffer m_global_uniform_buffer;
+
+        VkDescriptorPool m_object_descriptor_pool;
+        VkDescriptorSetLayout m_object_descriptor_set_layout;
+        // Object uniform buffers
+        Buffer m_object_uniform_buffer;
+        // TODO: manage a free list of som kind here instead.
+        u32 m_object_uniform_buffer_index;
+
+        // TODO: make dynamic
+        ObjectShaderObjectState m_object_states[object_max_object_count];
     };
 }

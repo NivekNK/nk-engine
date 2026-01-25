@@ -109,6 +109,12 @@ namespace nk {
             0,
             sizeof(u32) * index_count,
             indices);
+
+        u32 object_id = 0;
+        if(!m_object_shader.acquire_resources(&object_id)) {
+            ErrorLog("Failed to acquire resources for object shader.");
+            return;
+        }
         // TODO: temporary test code END
     }
 
@@ -152,6 +158,8 @@ namespace nk {
     }
 
     bool VulkanRenderer::begin_frame(f64 delta_time) {
+        m_frame_delta_time = delta_time;
+
         // Check if the framebuffer has been resized. If so, a new swapchain must be created
         if (m_framebuffer_size_generation != m_framebuffer_last_generation) {
             VkResult result = vkDeviceWaitIdle(m_device);
@@ -293,13 +301,13 @@ namespace nk {
 
         // TODO: Other ubo properties
 
-        m_object_shader.update_global_state(m_graphics_command_buffers, m_image_index);
+        m_object_shader.update_global_state(m_graphics_command_buffers, m_image_index, m_frame_delta_time);
     }
 
-    void VulkanRenderer::update_object(glm::mat4 model) {
+    void VulkanRenderer::update_object(GeometryRenderData data) {
         CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
         
-        m_object_shader.update_object(m_graphics_command_buffers, m_image_index, model);
+        m_object_shader.update_object(m_graphics_command_buffers, m_image_index, data, m_frame_delta_time);
 
         // TODO: temporary test code START
         m_object_shader.use(command_buffer);
@@ -334,7 +342,7 @@ namespace nk {
         out_texture->width = width;
         out_texture->height = height;
         out_texture->channel_count = channel_count;
-        out_texture->generation = 0;
+        out_texture->generation = numeric::invalid_id;
 
         // TODO: Use an allocator for this.
         out_texture->m_internal_data = m_allocator->allocate_t(TextureData);
@@ -387,6 +395,7 @@ namespace nk {
 
         // Copy the data from the buffer.
         texture_data->image.copy_from_buffer(&temp_buffer, staging);
+        staging.shutdown();
 
         // Transition from optimal for data reciept to shader-read-only optimal layout.
         texture_data->image.transition_layout(
@@ -429,6 +438,8 @@ namespace nk {
     }
 
     void VulkanRenderer::destroy_texture(Texture* texture) {
+        vkDeviceWaitIdle(m_device);
+
         TextureData* texture_data = static_cast<TextureData*>(texture->m_internal_data);
 
         texture_data->image.shutdown();
