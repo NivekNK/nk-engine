@@ -9,7 +9,7 @@ namespace nk {
     };
 
     struct ObjectShaderObjectState {
-        static constexpr u32 descriptor_count = 1;
+        static constexpr u32 descriptor_count = 2;
 
         // Per frame
         VkDescriptorSet descriptor_sets[3];

@@ -79,15 +79,23 @@ namespace nk {
 
         vertices[0].position.x = -0.5f * f;
         vertices[0].position.y = -0.5f * f;
+        vertices[0].texcoord.x = 0.0f;
+        vertices[0].texcoord.y = 0.0f;
 
         vertices[1].position.y = 0.5f * f;
         vertices[1].position.x = 0.5f * f;
+        vertices[1].texcoord.x = 1.0f;
+        vertices[1].texcoord.y = 1.0f;
 
         vertices[2].position.x = -0.5f * f;
         vertices[2].position.y = 0.5f * f;
+        vertices[2].texcoord.x = 0.0f;
+        vertices[2].texcoord.y = 1.0f;
 
         vertices[3].position.x = 0.5f * f;
         vertices[3].position.y = -0.5f * f;
+        vertices[3].texcoord.x = 1.0f;
+        vertices[3].texcoord.y = 0.0f;
 
         constexpr u32 index_count = 6;
         u32 indices[index_count] = {0, 1, 2, 0, 3, 1};
@@ -395,7 +403,6 @@ namespace nk {
 
         // Copy the data from the buffer.
         texture_data->image.copy_from_buffer(&temp_buffer, staging);
-        staging.shutdown();
 
         // Transition from optimal for data reciept to shader-read-only optimal layout.
         texture_data->image.transition_layout(
@@ -405,7 +412,7 @@ namespace nk {
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         temp_buffer.end_single_use(queue);
-
+        
         // Create a sampler for the texture
         VkSamplerCreateInfo sampler_info;
         memset(&sampler_info, 0, sizeof(VkSamplerCreateInfo));

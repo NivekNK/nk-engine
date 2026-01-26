@@ -8,6 +8,6 @@ namespace nk {
     struct GeometryRenderData {
         u32 object_id;
         glm::mat4 model;
-        Texture* texture[16];
+        Texture* textures[16];
     };
 }

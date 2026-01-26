@@ -35,11 +35,51 @@ namespace nk {
         renderer->m_view = glm::inverse(
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -30.0f)));
 
+        // NOTE: Create default texture, a 256x256 blue/white checkerboard pattern
+        // This is done in code to eliminate asset dependencies
+        TraceLog("Creating default texture...");
+
+        constexpr u32 tex_dimension = 256;
+        constexpr u32 channels = 4;
+        constexpr u32 pixel_count = tex_dimension * tex_dimension;
+        u8 pixels[pixel_count * channels];
+        memset(pixels, 255, sizeof(u8) * pixel_count * channels);
+
+        for (u64 row = 0; row < tex_dimension; row++) {
+            for (u64 col = 0; col < tex_dimension; col++) {
+                u64 index = (row * tex_dimension) + col;
+                u64 index_bpp = index * channels;
+                if (row % 2) {
+                    if (col % 2) {
+                        pixels[index_bpp + 0] = 0;
+                        pixels[index_bpp + 1] = 0;
+                    }
+                } else {
+                    if (!(col % 2)) {
+                        pixels[index_bpp + 0] = 0;
+                        pixels[index_bpp + 1] = 0;
+                    }
+                }
+            }
+        }
+            
         renderer->init();
+
+        renderer->create_texture(
+            "default",
+            false,
+            tex_dimension,
+            tex_dimension,
+            channels,
+            pixels,
+            false,
+            &renderer->m_default_texture);
+
         return static_cast<Renderer*>(renderer);
     }
 
     void Renderer::destroy(mem::Allocator* allocator, Renderer* renderer) {
+        renderer->destroy_texture(&renderer->m_default_texture);
         renderer->shutdown();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
         allocator->deconstruct_t(VulkanRenderer, renderer);
@@ -71,6 +111,7 @@ namespace nk {
             GeometryRenderData data = {};
             data.object_id = 0; // TODO: actual object_id
             data.model = model;
+            data.textures[0] = &m_default_texture;
             update_object(data);
 
             bool result = end_frame_impl(packet.delta_time);

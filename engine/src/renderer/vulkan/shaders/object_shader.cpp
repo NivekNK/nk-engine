@@ -6,6 +6,7 @@
 
 #include "vulkan/device.h"
 #include "vulkan/shaders/utils.h"
+#include "vulkan/resources/texture_data.h"
 
 #include "collections/dyarr.h"
 
@@ -60,8 +61,11 @@ namespace nk {
 
         VulkanCheck(vkCreateDescriptorPool(m_device->get(), &global_descriptor_pool_create_info, m_vulkan_allocator, &m_global_descriptor_pool));
 
+        // Local/Object descriptors
+        constexpr u32 local_sampler_count = 1;
         VkDescriptorType descriptor_types[ObjectShaderObjectState::descriptor_count] = {
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         // Binding 0: Uniform buffer
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER  // Binding 1: Diffuse sampler layout
         };
         VkDescriptorSetLayoutBinding bindings[ObjectShaderObjectState::descriptor_count];
         memset(bindings, 0, sizeof(VkDescriptorSetLayoutBinding) * ObjectShaderObjectState::descriptor_count);
@@ -81,15 +85,19 @@ namespace nk {
         VulkanCheck(vkCreateDescriptorSetLayout(m_device->get(), &layout_info, m_vulkan_allocator, &m_object_descriptor_set_layout));
 
         // Local/Object descriptor pool: Used for object-specific items like diffuse color
-        VkDescriptorPoolSize object_pool_sizes[1];
+        constexpr u32 object_pool_sizes_count = 2;
+        VkDescriptorPoolSize object_pool_sizes[object_pool_sizes_count];
         // The first section will be used for uniform buffers
         object_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         object_pool_sizes[0].descriptorCount = object_max_object_count;
+        // The second section will be used for image samplers
+        object_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        object_pool_sizes[1].descriptorCount = local_sampler_count * object_max_object_count;
 
         VkDescriptorPoolCreateInfo object_pool_create_info;
         memset(&object_pool_create_info, 0, sizeof(object_pool_create_info));
         object_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        object_pool_create_info.poolSizeCount = 1;
+        object_pool_create_info.poolSizeCount = object_pool_sizes_count;
         object_pool_create_info.pPoolSizes = object_pool_sizes;
         object_pool_create_info.maxSets = object_max_object_count;
 
@@ -114,14 +122,16 @@ namespace nk {
 
         // Attributes
         u32 offset = 0;
-        constexpr u32 attribute_count = 1;
+        constexpr u32 attribute_count = 2;
         VkVertexInputAttributeDescription attribute_descriptions[attribute_count];
-        // Position
+        // Position, texcoords
         VkFormat formats[attribute_count] = { 
-            VK_FORMAT_R32G32B32_SFLOAT
+            VK_FORMAT_R32G32B32_SFLOAT,
+            VK_FORMAT_R32G32_SFLOAT,
         };
         u64 sizes[attribute_count] = {
-            sizeof(glm::vec3)
+            sizeof(glm::vec3),
+            sizeof(glm::vec2),
         };
         for (u32 i = 0; i < attribute_count; i++) {
             attribute_descriptions[i].binding = 0;
@@ -329,6 +339,42 @@ namespace nk {
             object_state->descriptor_states[descriptor_index].generations[image_index] = 1;
         }
         descriptor_index++;
+
+        // TODO: samplers
+        constexpr u32 sampler_count = 1;
+        VkDescriptorImageInfo image_infos[1];
+        for (u32 sampler_index = 0; sampler_index < sampler_count; sampler_index++) {
+            Texture* texture = data.textures[sampler_index];
+            u32* descriptor_generation = &object_state->descriptor_states[descriptor_index].generations[image_index];
+
+            // Check if the descriptor needs updating first
+            if (texture && (*descriptor_generation != texture->generation || *descriptor_generation == numeric::invalid_id)) {
+                TextureData* internal_data = static_cast<TextureData*>(texture->m_internal_data);
+
+                // Assign view and sampler
+                image_infos[sampler_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_infos[sampler_index].imageView = internal_data->image.get_view();
+                image_infos[sampler_index].sampler = internal_data->sampler;
+
+                VkWriteDescriptorSet descriptor;
+                memset(&descriptor, 0, sizeof(VkWriteDescriptorSet));
+                descriptor.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor.dstSet = object_descriptor_set;
+                descriptor.dstBinding = descriptor_index;
+                descriptor.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptor.descriptorCount = 1;
+                descriptor.pImageInfo = &image_infos[sampler_index];
+
+                descriptor_writes[descriptor_count] = descriptor;
+                descriptor_count++;
+
+                // Sync frame generation if not using a default texture
+                if (texture->generation != numeric::invalid_id) {
+                    *descriptor_generation = texture->generation;
+                }
+                descriptor_index++;
+            }
+        }
 
         if (descriptor_count > 0) {
             vkUpdateDescriptorSets(m_device->get(), descriptor_count, descriptor_writes, 0, nullptr);

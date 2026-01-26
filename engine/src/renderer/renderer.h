@@ -64,6 +64,8 @@ namespace nk {
         f32 m_near_clip;
         f32 m_far_clip;
 
+        Texture m_default_texture;
+
     private:
         bool end_frame_impl(f64 delta_time);
 

@@ -1,28 +1,45 @@
-[[vk::binding(0, 0)]]
-cbuffer GlobalUniformObject : register(b0, space0)
+struct GlobalUniformObject
 {
     float4x4 projection;
     float4x4 view;
 };
 
-[[vk::push_constant]]
-cbuffer PushConstants : register(b1, space0)
+struct PushConstants
 {
     float4x4 model;
 };
 
-struct VSInput {
-    float3 position : POSITION;
+[[vk::binding(0, 0)]]
+ConstantBuffer<GlobalUniformObject> global_ubo;
+
+[[vk::push_constant]]
+PushConstants u_push_constants;
+
+struct VertexInput
+{
+    [[vk::location(0)]] float3 position : POSITION;
+    [[vk::location(1)]] float2 texcoord : TEXCOORD;
 };
 
-struct VSOutput {
+struct dto 
+{
+    float2 tex_coord;
+};
+
+struct VertexOutput
+{
     float4 position : SV_Position;
+    [[vk::location(1)]] dto out_dto;
 };
 
-VSOutput main(VSInput input) {
-    VSOutput output;
-    float4 world_position = mul(model, float4(input.position, 1.0));
-    float4 view_position  = mul(view, world_position);
-    output.position = mul(projection, view_position);
+VertexOutput main(VertexInput input)
+{
+    VertexOutput output;
+
+    output.out_dto.tex_coord = input.texcoord;
+
+    float4x4 mvp = mul(global_ubo.projection, mul(global_ubo.view, u_push_constants.model));
+    output.position = mul(mvp, float4(input.position, 1.0));
+
     return output;
 }
