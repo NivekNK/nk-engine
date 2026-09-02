@@ -30,6 +30,12 @@ add_compile_options(
     -Werror=vla
 )
 
+if (MSVC)
+    add_compile_options(/we4834)
+else()
+    add_compile_options(-Werror=unused-result)
+endif()
+
 option(NK_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
 if (NK_ENABLE_SANITIZERS)
