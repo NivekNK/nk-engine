@@ -12,6 +12,8 @@
 
 #include "collections/dyarr.h"
 
+#include <vector>
+
 namespace nk {
     class Device;
 
@@ -34,7 +36,13 @@ namespace nk {
         ObjectShader(ObjectShader&&) = delete;
         ObjectShader& operator=(ObjectShader&&) = delete;
 
-        void init(u32 width, u32 height, RenderPass* render_pass, Device* device, VkAllocationCallbacks* vulkan_allocator);
+        void init(
+            u32 width,
+            u32 height,
+            u32 image_count,
+            RenderPass* render_pass,
+            Device* device,
+            VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
         // Bind to: m_graphics_command_buffers[image_index]
@@ -58,9 +66,8 @@ namespace nk {
         VkDescriptorPool m_global_descriptor_pool;
         VkDescriptorSetLayout m_global_descriptor_set_layout;
 
-        // One descriptor set per frame - max 3 for triple buffering
-        static constexpr u32 m_global_descriptor_set_count = 3;
-        VkDescriptorSet m_global_descriptor_sets[m_global_descriptor_set_count];
+        u32 m_image_count;
+        std::vector<VkDescriptorSet> m_global_descriptor_sets;
 
         // Global Uniform Object
         GlobalUniformObject m_global_ubo;

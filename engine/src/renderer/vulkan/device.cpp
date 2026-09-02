@@ -122,7 +122,8 @@ namespace nk {
             .compute = false,
             .transfer = true,
             .sampler_anisotropy = true,
-            .discrete_gpu = true,
+            // Integrated GPUs and software Vulkan implementations are valid.
+            .discrete_gpu = false,
             .extensions = {},
         };
         requirements.extensions.dyarr_init(m_allocator, 1);
@@ -266,29 +267,38 @@ namespace nk {
 
     void Device::create_logical_device() {
         // NOTE: Do not create additional queues for shared indices.
-        constexpr u32 unique_queue_family_count = 3;
-        u32 unique_queue_families[unique_queue_family_count] = {
+        constexpr u32 queue_family_candidate_count = 3;
+        u32 queue_family_candidates[queue_family_candidate_count] = {
             m_queue_family_info.graphics_family_index,
             m_queue_family_info.present_family_index,
             m_queue_family_info.transfer_family_index};
 
-        VkDeviceQueueCreateInfo queue_create_infos[unique_queue_family_count] = {};
-        u32 i = 0;
-        for (const u32 queue_family_index : unique_queue_families) {
-            queue_create_infos[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_create_infos[i].queueFamilyIndex = queue_family_index;
-            queue_create_infos[i].queueCount = 1;
+        VkDeviceQueueCreateInfo queue_create_infos[queue_family_candidate_count] = {};
+        u32 unique_queue_family_count = 0;
+        const f32 queue_priority = 1.0f;
+        for (const u32 queue_family_index : queue_family_candidates) {
+            bool already_added = false;
+            for (u32 i = 0; i < unique_queue_family_count; ++i) {
+                if (queue_create_infos[i].queueFamilyIndex == queue_family_index) {
+                    already_added = true;
+                    break;
+                }
+            }
+            if (already_added)
+                continue;
+
+            VkDeviceQueueCreateInfo& queue_create_info = queue_create_infos[unique_queue_family_count++];
+            queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_info.queueFamilyIndex = queue_family_index;
+            queue_create_info.queueCount = 1;
 
             // TODO: Enable this for a future enhacement.
             // if (indices[i] == m_queue_family_info.graphics_family_index)
             //    queue_create_infos[i].queueCount = 2;
 
-            queue_create_infos[i].flags = 0;
-            queue_create_infos[i].pNext = nullptr;
-
-            f32 queue_priority = 1.0f;
-            queue_create_infos[i].pQueuePriorities = &queue_priority;
-            i++;
+            queue_create_info.flags = 0;
+            queue_create_info.pNext = nullptr;
+            queue_create_info.pQueuePriorities = &queue_priority;
         }
 
         // Request device features.

@@ -6,7 +6,6 @@
 
 #include "memory/malloc_allocator.h"
 #include "vulkan/vulkan_renderer.h"
-// #include "simple-vulkan/simple_vulkan_renderer.h"
 #include "platform/platform.h"
 
 #define GLM_ENABLE_EXPERIMENTAL

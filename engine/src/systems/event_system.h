@@ -2,22 +2,24 @@
 
 #include "collections/dyarr.h"
 
+#include <cstdint>
+
 namespace nk {
     struct EventContext {
         union {
-            i64 i64[2];
-            u64 u64[2];
-            f64 f64[2];
+            std::int64_t i64[2];
+            std::uint64_t u64[2];
+            double f64[2];
 
-            i32 i32[4];
-            u32 u32[4];
-            f32 f32[4];
+            std::int32_t i32[4];
+            std::uint32_t u32[4];
+            float f32[4];
 
-            i16 i16[8];
-            u16 u16[8];
+            std::int16_t i16[8];
+            std::uint16_t u16[8];
 
-            i8 i8[16];
-            u8 u8[16];
+            std::int8_t i8[16];
+            std::uint8_t u8[16];
 
             char c[16];
         } data;

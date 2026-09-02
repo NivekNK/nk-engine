@@ -2,17 +2,19 @@
 
 #include "vulkan/vk.h"
 
+#include <vector>
+
 namespace nk {
     struct DescriptorState {
         // One per frame
-        u32 generations[3];
+        std::vector<u32> generations;
     };
 
     struct ObjectShaderObjectState {
         static constexpr u32 descriptor_count = 2;
 
         // Per frame
-        VkDescriptorSet descriptor_sets[3];
+        std::vector<VkDescriptorSet> descriptor_sets;
 
         // Per descriptor
         DescriptorState descriptor_states[descriptor_count];

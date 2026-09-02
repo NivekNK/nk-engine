@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "glm-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1709054387,
+        "narHash": "sha256-GnGyzNRpzuguc3yYbEFtYLvG+KiCtRAktiN+NvbOICE=",
+        "owner": "g-truc",
+        "repo": "glm",
+        "rev": "0af55ccecd98d4e5a8d1fad7de25ba429d60e863",
+        "type": "github"
+      },
+      "original": {
+        "owner": "g-truc",
+        "repo": "glm",
+        "rev": "0af55ccecd98d4e5a8d1fad7de25ba429d60e863",
+        "type": "github"
+      }
+    },
+    "googletest-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1722432886,
+        "narHash": "sha256-1OJ2SeSscRBNr7zZ/a8bJGIqAnhkg45re0j3DtPfcXM=",
+        "owner": "google",
+        "repo": "googletest",
+        "rev": "b514bdc898e2951020cbdca1304b75f5950d1f59",
+        "type": "github"
+      },
+      "original": {
+        "owner": "google",
+        "repo": "googletest",
+        "rev": "b514bdc898e2951020cbdca1304b75f5950d1f59",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1788179007,
+        "narHash": "sha256-hn1oU2rue2SYK8dAr8+WNZWtbsz1S2W5mnHlSEuh3bo=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "glm-src": "glm-src",
+        "googletest-src": "googletest-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

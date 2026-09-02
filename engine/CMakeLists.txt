@@ -24,9 +24,10 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 #============== Vendor Subdirectory ================
 
 add_subdirectory(vendor/glm)
-add_subdirectory(vendor/tinyobjloader)
-
 find_package(Vulkan REQUIRED)
+
+set(PLATFORM_LIBRARIES)
+set(PLATFORM_INCLUDE_DIRS)
 
 #================== Source files ===================
 
@@ -65,19 +66,6 @@ set(SOURCES
     # Temporal
     src/core/camera.cpp
 
-    # Simple Vulkan Renderer
-    src/renderer/simple-vulkan/simple_vulkan_renderer.cpp
-    src/renderer/simple-vulkan/lve_buffer.cpp
-    src/renderer/simple-vulkan/lve_camera.cpp
-    src/renderer/simple-vulkan/lve_descriptors.cpp
-    src/renderer/simple-vulkan/lve_device.cpp
-    src/renderer/simple-vulkan/lve_game_object.cpp
-    src/renderer/simple-vulkan/lve_model.cpp
-    src/renderer/simple-vulkan/lve_pipeline.cpp
-    src/renderer/simple-vulkan/lve_swap_chain.cpp
-    src/renderer/simple-vulkan/lve_texture.cpp
-    src/renderer/simple-vulkan/systems/point_light_system.cpp
-    src/renderer/simple-vulkan/systems/simple_render_system.cpp
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
@@ -91,7 +79,62 @@ if (WIN32)
         src/platform/platform_win32.cpp
     )
 elseif (UNIX AND NOT APPLE)
-    message(WARNING "Linux specific sources not yet implemented!")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb xcb-keysyms)
+    pkg_check_modules(WAYLAND REQUIRED IMPORTED_TARGET wayland-client)
+    pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
+    pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
+    find_path(X11_KEYSYM_INCLUDE_DIR X11/keysym.h REQUIRED)
+    find_program(WAYLAND_SCANNER_EXECUTABLE NAMES wayland-scanner REQUIRED)
+    pkg_get_variable(WAYLAND_PROTOCOLS_DATA_DIR wayland-protocols pkgdatadir)
+
+    set(WAYLAND_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/wayland")
+    set(XDG_SHELL_PROTOCOL_XML "${WAYLAND_PROTOCOLS_DATA_DIR}/stable/xdg-shell/xdg-shell.xml")
+    set(XDG_SHELL_PROTOCOL_HEADER "${WAYLAND_GENERATED_DIR}/xdg-shell-client-protocol.h")
+    set(XDG_SHELL_PROTOCOL_SOURCE "${WAYLAND_GENERATED_DIR}/xdg-shell-protocol.c")
+
+    add_custom_command(
+        OUTPUT
+            "${XDG_SHELL_PROTOCOL_HEADER}"
+            "${XDG_SHELL_PROTOCOL_SOURCE}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WAYLAND_GENERATED_DIR}"
+        COMMAND ${WAYLAND_SCANNER_EXECUTABLE}
+            client-header "${XDG_SHELL_PROTOCOL_XML}" "${XDG_SHELL_PROTOCOL_HEADER}"
+        COMMAND ${WAYLAND_SCANNER_EXECUTABLE}
+            private-code "${XDG_SHELL_PROTOCOL_XML}" "${XDG_SHELL_PROTOCOL_SOURCE}"
+        DEPENDS "${XDG_SHELL_PROTOCOL_XML}"
+        COMMENT "Generating the Wayland xdg-shell client protocol"
+        VERBATIM
+    )
+    set_source_files_properties(
+        "${XDG_SHELL_PROTOCOL_HEADER}"
+        "${XDG_SHELL_PROTOCOL_SOURCE}"
+        PROPERTIES GENERATED TRUE
+    )
+    set_source_files_properties(
+        "${XDG_SHELL_PROTOCOL_SOURCE}"
+        PROPERTIES SKIP_PRECOMPILE_HEADERS TRUE
+    )
+
+    list(APPEND SOURCES
+        src/platform/platform_linux.cpp
+        src/platform/platform_wayland.cpp
+        "${XDG_SHELL_PROTOCOL_HEADER}"
+        "${XDG_SHELL_PROTOCOL_SOURCE}"
+    )
+    list(APPEND PLATFORM_LIBRARIES
+        PkgConfig::XCB
+        PkgConfig::WAYLAND
+        PkgConfig::XKBCOMMON
+    )
+    list(APPEND PLATFORM_INCLUDE_DIRS
+        ${X11_KEYSYM_INCLUDE_DIR}
+        "${WAYLAND_GENERATED_DIR}"
+    )
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        VK_USE_PLATFORM_XCB_KHR
+        VK_USE_PLATFORM_WAYLAND_KHR
+    )
 endif()
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCES})
@@ -102,7 +145,7 @@ target_link_libraries(${PROJECT_NAME}
 PRIVATE
     glm
     Vulkan::Vulkan
-    tinyobjloader
+    ${PLATFORM_LIBRARIES}
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -110,6 +153,7 @@ PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer
     ${Vulkan_INCLUDE_DIR}
+    ${PLATFORM_INCLUDE_DIRS}
 
 PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -124,8 +168,16 @@ PUBLIC
 # COMPILE SHADERS
 #=======================================================================
 
-if (WIN32)
-    set(SLANGC "$ENV{VULKAN_SDK}/Bin/slangc.exe")
+if (NOT SLANGC)
+    find_program(SLANGC
+        NAMES slangc slangc.exe
+        HINTS "$ENV{VULKAN_SDK}/Bin"
+        DOC "Path to the Slang shader compiler"
+    )
+endif()
+
+if (NOT SLANGC)
+    message(FATAL_ERROR "slangc was not found. Add it to PATH or configure -DSLANGC=/path/to/slangc")
 endif()
 
 file(GLOB SLANG_SHADER_FILES
@@ -156,6 +208,7 @@ foreach(MODEL ${MODEL_FILES})
     get_filename_component(MODEL_NAME ${MODEL} NAME_WLE)
     add_custom_command(
         OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MODEL} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj
         DEPENDS ${MODEL}
     )

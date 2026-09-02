@@ -10,6 +10,8 @@
 
 namespace nk {
     void VulkanRenderer::on_resized(u32 width, u32 height) {
+        m_cached_framebuffer_width = width;
+        m_cached_framebuffer_height = height;
         m_framebuffer_size_generation++;
         DebugLog("nk::VulkanRenderer::on_resized: {}, {}", width, height);
     }
@@ -19,8 +21,14 @@ namespace nk {
 
         m_framebuffer_width = m_platform->width();
         m_framebuffer_height = m_platform->height();
+        m_cached_framebuffer_width = m_framebuffer_width;
+        m_cached_framebuffer_height = m_framebuffer_height;
+        m_framebuffer_size_generation = 0;
+        m_framebuffer_last_generation = 0;
+        m_image_index = 0;
+        m_current_frame = 0;
 
-        m_instance.init(m_application_name.c_str(), m_allocator, m_vulkan_allocator);
+        m_instance.init(m_application_name.c_str(), m_platform, m_allocator, m_vulkan_allocator);
         m_device.init(m_platform, &m_instance, m_allocator, m_vulkan_allocator);
         m_swapchain.init(
             m_framebuffer_width,
@@ -63,6 +71,7 @@ namespace nk {
         m_object_shader.init(
             m_framebuffer_width,
             m_framebuffer_height,
+            image_count,
             &m_main_render_pass,
             &m_device,
             m_vulkan_allocator);

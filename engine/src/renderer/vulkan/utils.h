@@ -8,7 +8,7 @@ namespace nk {
     class Instance;
 
     namespace vk {
-        void get_required_extensions(cl::dyarr<cstr>& extensions);
+        void get_required_extensions(Platform* platform, cl::dyarr<cstr>& extensions);
 
         VkSurfaceKHR create_surface(Platform* platform, Instance* instance, VkAllocationCallbacks* vulkan_allocator);
    

@@ -7,16 +7,26 @@
 #if defined(NK_PLATFORM_WINDOWS)
     #include "platform/platform_win32.h"
     #include <vulkan/vulkan_win32.h>
+#elif defined(NK_PLATFORM_LINUX)
+    #include "platform/platform_linux.h"
+    #include "platform/platform_wayland.h"
+    #include <vulkan/vulkan_wayland.h>
+    #include <vulkan/vulkan_xcb.h>
 #else
-    #Error : Linux not yet implemented !
+    #error Platform not supported!
 #endif
 
 namespace nk::vk {
-    void get_required_extensions(cl::dyarr<cstr>& extensions) {
+    void get_required_extensions(Platform* platform, cl::dyarr<cstr>& extensions) {
 #if defined(NK_PLATFORM_WINDOWS)
-        extensions.dyarr_push_ptr("VK_KHR_win32_surface");
+        extensions.dyarr_push_ptr(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+#elif defined(NK_PLATFORM_LINUX)
+        if (platform->backend() == PlatformBackend::Wayland)
+            extensions.dyarr_push_ptr(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+        else
+            extensions.dyarr_push_ptr(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
 #else
-    #Error : Linux not yet implemented !
+    #error Platform not supported!
 #endif
     }
 
@@ -36,8 +46,31 @@ namespace nk::vk {
         }
 
         return surface;
+#elif defined(NK_PLATFORM_LINUX)
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
+        VkResult result = VK_ERROR_INITIALIZATION_FAILED;
+        if (platform->backend() == PlatformBackend::Wayland) {
+            PlatformWayland* native_platform = static_cast<PlatformWayland*>(platform);
+            VkWaylandSurfaceCreateInfoKHR create_info = {VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR};
+            create_info.display = native_platform->get_display();
+            create_info.surface = native_platform->get_surface();
+            result = vkCreateWaylandSurfaceKHR(instance->get(), &create_info, vulkan_allocator, &surface);
+        } else {
+            PlatformLinux* native_platform = static_cast<PlatformLinux*>(platform);
+            VkXcbSurfaceCreateInfoKHR create_info = {VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
+            create_info.connection = native_platform->get_connection();
+            create_info.window = native_platform->get_window();
+            result = vkCreateXcbSurfaceKHR(instance->get(), &create_info, vulkan_allocator, &surface);
+        }
+
+        if (result != VK_SUCCESS) {
+            FatalLog("nk::vk::create_surface Vulkan surface creation failed: {}.", result_to_cstr(result, true));
+            return VK_NULL_HANDLE;
+        }
+
+        return surface;
 #else
-    #Error : Linux not yet implemented !
+    #error Platform not supported!
 #endif
     }
 

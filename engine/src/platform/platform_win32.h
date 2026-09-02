@@ -11,6 +11,7 @@ namespace nk {
         virtual bool pump_messages() override;
         virtual f64 get_absolute_time() override;
         virtual void sleep(u64 ms) override;
+        PlatformBackend backend() const override { return PlatformBackend::Win32; }
 
         HINSTANCE get_hinstance() { return m_hinstance; }
         HWND get_hwnd() { return m_hwnd; }

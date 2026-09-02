@@ -30,10 +30,14 @@ namespace nk {
     }
 #endif
 
-    void Instance::init(cstr application_name, mem::Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
+    void Instance::init(
+        cstr application_name,
+        Platform* platform,
+        mem::Allocator* allocator,
+        VkAllocationCallbacks* vulkan_allocator) {
         m_vulkan_allocator = vulkan_allocator;
         m_extensions.dyarr_init(allocator, 12);
-        create_instance(application_name, allocator);
+        create_instance(application_name, platform, allocator);
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
         create_debug_messenger();
 #endif
@@ -60,7 +64,7 @@ namespace nk {
         TraceLog("nk::Instance shutdown.");
     }
 
-    void Instance::create_instance(cstr application_name, mem::Allocator* allocator) {
+    void Instance::create_instance(cstr application_name, Platform* platform, mem::Allocator* allocator) {
         VkApplicationInfo app_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
         app_info.apiVersion = VK_API_VERSION_1_2;
         app_info.pApplicationName = application_name;
@@ -72,7 +76,7 @@ namespace nk {
         instance_create_info.pApplicationInfo = &app_info;
 
         m_extensions.dyarr_push_ptr(VK_KHR_SURFACE_EXTENSION_NAME);
-        vk::get_required_extensions(m_extensions);
+        vk::get_required_extensions(platform, m_extensions);
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
         m_extensions.dyarr_push_ptr(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 

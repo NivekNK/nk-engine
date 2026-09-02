@@ -856,7 +856,7 @@ namespace nk::cl {
         _dyarr_init((allocator), (capacity))
 
     #define dyarr_init_len(allocator, capacity, length) \
-        _dyarr_init((allocator), (capacity), (length))
+        _dyarr_init_len((allocator), (capacity), (length))
 
     #define dyarr_init_own(allocator, capacity) \
         _dyarr_init_own((allocator), (capacity))

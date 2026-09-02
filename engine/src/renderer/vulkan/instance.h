@@ -4,6 +4,8 @@
 #include "collections/dyarr.h"
 
 namespace nk {
+    class Platform;
+
     class Instance {
     public:
         Instance() = default;
@@ -14,7 +16,11 @@ namespace nk {
         Instance(Instance&&) = delete;
         Instance& operator=(Instance&&) = delete;
 
-        void init(cstr application_name, mem::Allocator* allocator, VkAllocationCallbacks* vulkan_allocator);
+        void init(
+            cstr application_name,
+            Platform* platform,
+            mem::Allocator* allocator,
+            VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
         VkInstance get() { return m_instance; }
@@ -22,7 +28,7 @@ namespace nk {
         operator VkInstance() { return m_instance; }
 
     private:
-        void create_instance(cstr application_name, mem::Allocator* allocator);
+        void create_instance(cstr application_name, Platform* platform, mem::Allocator* allocator);
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
         void create_debug_messenger();
 #endif

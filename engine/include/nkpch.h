@@ -38,6 +38,7 @@
 #elif defined(NK_PLATFORM_LINUX)
     #include <stdlib.h>
     #include <sys/stat.h>
+    #include <sys/syscall.h>
     #include <unistd.h>
 #endif
 

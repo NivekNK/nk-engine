@@ -3,6 +3,12 @@
 namespace nk {
     struct ApplicationConfig;
 
+    enum class PlatformBackend {
+        Win32,
+        Xcb,
+        Wayland,
+    };
+
     namespace mem {
         class Allocator;
     }
@@ -14,6 +20,7 @@ namespace nk {
         virtual bool pump_messages() = 0;
         virtual f64 get_absolute_time() = 0;
         virtual void sleep(u64 ms) = 0;
+        virtual PlatformBackend backend() const = 0;
 
         bool suspended() const { return m_suspended; }
         bool running() const { return m_running; }
