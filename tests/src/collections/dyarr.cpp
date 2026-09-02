@@ -112,10 +112,15 @@ namespace {
             m_reject_allocations = reject;
         }
 
+        nk::u64 allocation_attempt_count() const noexcept {
+            return m_allocation_attempt_count;
+        }
+
     protected:
         void* _do_allocate(
             const nk::u64 size_bytes,
             const nk::u64 alignment) noexcept override {
+            ++m_allocation_attempt_count;
             if (m_reject_allocations)
                 return nullptr;
             return MallocAllocator::_do_allocate(size_bytes, alignment);
@@ -129,6 +134,7 @@ namespace {
 
     private:
         bool m_reject_allocations = false;
+        nk::u64 m_allocation_attempt_count = 0;
     };
 
     class OwnedAllocatorProbe final : public nk::mem::MallocAllocator {
@@ -380,6 +386,128 @@ TEST(Dyarr, PreservesAliasedValuesAcrossGrowthAndInsertion) {
     EXPECT_EQ(array[5], 2u);
 
     EXPECT_TRUE(array._dyarr_shutdown());
+}
+
+TEST(Dyarr, ReservesAndEmplacesWithTypedStorageErrors) {
+    Probe::reset();
+    ToggleAllocator allocator;
+    nk::cl::dyarr<Probe> array;
+    ASSERT_TRUE(array._dyarr_init(&allocator, 0));
+
+    Probe* initial_data = array.data();
+    ASSERT_TRUE(array.dyarr_reserve(4));
+    EXPECT_EQ(array.data(), initial_data);
+    ASSERT_TRUE(array.dyarr_reserve(8));
+    EXPECT_GE(array.capacity(), 8u);
+    EXPECT_EQ(allocator.allocation_attempt_count(), 2u);
+
+    const int moves_before = Probe::move_count;
+    const int copies_before = Probe::copy_count;
+    ASSERT_TRUE(array.dyarr_emplace_back(37));
+    EXPECT_EQ(array[0].value, 37);
+    EXPECT_EQ(Probe::move_count, moves_before);
+    EXPECT_EQ(Probe::copy_count, copies_before);
+
+    auto overflowed = array._dyarr_reserve(nk::numeric::u64_max);
+    ASSERT_FALSE(overflowed);
+    EXPECT_EQ(
+        overflowed.error(),
+        nk::cl::storage_error::capacity_overflow);
+
+    EXPECT_TRUE(array._dyarr_shutdown());
+    EXPECT_EQ(Probe::live_count, 0);
+}
+
+TEST(Dyarr, PreservesEmplaceArgumentsAliasedDuringGrowth) {
+    Probe::reset();
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::cl::dyarr<Probe> array;
+    ASSERT_TRUE(array._dyarr_init(&allocator, 4));
+    for (const int value : {2, 4, 8, 16})
+        ASSERT_TRUE(array._dyarr_emplace_back(value));
+    ASSERT_EQ(array.length(), 4u);
+    ASSERT_EQ(array.capacity(), 4u);
+
+    const int copies_before = Probe::copy_count;
+    const int moves_before = Probe::move_count;
+    ASSERT_TRUE(array._dyarr_emplace_back(array[1]));
+
+    ASSERT_EQ(array.length(), 5u);
+    EXPECT_EQ(array[1].value, 4);
+    EXPECT_EQ(array[4].value, 4);
+    EXPECT_EQ(Probe::copy_count, copies_before + 1);
+    EXPECT_EQ(Probe::move_count, moves_before + 4);
+
+    EXPECT_TRUE(array._dyarr_shutdown());
+    EXPECT_EQ(Probe::live_count, 0);
+}
+
+TEST(Dyarr, AppendsRangesWithOneReserveAndSupportsSelfAliasing) {
+    ToggleAllocator allocator;
+    nk::cl::dyarr<nk::u32> array;
+    ASSERT_TRUE(array._dyarr_init_list(&allocator, {1u, 2u, 3u, 4u}));
+
+    nk::u32 extra[60]{};
+    for (nk::u32 index = 0; index < 60; ++index)
+        extra[index] = index + 10;
+
+    const nk::u64 attempts_before = allocator.allocation_attempt_count();
+    ASSERT_TRUE(array.dyarr_append(nk::cl::slice<const nk::u32>{extra}));
+    EXPECT_EQ(
+        allocator.allocation_attempt_count(),
+        attempts_before + 1);
+    ASSERT_EQ(array.length(), 64u);
+    EXPECT_EQ(array[4], 10u);
+    EXPECT_EQ(array[63], 69u);
+
+    const nk::cl::slice<const nk::u32> self{array};
+    ASSERT_TRUE(array._dyarr_append(self));
+    ASSERT_EQ(array.length(), 128u);
+    for (nk::u64 index = 0; index < 64; ++index)
+        EXPECT_EQ(array[index], array[index + 64]);
+
+    EXPECT_TRUE(array._dyarr_shutdown());
+}
+
+TEST(Dyarr, KeepsStateWhenDirectGrowthRunsOutOfMemory) {
+    ToggleAllocator allocator;
+    nk::cl::dyarr<nk::u32> array;
+    ASSERT_TRUE(array._dyarr_init_list(&allocator, {1u, 2u, 3u, 4u}));
+    nk::u32* initial_data = array.data();
+
+    allocator.reject_allocations(true);
+    auto reserve_result = array._dyarr_reserve(8);
+    auto emplace_result = array._dyarr_emplace_back(array[1]);
+    const nk::u32 extra[]{5u, 6u};
+    auto append_result = array._dyarr_append(
+        nk::cl::slice<const nk::u32>{extra});
+
+    ASSERT_FALSE(reserve_result);
+    ASSERT_FALSE(emplace_result);
+    ASSERT_FALSE(append_result);
+    EXPECT_EQ(
+        reserve_result.error(),
+        nk::cl::storage_error::out_of_memory);
+    EXPECT_EQ(
+        emplace_result.error(),
+        nk::cl::storage_error::out_of_memory);
+    EXPECT_EQ(
+        append_result.error(),
+        nk::cl::storage_error::out_of_memory);
+    EXPECT_EQ(array.data(), initial_data);
+    ASSERT_EQ(array.length(), 4u);
+    EXPECT_EQ(array[0], 1u);
+    EXPECT_EQ(array[3], 4u);
+
+    allocator.reject_allocations(false);
+    EXPECT_TRUE(array._dyarr_shutdown());
+}
+
+TEST(DyarrDeathTest, RejectsDirectGrowthBeforeInitialization) {
+    nk::cl::dyarr<nk::u32> array;
+    EXPECT_DEATH_IF_SUPPORTED(
+        static_cast<void>(array._dyarr_reserve(1)),
+        "");
 }
 
 TEST(Dyarr, KeepsStateUnchangedWhenAllocationFails) {

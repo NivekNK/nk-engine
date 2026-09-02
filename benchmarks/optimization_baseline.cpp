@@ -53,6 +53,7 @@ namespace {
     constexpr nk::u64 allocation_operation_count = 100000;
     constexpr nk::u64 lookup_operation_count = 100000;
     constexpr nk::u64 dyarr_element_count = 100000;
+    constexpr nk::u64 dyarr_range_element_count = 1048576;
     constexpr nk::u64 string_operation_count = 100000;
     constexpr nk::u64 owning_contract_operation_count = 20000;
 
@@ -582,6 +583,57 @@ namespace {
         });
     }
 
+    Distribution benchmark_dyarr_push_blocks(const nk::u64 block_size) {
+        return measure([=](const nk::u64 sample, nk::u64& checksum) {
+            std::array<nk::u64, 4096> input{};
+            for (nk::u64 index = 0; index < block_size; ++index)
+                input[index] = index + sample;
+
+            nk::mem::MallocAllocator allocator{nk::mem::untracked};
+            nk::cl::dyarr<nk::u64> values;
+            if (!values.dyarr_init(&allocator, block_size))
+                std::abort();
+            const nk::u64 repetitions =
+                dyarr_range_element_count / block_size;
+            for (nk::u64 repetition = 0; repetition < repetitions; ++repetition) {
+                if (!values.dyarr_reset())
+                    std::abort();
+                for (nk::u64 index = 0; index < block_size; ++index) {
+                    if (!values.dyarr_push_copy(input[index]))
+                        std::abort();
+                }
+                checksum ^= values[block_size - 1] + repetition;
+            }
+            if (!values.dyarr_shutdown())
+                std::abort();
+        });
+    }
+
+    Distribution benchmark_dyarr_append_blocks(const nk::u64 block_size) {
+        return measure([=](const nk::u64 sample, nk::u64& checksum) {
+            std::array<nk::u64, 4096> input{};
+            for (nk::u64 index = 0; index < block_size; ++index)
+                input[index] = index + sample;
+
+            nk::mem::MallocAllocator allocator{nk::mem::untracked};
+            nk::cl::dyarr<nk::u64> values;
+            if (!values.dyarr_init(&allocator, block_size))
+                std::abort();
+            const nk::cl::slice<const nk::u64> block{
+                input.data(),
+                block_size};
+            const nk::u64 repetitions =
+                dyarr_range_element_count / block_size;
+            for (nk::u64 repetition = 0; repetition < repetitions; ++repetition) {
+                if (!values.dyarr_reset() || !values.dyarr_append(block))
+                    std::abort();
+                checksum ^= values[block_size - 1] + repetition;
+            }
+            if (!values.dyarr_shutdown())
+                std::abort();
+        });
+    }
+
     struct StringInput {
         std::array<char, 257> data{};
 
@@ -735,6 +787,22 @@ int main() {
     benchmark_strview_map();
     print("map.u64.churn.load_80", lookup_operation_count, benchmark_map_churn());
     print("dyarr.push_copy_u64", dyarr_element_count, benchmark_dyarr_push());
+    print(
+        "dyarr.push_loop_u64.block_64",
+        dyarr_range_element_count,
+        benchmark_dyarr_push_blocks(64));
+    print(
+        "dyarr.append_u64.block_64",
+        dyarr_range_element_count,
+        benchmark_dyarr_append_blocks(64));
+    print(
+        "dyarr.push_loop_u64.block_4096",
+        dyarr_range_element_count,
+        benchmark_dyarr_push_blocks(4096));
+    print(
+        "dyarr.append_u64.block_4096",
+        dyarr_range_element_count,
+        benchmark_dyarr_append_blocks(4096));
     print_string_benchmarks();
     return 0;
 }

@@ -10,9 +10,16 @@
 #include <utility>
 
 #include "collections/arr_type.h"
+#include "collections/slice.h"
+#include "core/result.h"
 #include "memory/allocator_owner.h"
 
 namespace nk::cl {
+    enum class storage_error : u8 {
+        out_of_memory,
+        capacity_overflow,
+    };
+
     template <IArrT>
     class arr;
 
@@ -220,6 +227,45 @@ namespace nk::cl {
                      mem::RelocatableObject<T>;
 #endif
 
+        [[nodiscard]] result<void, storage_error> _dyarr_reserve(
+            u64 minimum_capacity)
+            requires mem::RelocatableObject<T>;
+#if NK_MEMORY_TRACKING_ENABLED
+        [[nodiscard]] result<void, storage_error> _dyarr_reserve(
+            cstr file,
+            u32 line,
+            u64 minimum_capacity)
+            requires mem::RelocatableObject<T>;
+#endif
+
+        template <typename... Args>
+            requires mem::RelocatableObject<T> &&
+                     std::is_constructible_v<T, Args...>
+        [[nodiscard]] result<void, storage_error> _dyarr_emplace_back(
+            Args&&... args);
+#if NK_MEMORY_TRACKING_ENABLED
+        template <typename... Args>
+            requires mem::RelocatableObject<T> &&
+                     std::is_constructible_v<T, Args...>
+        [[nodiscard]] result<void, storage_error> _dyarr_emplace_back(
+            cstr file,
+            u32 line,
+            Args&&... args);
+#endif
+
+        [[nodiscard]] result<void, storage_error> _dyarr_append(
+            slice<const T> values)
+            requires mem::RelocatableObject<T> &&
+                     std::is_copy_constructible_v<T>;
+#if NK_MEMORY_TRACKING_ENABLED
+        [[nodiscard]] result<void, storage_error> _dyarr_append(
+            cstr file,
+            u32 line,
+            slice<const T> values)
+            requires mem::RelocatableObject<T> &&
+                     std::is_copy_constructible_v<T>;
+#endif
+
         bool dyarr_reset()
             noexcept(std::is_nothrow_destructible_v<T>)
             requires std::is_destructible_v<T> {
@@ -279,6 +325,7 @@ namespace nk::cl {
         bool _can_initialize_borrowed(mem::Allocator* allocator) const noexcept;
         bool _can_initialize_owned(const mem::AllocatorOwner& owner) const noexcept;
         bool _find_alias(const T* value, u64& index) const noexcept;
+        void _require_initialized() const noexcept;
 
         bool _initialize_reserved(
             mem::SourceLocation source,
@@ -321,6 +368,21 @@ namespace nk::cl {
 
         bool _reserve(mem::SourceLocation source, u64 minimum_capacity)
             requires mem::RelocatableObject<T>;
+        [[nodiscard]] result<void, storage_error> _reserve_result(
+            mem::SourceLocation source,
+            u64 minimum_capacity)
+            requires mem::RelocatableObject<T>;
+        template <typename... Args>
+            requires mem::RelocatableObject<T> &&
+                     std::is_constructible_v<T, Args...>
+        [[nodiscard]] result<void, storage_error> _emplace_back(
+            mem::SourceLocation source,
+            Args&&... args);
+        [[nodiscard]] result<void, storage_error> _append(
+            mem::SourceLocation source,
+            slice<const T> values)
+            requires mem::RelocatableObject<T> &&
+                     std::is_copy_constructible_v<T>;
         bool _resize_to(mem::SourceLocation source, u64 length)
             requires std::is_default_constructible_v<T> &&
                      mem::RelocatableObject<T>;
@@ -797,6 +859,76 @@ namespace nk::cl {
 #endif
 
     template <IArrT T>
+    result<void, storage_error> dyarr<T>::_dyarr_reserve(
+        const u64 minimum_capacity)
+        requires mem::RelocatableObject<T> {
+        _require_initialized();
+        return _reserve_result({nullptr, 0}, minimum_capacity);
+    }
+
+#if NK_MEMORY_TRACKING_ENABLED
+    template <IArrT T>
+    result<void, storage_error> dyarr<T>::_dyarr_reserve(
+        cstr file,
+        const u32 line,
+        const u64 minimum_capacity)
+        requires mem::RelocatableObject<T> {
+        _require_initialized();
+        return _reserve_result({file, line}, minimum_capacity);
+    }
+#endif
+
+    template <IArrT T>
+    template <typename... Args>
+        requires mem::RelocatableObject<T> &&
+                 std::is_constructible_v<T, Args...>
+    result<void, storage_error> dyarr<T>::_dyarr_emplace_back(
+        Args&&... args) {
+        _require_initialized();
+        return _emplace_back(
+            {nullptr, 0},
+            std::forward<Args>(args)...);
+    }
+
+#if NK_MEMORY_TRACKING_ENABLED
+    template <IArrT T>
+    template <typename... Args>
+        requires mem::RelocatableObject<T> &&
+                 std::is_constructible_v<T, Args...>
+    result<void, storage_error> dyarr<T>::_dyarr_emplace_back(
+        cstr file,
+        const u32 line,
+        Args&&... args) {
+        _require_initialized();
+        return _emplace_back(
+            {file, line},
+            std::forward<Args>(args)...);
+    }
+#endif
+
+    template <IArrT T>
+    result<void, storage_error> dyarr<T>::_dyarr_append(
+        const slice<const T> values)
+        requires mem::RelocatableObject<T> &&
+                 std::is_copy_constructible_v<T> {
+        _require_initialized();
+        return _append({nullptr, 0}, values);
+    }
+
+#if NK_MEMORY_TRACKING_ENABLED
+    template <IArrT T>
+    result<void, storage_error> dyarr<T>::_dyarr_append(
+        cstr file,
+        const u32 line,
+        const slice<const T> values)
+        requires mem::RelocatableObject<T> &&
+                 std::is_copy_constructible_v<T> {
+        _require_initialized();
+        return _append({file, line}, values);
+    }
+#endif
+
+    template <IArrT T>
     std::optional<T> dyarr<T>::dyarr_pop()
         requires std::is_move_constructible_v<T> &&
                  std::is_destructible_v<T> {
@@ -950,6 +1082,14 @@ namespace nk::cl {
 
         index = candidate;
         return true;
+    }
+
+    template <IArrT T>
+    void dyarr<T>::_require_initialized() const noexcept {
+        if (m_allocator == nullptr || !m_allocator->is_initialized()) {
+            _fatal(
+                "nk::cl::dyarr operation requires an initialized array.");
+        }
     }
 
     template <IArrT T>
@@ -1109,18 +1249,28 @@ namespace nk::cl {
         const mem::SourceLocation source,
         const u64 minimum_capacity)
         requires mem::RelocatableObject<T> {
+        return static_cast<bool>(_reserve_result(source, minimum_capacity));
+    }
+
+    template <IArrT T>
+    result<void, storage_error> dyarr<T>::_reserve_result(
+        const mem::SourceLocation source,
+        const u64 minimum_capacity)
+        requires mem::RelocatableObject<T> {
         if (minimum_capacity <= m_capacity)
-            return true;
+            return ok();
         if (m_allocator == nullptr)
-            return false;
+            return err(storage_error::out_of_memory);
 
         u64 next_capacity = 0;
         if (!_next_capacity(m_capacity, minimum_capacity, next_capacity))
-            return false;
+            return err(storage_error::capacity_overflow);
+        if (next_capacity > numeric::u64_max / sizeof(T))
+            return err(storage_error::capacity_overflow);
 
         T* data = _allocate(*m_allocator, source, next_capacity);
         if (data == nullptr)
-            return false;
+            return err(storage_error::out_of_memory);
 
         mem::relocate_range(data, m_data, m_length);
         const bool released_previous_storage =
@@ -1134,7 +1284,86 @@ namespace nk::cl {
             _diagnostic(
                 "nk::cl::dyarr could not release its previous storage after growth.");
         }
-        return true;
+        return ok();
+    }
+
+    template <IArrT T>
+    template <typename... Args>
+        requires mem::RelocatableObject<T> &&
+                 std::is_constructible_v<T, Args...>
+    result<void, storage_error> dyarr<T>::_emplace_back(
+        const mem::SourceLocation source,
+        Args&&... args) {
+        if (m_length == numeric::u64_max)
+            return err(storage_error::capacity_overflow);
+
+        if (m_length < m_capacity) {
+            (void)mem::construct_object(
+                m_data + m_length,
+                std::forward<Args>(args)...);
+            ++m_length;
+            return ok();
+        }
+
+        u64 next_capacity = 0;
+        if (!_next_capacity(m_capacity, m_length + 1, next_capacity) ||
+            next_capacity > numeric::u64_max / sizeof(T)) {
+            return err(storage_error::capacity_overflow);
+        }
+        T* data = _allocate(*m_allocator, source, next_capacity);
+        if (data == nullptr)
+            return err(storage_error::out_of_memory);
+
+        (void)mem::construct_object(
+            data + m_length,
+            std::forward<Args>(args)...);
+        mem::relocate_range(data, m_data, m_length);
+        const bool released_previous_storage =
+            m_data == nullptr ||
+            _free(*m_allocator, source, m_data, m_capacity);
+
+        m_data = data;
+        m_capacity = next_capacity;
+        ++m_length;
+        if (!released_previous_storage) {
+            _diagnostic(
+                "nk::cl::dyarr could not release its previous storage after growth.");
+        }
+        return ok();
+    }
+
+    template <IArrT T>
+    result<void, storage_error> dyarr<T>::_append(
+        const mem::SourceLocation source,
+        const slice<const T> values)
+        requires mem::RelocatableObject<T> &&
+                 std::is_copy_constructible_v<T> {
+        if (values.empty())
+            return ok();
+        if (m_length > numeric::u64_max - values.length())
+            return err(storage_error::capacity_overflow);
+
+        u64 alias_index = 0;
+        const bool aliases_storage = _find_alias(values.data(), alias_index);
+        if (aliases_storage && values.length() > m_length - alias_index) {
+            _fatal("nk::cl::dyarr append source exceeds its live range.");
+        }
+
+        auto reserved = _reserve_result(
+            source,
+            m_length + values.length());
+        if (!reserved)
+            return reserved;
+
+        const T* source_data = aliases_storage
+            ? m_data + alias_index
+            : values.data();
+        mem::construct_copy_range(
+            m_data + m_length,
+            source_data,
+            values.length());
+        m_length += values.length();
+        return ok();
     }
 
     template <IArrT T>
@@ -1431,6 +1660,15 @@ namespace nk::cl {
     #define dyarr_resize(length) \
         _dyarr_resize(__FILE__, __LINE__, (length))
 
+    #define dyarr_reserve(capacity) \
+        _dyarr_reserve(__FILE__, __LINE__, (capacity))
+
+    #define dyarr_emplace_back(...) \
+        _dyarr_emplace_back(__FILE__, __LINE__ __VA_OPT__(,) __VA_ARGS__)
+
+    #define dyarr_append(values) \
+        _dyarr_append(__FILE__, __LINE__, (values))
+
 #else
 
     #define dyarr_at(index) \
@@ -1480,5 +1718,14 @@ namespace nk::cl {
 
     #define dyarr_resize(length) \
         _dyarr_resize((length))
+
+    #define dyarr_reserve(capacity) \
+        _dyarr_reserve((capacity))
+
+    #define dyarr_emplace_back(...) \
+        _dyarr_emplace_back(__VA_ARGS__)
+
+    #define dyarr_append(values) \
+        _dyarr_append((values))
 
 #endif
