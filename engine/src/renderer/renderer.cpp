@@ -1,6 +1,5 @@
 #include "geometry_render_data.h"
 #include "nkpch.h"
-#include "core/input.h"
 
 #include "renderer/renderer.h"
 
@@ -8,10 +7,7 @@
 #include "vulkan/vulkan_renderer.h"
 #include "platform/platform.h"
 
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/quaternion.hpp>
 
 namespace nk {
     result<Renderer*, renderer_error> Renderer::create(
@@ -99,24 +95,8 @@ namespace nk {
             glm::vec4(1.0f),
             0);
 
-        static f32 angle = 0.01f;
-        glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-
-        if (Input::is_key_down(KeyCode::F)) {
-            m_temp_active_rotation = !m_temp_active_rotation;
-        }
-
-        if (m_temp_active_rotation) {
-            angle += 0.001f;
-            glm::vec3 forward = glm::vec3(0.0f, 0.0f, -1.0f);
-            rotation = glm::angleAxis(angle, forward);
-        }
-
-        glm::mat4 model = glm::toMat4(rotation);
-        GeometryRenderData data = {};
-        data.model = model;
-        data.material = m_debug_material;
-        update_object(data);
+        for (u32 index = 0; index < packet.geometry_count; ++index)
+            draw_geometry(packet.geometries[index]);
 
         return end_frame_impl(packet.delta_time);
     }

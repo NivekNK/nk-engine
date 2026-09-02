@@ -10,6 +10,7 @@
 #include "systems/input_system.h"
 #include "systems/texture_system.h"
 #include "systems/material_system.h"
+#include "systems/geometry_system.h"
 
 // TODO: Temporal include
 #include "core/camera.h"
@@ -173,18 +174,47 @@ namespace nk {
         }
         m_material_system = *material_system;
 
-        auto test_material = m_material_system->acquire("test_material");
-        if (!test_material) {
-            const material_error error = test_material.error();
-            WarnLog(
-                "Test material load failed: material_error={}, native_code={}; using default.",
+        auto geometry_system = GeometrySystem::create(
+            *m_allocator,
+            *m_renderer,
+            *m_material_system);
+        if (!geometry_system) {
+            const geometry_error error = geometry_system.error();
+            ErrorLog(
+                "Geometry system initialization failed: geometry_error={}, native_code={}",
                 static_cast<u32>(error.code),
                 error.native_code);
-            m_test_material = &m_material_system->default_material();
-        } else {
-            m_test_material = *test_material;
+            shutdown_impl();
+            return false;
         }
-        m_renderer->set_debug_material(m_test_material);
+        m_geometry_system = *geometry_system;
+
+        auto plane = GeometrySystem::generate_plane(
+            *m_allocator,
+            10.0f,
+            5.0f,
+            5,
+            5,
+            5.0f,
+            2.0f,
+            "test geometry",
+            "test_material");
+        if (!plane) {
+            shutdown_impl();
+            return false;
+        }
+        auto test_geometry = m_geometry_system->acquire(*plane, true);
+        if (!test_geometry) {
+            const geometry_error error = test_geometry.error();
+            ErrorLog(
+                "Test geometry creation failed: geometry_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_test_geometry = *test_geometry;
+        m_test_material = m_test_geometry->material;
 
         Camera::init(m_renderer);
 
@@ -207,12 +237,15 @@ namespace nk {
             EventSystem::unregister_event(SystemEventCode::Resized, nullptr, on_resized);
         }
 
+        if (m_geometry_system != nullptr) {
+            GeometrySystem::destroy(*m_allocator, m_geometry_system);
+            m_geometry_system = nullptr;
+            m_test_geometry = nullptr;
+            m_test_material = nullptr;
+        }
         if (m_material_system != nullptr) {
-            if (m_renderer != nullptr)
-                m_renderer->set_debug_material(nullptr);
             MaterialSystem::destroy(*m_allocator, m_material_system);
             m_material_system = nullptr;
-            m_test_material = nullptr;
         }
         if (m_texture_system != nullptr) {
             TextureSystem::destroy(*m_allocator, m_texture_system);
@@ -313,9 +346,14 @@ namespace nk {
                     break;
                 }
 
-                // TODO: refactor packet creation
+                GeometryRenderData geometry{
+                    .model = glm::mat4{1.0f},
+                    .geometry = m_test_geometry,
+                };
                 auto frame = m_renderer->draw_frame({
                     .delta_time = delta,
+                    .geometry_count = m_test_geometry == nullptr ? 0u : 1u,
+                    .geometries = &geometry,
                 });
                 if (!frame) {
                     const renderer_error& error = frame.error();

@@ -416,23 +416,33 @@ namespace nk {
         vkUpdateDescriptorSets(m_device->get(), 1, &global_descriptor_write, 0, nullptr);
     }
 
-    void MaterialShader::update_object(
+    void MaterialShader::set_model(
+        CommandBuffer& command_buffer,
+        const glm::mat4& model) {
+        vkCmdPushConstants(
+            command_buffer.get(),
+            m_pipeline.get_layout(),
+            VK_SHADER_STAGE_VERTEX_BIT,
+            0,
+            sizeof(glm::mat4),
+            &model);
+    }
+
+    void MaterialShader::apply_material(
         const cl::dyarr<CommandBuffer>& command_buffers,
         const u32 image_index,
-        const GeometryRenderData data) {
-        Material* material = data.material;
-        if (material == nullptr || !material->valid() ||
-            material->internal_id >= max_material_count ||
+        Material& material) {
+        if (!material.valid() ||
+            material.internal_id >= max_material_count ||
             image_index >= command_buffers.length()) {
             ErrorLog("MaterialShader received an invalid material or image index.");
             return;
         }
 
         VkCommandBuffer command_buffer = command_buffers[image_index].get();
-        vkCmdPushConstants(command_buffer, m_pipeline.get_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &data.model);
 
         MaterialShaderInstanceState& instance =
-            m_instance_states[material->internal_id];
+            m_instance_states[material.internal_id];
         if (image_index >= instance.descriptor_sets.length()) {
             ErrorLog("MaterialShader descriptor image index is out of range.");
             return;
@@ -446,16 +456,16 @@ namespace nk {
 
         const u32 range = sizeof(MaterialUniformObject);
         const u64 offset =
-            sizeof(MaterialUniformObject) * material->internal_id;
+            sizeof(MaterialUniformObject) * material.internal_id;
         MaterialUniformObject ubo{};
-        ubo.diffuse_color = material->diffuse_color;
+        ubo.diffuse_color = material.diffuse_color;
 
         m_material_uniform_buffer.load_data(offset, range, 0, &ubo);
 
         VkDescriptorBufferInfo buffer_info{};
         u32& uniform_generation =
             instance.descriptor_states[descriptor_index].generations[image_index];
-        if (uniform_generation != material->generation) {
+        if (uniform_generation != material.generation) {
             buffer_info.buffer = m_material_uniform_buffer;
             buffer_info.offset = offset;
             buffer_info.range = range;
@@ -468,11 +478,11 @@ namespace nk {
             descriptor.descriptorCount = 1;
             descriptor.pBufferInfo = &buffer_info;
             descriptor_writes[descriptor_count++] = descriptor;
-            uniform_generation = material->generation;
+            uniform_generation = material.generation;
         }
         ++descriptor_index;
 
-        Texture* texture = material->diffuse_map.texture;
+        Texture* texture = material.diffuse_map.texture;
         if (texture == nullptr || !texture->valid())
             texture = m_default_texture;
         if (texture == nullptr || !texture->valid()) {

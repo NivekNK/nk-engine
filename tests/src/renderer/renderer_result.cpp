@@ -8,6 +8,7 @@
 #include "renderer/vulkan/vulkan_renderer.h"
 #include "systems/texture_system.h"
 #include "systems/material_system.h"
+#include "systems/geometry_system.h"
 
 namespace {
     class TestRenderer final : public nk::Renderer {
@@ -32,6 +33,8 @@ namespace {
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
         nk::u32 created_materials() const { return m_created_materials; }
         nk::u32 destroyed_materials() const { return m_destroyed_materials; }
+        nk::u32 created_geometries() const { return m_created_geometries; }
+        nk::u32 destroyed_geometries() const { return m_destroyed_geometries; }
         nk::result<void, nk::renderer_error> create_texture(
             nk::strview,
             nk::u32 width,
@@ -73,6 +76,21 @@ namespace {
             material.internal_id = nk::numeric::invalid_id;
         }
 
+        nk::result<void, nk::renderer_error> create_geometry(
+            nk::Geometry& geometry,
+            nk::cl::slice<const glm::Vertex3D>,
+            nk::cl::slice<const nk::u32>) override {
+            geometry.internal_id = m_created_geometries++;
+            geometry.generation = 0;
+            return nk::ok();
+        }
+
+        void destroy_geometry(nk::Geometry& geometry) override {
+            ++m_destroyed_geometries;
+            geometry.internal_id = nk::numeric::invalid_id;
+            geometry.generation = nk::numeric::invalid_id;
+        }
+
     protected:
         nk::result<void, nk::renderer_error> init() override {
             return nk::ok();
@@ -107,7 +125,7 @@ namespace {
             ++m_global_updates;
         }
 
-        void update_object(nk::GeometryRenderData) override {
+        void draw_geometry(nk::GeometryRenderData) override {
             ++m_object_updates;
         }
 
@@ -132,6 +150,8 @@ namespace {
         nk::u32 m_destroyed_textures = 0;
         nk::u32 m_created_materials = 0;
         nk::u32 m_destroyed_materials = 0;
+        nk::u32 m_created_geometries = 0;
+        nk::u32 m_destroyed_geometries = 0;
     };
 
     class FailingAllocator final : public nk::mem::MallocAllocator {
@@ -213,7 +233,12 @@ TEST(RendererResult, PreservesBeginAndEndFailuresWithoutAdvancingFrame) {
 
     TestRenderer end_failure{allocator, TestRenderer::BeginMode::render};
     end_failure.fail_end(true);
-    auto ended = end_failure.draw_frame({.delta_time = 1.0 / 60.0});
+    nk::GeometryRenderData geometry{};
+    auto ended = end_failure.draw_frame({
+        .delta_time = 1.0 / 60.0,
+        .geometry_count = 1,
+        .geometries = &geometry,
+    });
     ASSERT_FALSE(ended);
     EXPECT_EQ(ended.error().code, nk::renderer_error_code::queue_submit_failed);
     EXPECT_EQ(ended.error().native_code, VK_ERROR_DEVICE_LOST);
@@ -417,4 +442,77 @@ TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
 
     nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
+}
+
+TEST(GeometrySystem, GeneratesSegmentedPlanesWithTiledCoordinates) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    auto plane = nk::GeometrySystem::generate_plane(
+        allocator,
+        10.0f,
+        6.0f,
+        2,
+        3,
+        4.0f,
+        3.0f,
+        "plane",
+        "test_material");
+    ASSERT_TRUE(plane);
+    EXPECT_EQ(plane->vertices.length(), 24u);
+    EXPECT_EQ(plane->indices.length(), 36u);
+    EXPECT_EQ(plane->vertices[0].position, glm::vec3(-5.0f, -3.0f, 0.0f));
+    EXPECT_EQ(plane->vertices[0].texcoord, glm::vec2(0.0f, 0.0f));
+    EXPECT_EQ(plane->vertices[21].position, glm::vec3(5.0f, 3.0f, 0.0f));
+    EXPECT_EQ(plane->vertices[21].texcoord, glm::vec2(4.0f, 3.0f));
+}
+
+TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto textures_created =
+        nk::TextureSystem::create(allocator, renderer, 4);
+    ASSERT_TRUE(textures_created);
+    nk::TextureSystem* textures = *textures_created;
+    auto materials_created =
+        nk::MaterialSystem::create(allocator, renderer, *textures, 4);
+    ASSERT_TRUE(materials_created);
+    nk::MaterialSystem* materials = *materials_created;
+    auto geometries_created =
+        nk::GeometrySystem::create(allocator, renderer, *materials, 2);
+    ASSERT_TRUE(geometries_created);
+    nk::GeometrySystem* geometries = *geometries_created;
+
+    auto plane = nk::GeometrySystem::generate_plane(
+        allocator,
+        2.0f,
+        2.0f,
+        1,
+        1,
+        1.0f,
+        1.0f,
+        "managed",
+        "test_material");
+    ASSERT_TRUE(plane);
+    auto geometry = geometries->acquire(*plane, true);
+    ASSERT_TRUE(geometry);
+    EXPECT_EQ((*geometry)->id, 0u);
+    ASSERT_NE((*geometry)->material, nullptr);
+    EXPECT_EQ((*geometry)->material->name.view(), nk::strview{"test_material"});
+    EXPECT_EQ(materials->reference_count("test_material"), 1u);
+
+    auto second = geometries->acquire((*geometry)->id);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(*second, *geometry);
+    EXPECT_EQ(geometries->reference_count((*geometry)->id), 2u);
+
+    geometries->release(*geometry);
+    EXPECT_EQ(geometries->loaded_count(), 1u);
+    geometries->release(*geometry);
+    EXPECT_EQ(geometries->loaded_count(), 0u);
+    EXPECT_EQ(materials->loaded_count(), 0u);
+    EXPECT_EQ(renderer.destroyed_geometries(), 1u);
+
+    nk::GeometrySystem::destroy(allocator, geometries);
+    nk::MaterialSystem::destroy(allocator, materials);
+    nk::TextureSystem::destroy(allocator, textures);
+    EXPECT_EQ(renderer.destroyed_geometries(), 2u);
 }

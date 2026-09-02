@@ -65,6 +65,7 @@ set(SOURCES
     src/systems/input_system.cpp
     src/systems/texture_system.cpp
     src/systems/material_system.cpp
+    src/systems/geometry_system.cpp
     src/platform/platform.cpp
     src/platform/file.cpp
     src/resources/image_loader.cpp

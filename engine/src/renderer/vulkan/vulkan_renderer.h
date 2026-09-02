@@ -34,7 +34,7 @@ namespace nk {
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) override;
-        virtual void update_object(GeometryRenderData data) override;
+        virtual void draw_geometry(GeometryRenderData data) override;
         virtual result<frame_outcome, renderer_error> end_frame(
             f64 delta_time) override;
     
@@ -50,6 +50,11 @@ namespace nk {
         virtual result<void, renderer_error> create_material(
             Material& material) override;
         virtual void destroy_material(Material& material) override;
+        virtual result<void, renderer_error> create_geometry(
+            Geometry& geometry,
+            cl::slice<const glm::Vertex3D> vertices,
+            cl::slice<const u32> indices) override;
+        virtual void destroy_geometry(Geometry& geometry) override;
 
     private:
         void on_default_texture_changed(Texture* texture) override {
@@ -68,8 +73,21 @@ namespace nk {
             Buffer* buffer,
             u64 offset,
             u64 size,
-            void* data
+            const void* data
         );
+
+        struct VulkanGeometryData {
+            u32 id = numeric::invalid_id;
+            u32 generation = numeric::invalid_id;
+            u64 vertex_count = 0;
+            u64 vertex_size = 0;
+            u64 vertex_buffer_offset = 0;
+            u64 index_count = 0;
+            u64 index_size = 0;
+            u64 index_buffer_offset = 0;
+        };
+
+        static constexpr u32 max_geometry_count = 4096;
 
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
         Instance m_instance;
@@ -110,6 +128,7 @@ namespace nk {
 
         u64 m_geometry_vertex_offset = 0;
         u64 m_geometry_index_offset = 0;
+        VulkanGeometryData m_geometries[max_geometry_count]{};
 
         f32 m_frame_delta_time = 0.0f;
 

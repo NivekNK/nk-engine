@@ -15,6 +15,8 @@ namespace nk {
 
     struct RenderPacket {
         f64 delta_time;
+        u32 geometry_count = 0;
+        const GeometryRenderData* geometries = nullptr;
     };
 
     class Renderer {
@@ -36,13 +38,6 @@ namespace nk {
             m_default_texture = texture;
             on_default_texture_changed(texture);
         }
-        void set_debug_texture(Texture* texture) noexcept {
-            m_debug_texture = texture;
-        }
-        void set_debug_material(Material* material) noexcept {
-            m_debug_material = material;
-        }
-
         [[nodiscard]] virtual result<void, renderer_error> create_texture(
             strview name,
             u32 width,
@@ -55,6 +50,11 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> create_material(
             Material& material) = 0;
         virtual void destroy_material(Material& material) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> create_geometry(
+            Geometry& geometry,
+            cl::slice<const glm::Vertex3D> vertices,
+            cl::slice<const u32> indices) = 0;
+        virtual void destroy_geometry(Geometry& geometry) = 0;
 
         void set_view(glm::mat4 view) { m_view = view; }
 
@@ -73,7 +73,7 @@ namespace nk {
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) = 0;
-        virtual void update_object(GeometryRenderData data) = 0;
+        virtual void draw_geometry(GeometryRenderData data) = 0;
         virtual void on_default_texture_changed(Texture*) {}
         [[nodiscard]] virtual result<frame_outcome, renderer_error> end_frame(
             f64 delta_time) = 0;
@@ -91,13 +91,9 @@ namespace nk {
         f32 m_far_clip = 0.0f;
 
         Texture* m_default_texture = nullptr;
-        Texture* m_debug_texture = nullptr;
-        Material* m_debug_material = nullptr;
-
     private:
         [[nodiscard]] result<frame_outcome, renderer_error> end_frame_impl(
             f64 delta_time);
 
-        bool m_temp_active_rotation = false;
     };
 }

@@ -10,7 +10,9 @@ namespace nk {
     class Renderer;
     class TextureSystem;
     class MaterialSystem;
+    class GeometrySystem;
     struct Material;
+    struct Geometry;
 
     class Engine {
     public:
@@ -48,6 +50,8 @@ namespace nk {
         Renderer* m_renderer = nullptr;
         TextureSystem* m_texture_system = nullptr;
         MaterialSystem* m_material_system = nullptr;
+        GeometrySystem* m_geometry_system = nullptr;
+        Geometry* m_test_geometry = nullptr;
         Material* m_test_material = nullptr;
         u8 m_debug_texture_index = 0;
         bool m_initialized = false;

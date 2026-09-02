@@ -51,6 +51,7 @@ namespace nk {
             const BufferCopyInfo& copy_info);
 
         VkBuffer get() const { return m_buffer; }
+        u64 size() const noexcept { return m_total_size; }
         VkBuffer operator()() { return m_buffer; }
         operator VkBuffer() { return m_buffer; }
 

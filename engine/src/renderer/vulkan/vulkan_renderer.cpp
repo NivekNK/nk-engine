@@ -128,60 +128,8 @@ namespace nk {
         auto buffers_created = create_buffers();
         if (!buffers_created)
             return err(buffers_created.error());
-
-        // TODO: temporary test code START
-        constexpr u32 vertex_count = 4;
-        glm::Vertex3D vertices[vertex_count];
-        memset(vertices, 0, sizeof(glm::Vertex3D) * vertex_count);
-
-        constexpr f32 f = 10.0f;
-
-        vertices[0].position.x = -0.5f * f;
-        vertices[0].position.y = -0.5f * f;
-        vertices[0].texcoord.x = 0.0f;
-        vertices[0].texcoord.y = 0.0f;
-
-        vertices[1].position.y = 0.5f * f;
-        vertices[1].position.x = 0.5f * f;
-        vertices[1].texcoord.x = 1.0f;
-        vertices[1].texcoord.y = 1.0f;
-
-        vertices[2].position.x = -0.5f * f;
-        vertices[2].position.y = 0.5f * f;
-        vertices[2].texcoord.x = 0.0f;
-        vertices[2].texcoord.y = 1.0f;
-
-        vertices[3].position.x = 0.5f * f;
-        vertices[3].position.y = -0.5f * f;
-        vertices[3].texcoord.x = 1.0f;
-        vertices[3].texcoord.y = 0.0f;
-
-        constexpr u32 index_count = 6;
-        u32 indices[index_count] = {0, 1, 2, 0, 3, 1};
-
-        auto vertices_uploaded = upload_data_range(
-            m_device.get_graphics_command_pool(),
-            nullptr,
-            m_device.get_graphics_queue(),
-            &m_object_vertex_buffer,
-            0,
-            sizeof(glm::Vertex3D) * vertex_count,
-            vertices);
-        if (!vertices_uploaded)
-            return err(vertices_uploaded.error());
-
-        auto indices_uploaded = upload_data_range(
-            m_device.get_graphics_command_pool(),
-            nullptr,
-            m_device.get_graphics_queue(),
-            &m_object_index_buffer,
-            0,
-            sizeof(u32) * index_count,
-            indices);
-        if (!indices_uploaded)
-            return err(indices_uploaded.error());
-
-        // TODO: temporary test code END
+        for (VulkanGeometryData& geometry : m_geometries)
+            geometry.id = numeric::invalid_id;
 
         return ok();
     }
@@ -413,28 +361,52 @@ namespace nk {
         m_material_shader.update_global_state(m_graphics_command_buffers, m_image_index, m_frame_delta_time);
     }
 
-    void VulkanRenderer::update_object(GeometryRenderData data) {
-        CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
-        
-        m_material_shader.update_object(
+    void VulkanRenderer::draw_geometry(const GeometryRenderData data) {
+        if (data.geometry == nullptr ||
+            data.geometry->internal_id >= max_geometry_count) {
+            return;
+        }
+        VulkanGeometryData& geometry =
+            m_geometries[data.geometry->internal_id];
+        if (geometry.id == numeric::invalid_id ||
+            data.geometry->material == nullptr) {
+            return;
+        }
+
+        CommandBuffer* command_buffer =
+            &m_graphics_command_buffers[m_image_index];
+        m_material_shader.use(command_buffer);
+        m_material_shader.set_model(*command_buffer, data.model);
+        m_material_shader.apply_material(
             m_graphics_command_buffers,
             m_image_index,
-            data);
+            *data.geometry->material);
 
-        // TODO: temporary test code START
-        m_material_shader.use(command_buffer);
-
-        // Bind the vertex buffer at offset.
-        VkDeviceSize offsets[1] = {0};
+        VkDeviceSize offsets[1] = {geometry.vertex_buffer_offset};
         VkBuffer vertex_buffer = m_object_vertex_buffer.get();
         vkCmdBindVertexBuffers(command_buffer->get(), 0, 1, &vertex_buffer, static_cast<VkDeviceSize*>(offsets));
-        
-        // Bind index buffer at offset.
-        vkCmdBindIndexBuffer(command_buffer->get(), m_object_index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
-        // Issue the draw.
-        vkCmdDrawIndexed(command_buffer->get(), 6, 1, 0, 0, 0);
-        // TODO: temporary test code END
+        if (geometry.index_count != 0) {
+            vkCmdBindIndexBuffer(
+                command_buffer->get(),
+                m_object_index_buffer,
+                geometry.index_buffer_offset,
+                VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(
+                command_buffer->get(),
+                static_cast<u32>(geometry.index_count),
+                1,
+                0,
+                0,
+                0);
+        } else {
+            vkCmdDraw(
+                command_buffer->get(),
+                static_cast<u32>(geometry.vertex_count),
+                1,
+                0,
+                0);
+        }
     }
 
     result<void, renderer_error> VulkanRenderer::create_texture(
@@ -603,6 +575,105 @@ namespace nk {
     void VulkanRenderer::destroy_material(Material& material) {
         if (material.internal_id != numeric::invalid_id)
             m_material_shader.release_resources(material);
+    }
+
+    result<void, renderer_error> VulkanRenderer::create_geometry(
+        Geometry& geometry,
+        const cl::slice<const glm::Vertex3D> vertices,
+        const cl::slice<const u32> indices) {
+        if (vertices.empty() ||
+            vertices.length() > numeric::u32_max ||
+            indices.length() > numeric::u32_max) {
+            return err(renderer_error{
+                renderer_error_code::object_resource_failed,
+                0,
+            });
+        }
+
+        u32 internal_id = geometry.internal_id;
+        if (internal_id == numeric::invalid_id) {
+            for (u32 index = 0; index < max_geometry_count; ++index) {
+                if (m_geometries[index].id == numeric::invalid_id) {
+                    internal_id = index;
+                    break;
+                }
+            }
+        }
+        if (internal_id >= max_geometry_count) {
+            return err(renderer_error{
+                renderer_error_code::object_resource_failed,
+                0,
+            });
+        }
+
+        const u64 vertex_size =
+            vertices.length() * sizeof(glm::Vertex3D);
+        const u64 index_size = indices.length() * sizeof(u32);
+        if (m_geometry_vertex_offset > m_object_vertex_buffer.size() ||
+            vertex_size > m_object_vertex_buffer.size() - m_geometry_vertex_offset ||
+            m_geometry_index_offset > m_object_index_buffer.size() ||
+            index_size > m_object_index_buffer.size() - m_geometry_index_offset) {
+            return err(renderer_error{
+                renderer_error_code::object_resource_failed,
+                0,
+            });
+        }
+
+        auto vertices_uploaded = upload_data_range(
+            m_device.get_graphics_command_pool(),
+            nullptr,
+            m_device.get_graphics_queue(),
+            &m_object_vertex_buffer,
+            m_geometry_vertex_offset,
+            vertex_size,
+            vertices.data());
+        if (!vertices_uploaded)
+            return err(vertices_uploaded.error());
+
+        if (!indices.empty()) {
+            auto indices_uploaded = upload_data_range(
+                m_device.get_graphics_command_pool(),
+                nullptr,
+                m_device.get_graphics_queue(),
+                &m_object_index_buffer,
+                m_geometry_index_offset,
+                index_size,
+                indices.data());
+            if (!indices_uploaded)
+                return err(indices_uploaded.error());
+        }
+
+        VulkanGeometryData uploaded{
+            .id = internal_id,
+            .generation = geometry.generation == numeric::invalid_id
+                ? 0
+                : geometry.generation + 1,
+            .vertex_count = vertices.length(),
+            .vertex_size = vertex_size,
+            .vertex_buffer_offset = m_geometry_vertex_offset,
+            .index_count = indices.length(),
+            .index_size = index_size,
+            .index_buffer_offset = m_geometry_index_offset,
+        };
+        if (uploaded.generation == numeric::invalid_id)
+            uploaded.generation = 0;
+
+        m_geometry_vertex_offset += vertex_size;
+        m_geometry_index_offset += index_size;
+        m_geometries[internal_id] = uploaded;
+        geometry.internal_id = internal_id;
+        geometry.generation = uploaded.generation;
+        return ok();
+    }
+
+    void VulkanRenderer::destroy_geometry(Geometry& geometry) {
+        if (geometry.internal_id >= max_geometry_count)
+            return;
+        vkDeviceWaitIdle(m_device);
+        m_geometries[geometry.internal_id] = {};
+        m_geometries[geometry.internal_id].id = numeric::invalid_id;
+        geometry.internal_id = numeric::invalid_id;
+        geometry.generation = numeric::invalid_id;
     }
 
     result<void, renderer_error> VulkanRenderer::recreate_framebuffers() {
@@ -816,7 +887,7 @@ namespace nk {
         Buffer* buffer,
         u64 offset,
         u64 size,
-        void* data
+        const void* data
     ) {
         // Create a host visible staging buffer to upload to mark is as the source of the transfer
         VkBufferUsageFlags flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;

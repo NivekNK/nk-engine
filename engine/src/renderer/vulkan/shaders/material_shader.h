@@ -3,7 +3,7 @@
 #include "vulkan/vk.h"
 
 #include "renderer/global_uniform_object.h"
-#include "renderer/geometry_render_data.h"
+#include "resources/material.h"
 #include "vulkan/pipeline.h"
 #include "vulkan/buffer.h"
 #include "vulkan/command_buffer.h"
@@ -67,10 +67,11 @@ namespace nk {
         void use(CommandBuffer* command_buffer);
 
         void update_global_state(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, f32 delta_time);
-        void update_object(
+        void set_model(CommandBuffer& command_buffer, const glm::mat4& model);
+        void apply_material(
             const cl::dyarr<CommandBuffer>& command_buffers,
             u32 image_index,
-            GeometryRenderData data);
+            Material& material);
 
         [[nodiscard]] result<void, renderer_error> acquire_resources(
             Material& material);
