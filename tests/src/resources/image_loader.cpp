@@ -13,6 +13,8 @@ namespace {
         NK_TEST_ASSET_ROOT "/textures/paving.png";
     constexpr nk::cstr paving2_path =
         NK_TEST_ASSET_ROOT "/textures/paving2.png";
+    constexpr nk::cstr orange_lines_path =
+        NK_TEST_ASSET_ROOT "/textures/orange_lines_512.png";
 }
 
 TEST(ImageLoader, DecodesChapterTexturesAsRgba) {
@@ -41,7 +43,14 @@ TEST(ImageLoader, DecodesChapterTexturesAsRgba) {
         // The source is encoded as RGBA, but all alpha samples are opaque.
         EXPECT_FALSE(paving2->has_transparency);
 
-        EXPECT_EQ(allocator.get_active_allocation_count(), 3u);
+        auto orange_lines = nk::ImageLoader::load_png(
+            allocator, orange_lines_path);
+        ASSERT_TRUE(orange_lines);
+        EXPECT_EQ(orange_lines->width, 512u);
+        EXPECT_EQ(orange_lines->height, 512u);
+        EXPECT_EQ(orange_lines->channel_count, 4u);
+
+        EXPECT_EQ(allocator.get_active_allocation_count(), 4u);
     }
 
     EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
