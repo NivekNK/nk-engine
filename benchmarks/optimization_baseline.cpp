@@ -10,6 +10,7 @@
 #include "collections/dyarr.h"
 #include "collections/map.h"
 #include "core/hash.h"
+#include "core/result.h"
 #include "core/str.h"
 #include "core/strbuf.h"
 #include "memory/malloc_allocator.h"
@@ -165,6 +166,15 @@ namespace {
         return BaselineStatus::Success;
     }
 
+    template <typename T, typename Factory>
+    NK_BENCH_NOINLINE nk::result<T, BaselineStatus> result_payload(
+        const nk::u64 input,
+        Factory& factory) {
+        if ((input & 1023u) == 1023u)
+            return nk::err(BaselineStatus::Failure);
+        return nk::ok(factory(input));
+    }
+
     nk::u64 payload_checksum(const nk::u32 value) noexcept { return value; }
     nk::u64 payload_checksum(const nk::u64 value) noexcept { return value; }
     nk::u64 payload_checksum(void* const value) noexcept {
@@ -208,6 +218,13 @@ namespace {
                 }
             }
         });
+        auto result_distribution = measure([&](const nk::u64 sample, nk::u64& checksum) {
+            for (nk::u64 index = 0; index < operations; ++index) {
+                auto produced = result_payload<T>(index + sample, factory);
+                if (produced)
+                    checksum ^= payload_checksum(*produced);
+            }
+        });
 
         char metric[96]{};
         const auto print_contract = [&](const nk::cstr contract, const Distribution& value) {
@@ -224,6 +241,7 @@ namespace {
         print_contract("bool_out", bool_distribution);
         print_contract("nullable", nullable_distribution);
         print_contract("status_out", status_distribution);
+        print_contract("result", result_distribution);
     }
 
     void print_payload_contract_benchmarks() {
@@ -604,13 +622,18 @@ namespace {
 
     void print_layouts() {
         std::printf(
-            "layout sizeof_texture=%zu sizeof_str=%zu alignof_str=%zu str_inline_capacity=%llu sizeof_dyarr_u8=%zu sizeof_map_u64_record=%zu\n",
+            "layout sizeof_texture=%zu sizeof_str=%zu alignof_str=%zu str_inline_capacity=%llu sizeof_dyarr_u8=%zu sizeof_map_u64_record=%zu sizeof_result_void_u8=%zu sizeof_result_u64_u8=%zu sizeof_result_texture_u8=%zu sizeof_result_str_u8=%zu sizeof_result_dyarr_u8_u8=%zu\n",
             sizeof(nk::Texture),
             sizeof(nk::str),
             alignof(nk::str),
             static_cast<unsigned long long>(nk::str::inline_capacity),
             sizeof(nk::cl::dyarr<nk::u8>),
-            sizeof(nk::cl::map<nk::u64, nk::u64>));
+            sizeof(nk::cl::map<nk::u64, nk::u64>),
+            sizeof(nk::result<void, BaselineStatus>),
+            sizeof(nk::result<nk::u64, BaselineStatus>),
+            sizeof(nk::result<nk::Texture, BaselineStatus>),
+            sizeof(nk::result<nk::str, BaselineStatus>),
+            sizeof(nk::result<nk::cl::dyarr<nk::u8>, BaselineStatus>));
     }
 
     void print_allocation_benchmarks() {

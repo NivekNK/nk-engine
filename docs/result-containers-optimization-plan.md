@@ -277,22 +277,22 @@ aprobarse con una baseline dudosa.
 
 ### Trabajo
 
-- [ ] Implementar `result<T, E>` y `result<void, E>` sin consumidores del
+- [x] Implementar `result<T, E>` y `result<void, E>` sin consumidores del
       runtime.
-- [ ] Implementar `ok`/`err` y desambiguar correctamente cuando `T == E` o hay
+- [x] Implementar `ok`/`err` y desambiguar correctamente cuando `T == E` o hay
       conversiones entre ambos.
-- [ ] Preservar trivialidad condicional; un destructor manual no debe volver no
+- [x] Preservar trivialidad condicional; un destructor manual no debe volver no
       trivial a todas las instanciaciones.
-- [ ] Verificar que no existe construcción por defecto y que
+- [x] Verificar que no existe construcción por defecto y que
       copy/move/destruction sólo están disponibles cuando los tipos contenidos
       los soportan.
-- [ ] Probar valores move-only, errores move-only, self-assignment, cambio de
+- [x] Probar valores move-only, errores move-only, self-assignment, cambio de
       alternativa y acceso incorrecto.
-- [ ] Probar contadores exactos de construcción y destrucción.
-- [ ] Probar `result<void, E>` y propagación de errores compactos.
-- [ ] Verificar que construir, mover y destruir `result` no asigna memoria.
-- [ ] Añadir checks de tamaño informativos para las instanciaciones objetivo.
-- [ ] Inspeccionar código generado y comparar los benchmarks de la fase 0.
+- [x] Probar contadores exactos de construcción y destrucción.
+- [x] Probar `result<void, E>` y propagación de errores compactos.
+- [x] Verificar que construir, mover y destruir `result` no asigna memoria.
+- [x] Añadir checks de tamaño informativos para las instanciaciones objetivo.
+- [x] Inspeccionar código generado y comparar los benchmarks de la fase 0.
 
 ### Puerta específica
 
@@ -736,7 +736,7 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 | ID | Entrega | Estado | Commit | Evidencia/decisión |
 | --- | --- | --- | --- | --- |
 | R0 | Inventario y baseline ampliada | aceptada | `test(performance): capture error and container baselines` | [Evidencia](result-containers-phase-0-baseline.md) |
-| R1 | `result<T, E>` y `result<void, E>` | pendiente | — | — |
+| R1 | `result<T, E>` y `result<void, E>` | aceptada | `feat(core): add allocation-free result values` | [Evidencia](result-phase-1-evidence.md) |
 | R2 | File y shaders con errores tipados | pendiente | — | — |
 | R3 | Renderer/Vulkan con outcomes y errores | pendiente | — | — |
 | O1 | Fast path de allocator raw | pendiente | — | — |
