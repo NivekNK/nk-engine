@@ -64,6 +64,7 @@ set(SOURCES
     src/systems/event_system.cpp
     src/systems/input_system.cpp
     src/systems/texture_system.cpp
+    src/systems/material_system.cpp
     src/platform/platform.cpp
     src/platform/file.cpp
     src/resources/image_loader.cpp
@@ -258,3 +259,21 @@ endforeach(TEXTURE)
 
 add_custom_target(TEXTURES DEPENDS ${TEXTURE_BINARY_FILES})
 add_dependencies(engine TEXTURES)
+
+file(GLOB MATERIAL_FILES "assets/materials/*.kmt")
+
+foreach(MATERIAL ${MATERIAL_FILES})
+    get_filename_component(MATERIAL_NAME ${MATERIAL} NAME)
+    set(MATERIAL_OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/materials/${MATERIAL_NAME}")
+    add_custom_command(
+        OUTPUT ${MATERIAL_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/materials/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MATERIAL} ${MATERIAL_OUTPUT}
+        DEPENDS ${MATERIAL}
+        VERBATIM
+    )
+    list(APPEND MATERIAL_BINARY_FILES ${MATERIAL_OUTPUT})
+endforeach(MATERIAL)
+
+add_custom_target(MATERIALS DEPENDS ${MATERIAL_BINARY_FILES})
+add_dependencies(engine MATERIALS)

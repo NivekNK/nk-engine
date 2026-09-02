@@ -2,7 +2,7 @@
 #include "nkpch.h"
 
 #include "vulkan/shaders/material_shader.h"
-#include "renderer/object_uniform_object.h"
+#include "renderer/material_uniform_object.h"
 
 #include "vulkan/device.h"
 #include "vulkan/shaders/utils.h"
@@ -61,7 +61,6 @@ namespace nk {
         m_vulkan_allocator = vulkan_allocator;
         m_default_texture = default_texture;
         m_image_count = image_count;
-        m_object_uniform_buffer_index = 0;
 
         char stage_type_strings[shader_stage_count][10] = { "vertex", "fragment" };
         VkShaderStageFlagBits stage_types[shader_stage_count] = { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT };
@@ -156,10 +155,10 @@ namespace nk {
         VkDescriptorPoolSize object_pool_sizes[object_pool_sizes_count];
         // The first section will be used for uniform buffers
         object_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        object_pool_sizes[0].descriptorCount = object_max_object_count * m_image_count;
+        object_pool_sizes[0].descriptorCount = max_material_count * m_image_count;
         // The second section will be used for image samplers
         object_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        object_pool_sizes[1].descriptorCount = local_sampler_count * object_max_object_count * m_image_count;
+        object_pool_sizes[1].descriptorCount = local_sampler_count * max_material_count * m_image_count;
 
         VkDescriptorPoolCreateInfo object_pool_create_info;
         memset(&object_pool_create_info, 0, sizeof(object_pool_create_info));
@@ -167,7 +166,7 @@ namespace nk {
         object_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
         object_pool_create_info.poolSizeCount = object_pool_sizes_count;
         object_pool_create_info.pPoolSizes = object_pool_sizes;
-        object_pool_create_info.maxSets = object_max_object_count * m_image_count;
+        object_pool_create_info.maxSets = max_material_count * m_image_count;
 
         result = vkCreateDescriptorPool(
             m_device->get(),
@@ -291,17 +290,17 @@ namespace nk {
         if (result != VK_SUCCESS)
             return err(descriptor_error(result));
 
-        // Initialize the object uniform buffer
-        auto object_buffer_initialized = m_object_uniform_buffer.init(
+        // Initialize the material uniform buffer
+        auto material_buffer_initialized = m_material_uniform_buffer.init(
             m_device,
             m_vulkan_allocator,
-            sizeof(ObjectUniformObject) * object_max_object_count,
+            sizeof(MaterialUniformObject) * max_material_count,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             true);
-        if (!object_buffer_initialized)
-            return err(object_buffer_initialized.error());
+        if (!material_buffer_initialized)
+            return err(material_buffer_initialized.error());
 
         return ok();
     }
@@ -311,8 +310,8 @@ namespace nk {
         if (m_device == nullptr)
             return;
 
-        // Destroy object uniform buffer
-        m_object_uniform_buffer.shutdown();
+        // Destroy material uniform buffer
+        m_material_uniform_buffer.shutdown();
 
         // Destroy global uniform buffer
         m_global_uniform_buffer.shutdown();
@@ -344,10 +343,14 @@ namespace nk {
         }
 
         m_global_descriptor_sets.arr_shutdown();
-        for (u32 i = 0; i < m_object_uniform_buffer_index; ++i) {
-            m_object_states[i].descriptor_sets.arr_shutdown();
-            for (u32 j = 0; j < MaterialShaderInstanceState::descriptor_count; ++j)
-                m_object_states[i].descriptor_states[j].generations.arr_shutdown();
+        for (MaterialShaderInstanceState& instance : m_instance_states) {
+            if (instance.descriptor_sets.allocator() == nullptr)
+                continue;
+            (void)instance.descriptor_sets.arr_shutdown();
+            for (DescriptorState& state : instance.descriptor_states) {
+                (void)state.generations.arr_shutdown();
+                (void)state.ids.arr_shutdown();
+            }
         }
 
         for (u32 i = 0; i < shader_stage_count; i++) {
@@ -361,7 +364,6 @@ namespace nk {
         m_allocator = nullptr;
         m_vulkan_allocator = nullptr;
         m_default_texture = nullptr;
-        m_object_uniform_buffer_index = 0;
     }
 
     void MaterialShader::use(CommandBuffer* command_buffer) {
@@ -414,166 +416,161 @@ namespace nk {
         vkUpdateDescriptorSets(m_device->get(), 1, &global_descriptor_write, 0, nullptr);
     }
 
-    void MaterialShader::update_object(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, GeometryRenderData data, f32 delta_time) {
-        if (data.object_id >= m_object_uniform_buffer_index ||
-            image_index >= m_object_states[data.object_id].descriptor_sets.length()) {
-            ErrorLog("MaterialShader object or image index is out of range.");
+    void MaterialShader::update_object(
+        const cl::dyarr<CommandBuffer>& command_buffers,
+        const u32 image_index,
+        const GeometryRenderData data) {
+        Material* material = data.material;
+        if (material == nullptr || !material->valid() ||
+            material->internal_id >= max_material_count ||
+            image_index >= command_buffers.length()) {
+            ErrorLog("MaterialShader received an invalid material or image index.");
             return;
         }
 
         VkCommandBuffer command_buffer = command_buffers[image_index].get();
         vkCmdPushConstants(command_buffer, m_pipeline.get_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &data.model);
 
-        // Obtain material data
-        MaterialShaderInstanceState* object_state = &m_object_states[data.object_id];
-        VkDescriptorSet object_descriptor_set = object_state->descriptor_sets[image_index];
+        MaterialShaderInstanceState& instance =
+            m_instance_states[material->internal_id];
+        if (image_index >= instance.descriptor_sets.length()) {
+            ErrorLog("MaterialShader descriptor image index is out of range.");
+            return;
+        }
+        VkDescriptorSet descriptor_set = instance.descriptor_sets[image_index];
 
-        // TODO: if needs update
         VkWriteDescriptorSet descriptor_writes[MaterialShaderInstanceState::descriptor_count];
         memset(descriptor_writes, 0, sizeof(VkWriteDescriptorSet) * MaterialShaderInstanceState::descriptor_count);
         u32 descriptor_count = 0;
         u32 descriptor_index = 0;
 
-        // Descriptor 0: Uniform Buffer
-        u32 range = sizeof(ObjectUniformObject);
-        u64 offset = sizeof(ObjectUniformObject) * data.object_id;
-        ObjectUniformObject obo;
+        const u32 range = sizeof(MaterialUniformObject);
+        const u64 offset =
+            sizeof(MaterialUniformObject) * material->internal_id;
+        MaterialUniformObject ubo{};
+        ubo.diffuse_color = material->diffuse_color;
 
-        // TODO: get diffuse color from a material
-        static f32 accumulator = 0.0f;
-        accumulator += delta_time;
-        f32 s = (glm::sin(accumulator) + 1.0f) * 0.5f;
-        obo.diffuse_color = glm::vec4(s, s, s, 1.0f);
+        m_material_uniform_buffer.load_data(offset, range, 0, &ubo);
 
-        // Load the data into the buffer
-        m_object_uniform_buffer.load_data(offset, range, 0, &obo);
-
-        // Only do thisd if the descriptor has not yet been updated
         VkDescriptorBufferInfo buffer_info{};
-        if (object_state->descriptor_states[descriptor_index].generations[image_index] == numeric::invalid_id) {
-            buffer_info.buffer = m_object_uniform_buffer;
+        u32& uniform_generation =
+            instance.descriptor_states[descriptor_index].generations[image_index];
+        if (uniform_generation != material->generation) {
+            buffer_info.buffer = m_material_uniform_buffer;
             buffer_info.offset = offset;
             buffer_info.range = range;
 
-            VkWriteDescriptorSet descriptor;
-            memset(&descriptor, 0, sizeof(VkWriteDescriptorSet));
+            VkWriteDescriptorSet descriptor{};
             descriptor.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor.dstSet = object_descriptor_set;
+            descriptor.dstSet = descriptor_set;
             descriptor.dstBinding = descriptor_index;
             descriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             descriptor.descriptorCount = 1;
             descriptor.pBufferInfo = &buffer_info;
-
-            descriptor_writes[descriptor_count] = descriptor;
-            descriptor_count++;
-
-            // Update the frame generation. In this case it is only needed once since this is a buffer
-            object_state->descriptor_states[descriptor_index].generations[image_index] = 1;
+            descriptor_writes[descriptor_count++] = descriptor;
+            uniform_generation = material->generation;
         }
-        descriptor_index++;
+        ++descriptor_index;
 
-        // TODO: samplers
-        constexpr u32 sampler_count = 1;
-        VkDescriptorImageInfo image_infos[1];
-        for (u32 sampler_index = 0; sampler_index < sampler_count; sampler_index++) {
-            Texture* texture = data.textures[sampler_index];
-            u32* descriptor_generation = &object_state->descriptor_states[descriptor_index].generations[image_index];
-
-            const bool uses_default = texture == nullptr || !texture->valid();
-            if (uses_default)
-                texture = m_default_texture;
-            if (texture == nullptr || !texture->valid()) {
-                ErrorLog("MaterialShader has no valid fallback texture.");
-                ++descriptor_index;
-                continue;
-            }
-
-            // Check if the descriptor needs updating first
-            if (uses_default || *descriptor_generation != texture->generation ||
-                *descriptor_generation == numeric::invalid_id) {
-                TextureData* internal_data = static_cast<TextureData*>(texture->m_internal_data);
-
-                // Assign view and sampler
-                image_infos[sampler_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                image_infos[sampler_index].imageView = internal_data->image.get_view();
-                image_infos[sampler_index].sampler = internal_data->sampler;
-
-                VkWriteDescriptorSet descriptor;
-                memset(&descriptor, 0, sizeof(VkWriteDescriptorSet));
-                descriptor.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptor.dstSet = object_descriptor_set;
-                descriptor.dstBinding = descriptor_index;
-                descriptor.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                descriptor.descriptorCount = 1;
-                descriptor.pImageInfo = &image_infos[sampler_index];
-
-                descriptor_writes[descriptor_count] = descriptor;
-                descriptor_count++;
-
-                // Keep invalid while falling back so generation zero on the
-                // requested texture still forces an update after it loads.
-                if (uses_default)
-                    *descriptor_generation = numeric::invalid_id;
-                else
-                    *descriptor_generation = texture->generation;
-            }
-            descriptor_index++;
+        Texture* texture = material->diffuse_map.texture;
+        if (texture == nullptr || !texture->valid())
+            texture = m_default_texture;
+        if (texture == nullptr || !texture->valid()) {
+            ErrorLog("MaterialShader has no valid diffuse texture.");
+            return;
         }
 
-        if (descriptor_count > 0) {
+        DescriptorState& sampler_state =
+            instance.descriptor_states[descriptor_index];
+        u32& sampler_generation = sampler_state.generations[image_index];
+        u32& sampler_id = sampler_state.ids[image_index];
+        VkDescriptorImageInfo image_info{};
+        if (sampler_generation != texture->generation ||
+            sampler_id != texture->id) {
+            TextureData* internal_data =
+                static_cast<TextureData*>(texture->m_internal_data);
+            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageView = internal_data->image.get_view();
+            image_info.sampler = internal_data->sampler;
+
+            VkWriteDescriptorSet descriptor{};
+            descriptor.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor.dstSet = descriptor_set;
+            descriptor.dstBinding = descriptor_index;
+            descriptor.descriptorType =
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor.descriptorCount = 1;
+            descriptor.pImageInfo = &image_info;
+            descriptor_writes[descriptor_count++] = descriptor;
+            sampler_generation = texture->generation;
+            sampler_id = texture->id;
+        }
+
+        if (descriptor_count > 0)
             vkUpdateDescriptorSets(m_device->get(), descriptor_count, descriptor_writes, 0, nullptr);
-        }
 
-        // Bind the descriptor set to be updated, or in case the shader changed
         vkCmdBindDescriptorSets(
             command_buffer,
             VK_PIPELINE_BIND_POINT_GRAPHICS,
             m_pipeline.get_layout(),
             1,
             1,
-            &object_descriptor_set,
+            &descriptor_set,
             0,
             nullptr
         );
     }
 
-    bool MaterialShader::acquire_resources(u32* out_object_id) {
-        // TODO: free list
-        if (m_object_uniform_buffer_index >= object_max_object_count) {
-            ErrorLog("MaterialShader has no free descriptor slots.");
-            return false;
-        }
-
-        *out_object_id = m_object_uniform_buffer_index;
-        m_object_uniform_buffer_index++;
-        
-        u32 object_id = *out_object_id;
-        MaterialShaderInstanceState* object_state = &m_object_states[object_id];
-        if (!object_state->descriptor_sets.arr_init(m_allocator, m_image_count)) {
-            --m_object_uniform_buffer_index;
-            return false;
-        }
-        for (u32 i = 0; i < MaterialShaderInstanceState::descriptor_count; i++) {
-            auto& generations = object_state->descriptor_states[i].generations;
-            if (!generations.arr_init(m_allocator, m_image_count)) {
-                for (u32 initialized = 0; initialized < i; ++initialized)
-                    object_state->descriptor_states[initialized].generations.arr_shutdown();
-                object_state->descriptor_sets.arr_shutdown();
-                --m_object_uniform_buffer_index;
-                return false;
+    result<void, renderer_error> MaterialShader::acquire_resources(
+        Material& material) {
+        u32 instance_id = numeric::invalid_id;
+        for (u32 index = 0; index < max_material_count; ++index) {
+            if (m_instance_states[index].descriptor_sets.allocator() == nullptr) {
+                instance_id = index;
+                break;
             }
-            for (u32& generation : generations)
-                generation = numeric::invalid_id;
+        }
+        if (instance_id == numeric::invalid_id) {
+            return err(renderer_error{
+                renderer_error_code::object_resource_failed,
+                0,
+            });
         }
 
-        // Allocate descriptor sets
+        MaterialShaderInstanceState& instance = m_instance_states[instance_id];
+        if (!instance.descriptor_sets.arr_init(m_allocator, m_image_count))
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+
+        for (u32 i = 0; i < MaterialShaderInstanceState::descriptor_count; i++) {
+            DescriptorState& state = instance.descriptor_states[i];
+            if (!state.generations.arr_init(m_allocator, m_image_count) ||
+                !state.ids.arr_init(m_allocator, m_image_count)) {
+                for (DescriptorState& initialized : instance.descriptor_states) {
+                    if (initialized.generations.allocator() != nullptr)
+                        (void)initialized.generations.arr_shutdown();
+                    if (initialized.ids.allocator() != nullptr)
+                        (void)initialized.ids.arr_shutdown();
+                }
+                (void)instance.descriptor_sets.arr_shutdown();
+                return err(renderer_error{
+                    renderer_error_code::out_of_memory,
+                    0,
+                });
+            }
+            for (u32 image = 0; image < m_image_count; ++image) {
+                state.generations[image] = numeric::invalid_id;
+                state.ids[image] = numeric::invalid_id;
+            }
+        }
+
         cl::arr<VkDescriptorSetLayout> layouts;
         if (!layouts.arr_init(m_allocator, m_image_count)) {
-            for (DescriptorState& state : object_state->descriptor_states)
-                state.generations.arr_shutdown();
-            object_state->descriptor_sets.arr_shutdown();
-            --m_object_uniform_buffer_index;
-            return false;
+            for (DescriptorState& state : instance.descriptor_states) {
+                (void)state.generations.arr_shutdown();
+                (void)state.ids.arr_shutdown();
+            }
+            (void)instance.descriptor_sets.arr_shutdown();
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
         }
         for (VkDescriptorSetLayout& layout : layouts)
             layout = m_object_descriptor_set_layout;
@@ -585,42 +582,53 @@ namespace nk {
         alloc_info.descriptorSetCount = m_image_count;
         alloc_info.pSetLayouts = layouts.data();
 
-        VkResult results = vkAllocateDescriptorSets(m_device->get(), &alloc_info, object_state->descriptor_sets.data());
-        layouts.arr_shutdown();
-        if (results != VK_SUCCESS) {
-            ErrorLog("Error allocating descriptor sets in shader!");
-            for (DescriptorState& state : object_state->descriptor_states)
-                state.generations.arr_shutdown();
-            object_state->descriptor_sets.arr_shutdown();
-            --m_object_uniform_buffer_index;
-            return false;
+        const VkResult allocation_result = vkAllocateDescriptorSets(
+            m_device->get(),
+            &alloc_info,
+            instance.descriptor_sets.data());
+        (void)layouts.arr_shutdown();
+        if (allocation_result != VK_SUCCESS) {
+            for (DescriptorState& state : instance.descriptor_states) {
+                (void)state.generations.arr_shutdown();
+                (void)state.ids.arr_shutdown();
+            }
+            (void)instance.descriptor_sets.arr_shutdown();
+            return err(renderer_error{
+                renderer_error_code::descriptor_creation_failed,
+                static_cast<i32>(allocation_result),
+            });
         }
 
-        return true;
+        material.internal_id = instance_id;
+        return ok();
     }
 
-    void MaterialShader::release_resources(u32 object_id) {
-        MaterialShaderInstanceState* object_state = &m_object_states[object_id];
+    void MaterialShader::release_resources(Material& material) {
+        if (material.internal_id >= max_material_count)
+            return;
+        MaterialShaderInstanceState& instance =
+            m_instance_states[material.internal_id];
+        if (instance.descriptor_sets.allocator() == nullptr) {
+            material.internal_id = numeric::invalid_id;
+            return;
+        }
 
-        const u32 descriptor_set_count = static_cast<u32>(object_state->descriptor_sets.length());
-        // Release object descriptor sets
-        VkResult result = vkFreeDescriptorSets(
+        vkDeviceWaitIdle(m_device->get());
+        const u32 descriptor_set_count =
+            static_cast<u32>(instance.descriptor_sets.length());
+        const VkResult release_result = vkFreeDescriptorSets(
             m_device->get(),
             m_object_descriptor_pool,
             descriptor_set_count,
-            object_state->descriptor_sets.data());
-        if (result != VK_SUCCESS) {
-            ErrorLog("Error freeing object shader descriptor sets!");
-        }
+            instance.descriptor_sets.data());
+        if (release_result != VK_SUCCESS)
+            ErrorLog("Failed to free material descriptor sets.");
 
-        for (u32 i = 0; i < MaterialShaderInstanceState::descriptor_count; i++) {
-            for (u32 j = 0; j < object_state->descriptor_states[i].generations.length(); j++) {
-                object_state->descriptor_states[i].generations[j] = numeric::invalid_id;
-            }
-            object_state->descriptor_states[i].generations.arr_shutdown();
+        for (DescriptorState& state : instance.descriptor_states) {
+            (void)state.generations.arr_shutdown();
+            (void)state.ids.arr_shutdown();
         }
-        object_state->descriptor_sets.arr_shutdown();
-
-        // TODO: add the object_id to the free list
+        (void)instance.descriptor_sets.arr_shutdown();
+        material.internal_id = numeric::invalid_id;
     }
 }

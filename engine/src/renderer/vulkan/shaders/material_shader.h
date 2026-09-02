@@ -42,7 +42,7 @@ namespace nk {
     class MaterialShader {
     public:
         static constexpr u32 shader_stage_count = 2;
-        static constexpr u32 object_max_object_count = 1024;
+        static constexpr u32 max_material_count = 1024;
 
         MaterialShader() = default;
         ~MaterialShader() { shutdown(); }
@@ -67,10 +67,14 @@ namespace nk {
         void use(CommandBuffer* command_buffer);
 
         void update_global_state(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, f32 delta_time);
-        void update_object(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, GeometryRenderData data, f32 delta_time);
+        void update_object(
+            const cl::dyarr<CommandBuffer>& command_buffers,
+            u32 image_index,
+            GeometryRenderData data);
 
-        bool acquire_resources(u32* out_object_id);
-        void release_resources(u32 object_id);
+        [[nodiscard]] result<void, renderer_error> acquire_resources(
+            Material& material);
+        void release_resources(Material& material);
 
         void set_global_ubo(const GlobalUniformObject& global_ubo) { m_global_ubo = global_ubo; }
         void set_default_texture(Texture* texture) noexcept {
@@ -101,11 +105,7 @@ namespace nk {
         VkDescriptorPool m_object_descriptor_pool = nullptr;
         VkDescriptorSetLayout m_object_descriptor_set_layout = nullptr;
         // Object uniform buffers
-        Buffer m_object_uniform_buffer;
-        // TODO: manage a free list of som kind here instead.
-        u32 m_object_uniform_buffer_index = 0;
-
-        // TODO: make dynamic
-        MaterialShaderInstanceState m_object_states[object_max_object_count]{};
+        Buffer m_material_uniform_buffer;
+        MaterialShaderInstanceState m_instance_states[max_material_count]{};
     };
 }

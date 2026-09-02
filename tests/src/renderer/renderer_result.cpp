@@ -7,6 +7,7 @@
 #include "renderer/vulkan/swapchain.h"
 #include "renderer/vulkan/vulkan_renderer.h"
 #include "systems/texture_system.h"
+#include "systems/material_system.h"
 
 namespace {
     class TestRenderer final : public nk::Renderer {
@@ -29,6 +30,8 @@ namespace {
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
+        nk::u32 created_materials() const { return m_created_materials; }
+        nk::u32 destroyed_materials() const { return m_destroyed_materials; }
         nk::result<void, nk::renderer_error> create_texture(
             nk::strview,
             nk::u32 width,
@@ -57,6 +60,17 @@ namespace {
         void destroy_texture(nk::Texture* texture) override {
             ++m_destroyed_textures;
             *texture = {};
+        }
+
+        nk::result<void, nk::renderer_error> create_material(
+            nk::Material& material) override {
+            material.internal_id = m_created_materials++;
+            return nk::ok();
+        }
+
+        void destroy_material(nk::Material& material) override {
+            ++m_destroyed_materials;
+            material.internal_id = nk::numeric::invalid_id;
         }
 
     protected:
@@ -116,6 +130,8 @@ namespace {
         nk::u32 m_object_updates = 0;
         nk::u32 m_end_calls = 0;
         nk::u32 m_destroyed_textures = 0;
+        nk::u32 m_created_materials = 0;
+        nk::u32 m_destroyed_materials = 0;
     };
 
     class FailingAllocator final : public nk::mem::MallocAllocator {
@@ -334,5 +350,71 @@ TEST(TextureSystem, EnforcesCapacityAndReusesReleasedSlots) {
     EXPECT_EQ((*reused)->width, 480u);
     EXPECT_EQ(textures->loaded_count(), 1u);
 
+    nk::TextureSystem::destroy(allocator, textures);
+}
+
+TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto textures_created =
+        nk::TextureSystem::create(allocator, renderer, 4);
+    ASSERT_TRUE(textures_created);
+    nk::TextureSystem* textures = *textures_created;
+    auto materials_created =
+        nk::MaterialSystem::create(allocator, renderer, *textures, 4);
+    ASSERT_TRUE(materials_created);
+    nk::MaterialSystem* materials = *materials_created;
+
+    auto first = materials->acquire("test_material");
+    ASSERT_TRUE(first);
+    EXPECT_EQ((*first)->diffuse_color, glm::vec4(1.0f));
+    ASSERT_NE((*first)->diffuse_map.texture, nullptr);
+    EXPECT_EQ((*first)->diffuse_map.texture->width, 480u);
+    EXPECT_EQ(textures->reference_count("paving"), 1u);
+
+    auto second = materials->acquire("test_material");
+    ASSERT_TRUE(second);
+    EXPECT_EQ(*first, *second);
+    EXPECT_EQ(materials->reference_count("test_material"), 2u);
+    EXPECT_EQ(textures->reference_count("paving"), 1u);
+
+    materials->release("test_material");
+    EXPECT_EQ(materials->loaded_count(), 1u);
+    materials->release("test_material");
+    EXPECT_EQ(materials->loaded_count(), 0u);
+    EXPECT_EQ(textures->loaded_count(), 0u);
+    EXPECT_EQ(renderer.destroyed_materials(), 1u);
+
+    nk::MaterialSystem::destroy(allocator, materials);
+    nk::TextureSystem::destroy(allocator, textures);
+    EXPECT_EQ(renderer.destroyed_materials(), 2u);
+}
+
+TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto textures_created =
+        nk::TextureSystem::create(allocator, renderer, 4);
+    ASSERT_TRUE(textures_created);
+    nk::TextureSystem* textures = *textures_created;
+    auto materials_created =
+        nk::MaterialSystem::create(allocator, renderer, *textures, 4);
+    ASSERT_TRUE(materials_created);
+    nk::MaterialSystem* materials = *materials_created;
+    auto material = materials->acquire("test_material");
+    ASSERT_TRUE(material);
+
+    const nk::u32 initial_generation = (*material)->generation;
+    ASSERT_TRUE(materials->set_diffuse_texture(*(*material), "cobblestone"));
+    EXPECT_EQ((*material)->diffuse_map_name.view(), nk::strview{"cobblestone"});
+    EXPECT_EQ((*material)->generation, initial_generation + 1);
+    EXPECT_EQ(textures->reference_count("paving"), 0u);
+    EXPECT_EQ(textures->reference_count("cobblestone"), 1u);
+
+    ASSERT_TRUE(materials->set_diffuse_texture(*(*material), "paving2"));
+    EXPECT_EQ(textures->reference_count("cobblestone"), 0u);
+    EXPECT_EQ(textures->reference_count("paving2"), 1u);
+
+    nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
 }

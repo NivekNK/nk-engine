@@ -7,6 +7,7 @@ namespace nk {
     struct DescriptorState {
         // One per frame
         cl::arr<u32> generations;
+        cl::arr<u32> ids;
     };
 
     struct MaterialShaderInstanceState {

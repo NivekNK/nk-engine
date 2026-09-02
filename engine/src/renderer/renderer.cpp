@@ -114,9 +114,8 @@ namespace nk {
 
         glm::mat4 model = glm::toMat4(rotation);
         GeometryRenderData data = {};
-        data.object_id = 0; // TODO: actual object_id
         data.model = model;
-        data.textures[0] = m_debug_texture;
+        data.material = m_debug_material;
         update_object(data);
 
         return end_frame_impl(packet.delta_time);

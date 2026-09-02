@@ -9,6 +9,7 @@
 #include "renderer/renderer.h"
 #include "systems/input_system.h"
 #include "systems/texture_system.h"
+#include "systems/material_system.h"
 
 // TODO: Temporal include
 #include "core/camera.h"
@@ -156,7 +157,34 @@ namespace nk {
             return false;
         }
         m_texture_system = *texture_system;
-        m_renderer->set_debug_texture(&m_texture_system->default_texture());
+
+        auto material_system = MaterialSystem::create(
+            *m_allocator,
+            *m_renderer,
+            *m_texture_system);
+        if (!material_system) {
+            const material_error error = material_system.error();
+            ErrorLog(
+                "Material system initialization failed: material_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_material_system = *material_system;
+
+        auto test_material = m_material_system->acquire("test_material");
+        if (!test_material) {
+            const material_error error = test_material.error();
+            WarnLog(
+                "Test material load failed: material_error={}, native_code={}; using default.",
+                static_cast<u32>(error.code),
+                error.native_code);
+            m_test_material = &m_material_system->default_material();
+        } else {
+            m_test_material = *test_material;
+        }
+        m_renderer->set_debug_material(m_test_material);
 
         Camera::init(m_renderer);
 
@@ -179,9 +207,14 @@ namespace nk {
             EventSystem::unregister_event(SystemEventCode::Resized, nullptr, on_resized);
         }
 
-        if (m_texture_system != nullptr) {
+        if (m_material_system != nullptr) {
             if (m_renderer != nullptr)
-                m_renderer->set_debug_texture(nullptr);
+                m_renderer->set_debug_material(nullptr);
+            MaterialSystem::destroy(*m_allocator, m_material_system);
+            m_material_system = nullptr;
+            m_test_material = nullptr;
+        }
+        if (m_texture_system != nullptr) {
             TextureSystem::destroy(*m_allocator, m_texture_system);
             m_texture_system = nullptr;
         }
@@ -205,7 +238,7 @@ namespace nk {
     }
 
     void Engine::cycle_debug_texture() {
-        if (m_texture_system == nullptr || m_renderer == nullptr)
+        if (m_material_system == nullptr || m_test_material == nullptr)
             return;
 
         constexpr strview texture_names[]{
@@ -217,20 +250,18 @@ namespace nk {
             sizeof(texture_names) / sizeof(texture_names[0]);
         const strview next_name = texture_names[m_debug_texture_index];
 
-        auto texture = m_texture_system->acquire(next_name, true);
-        if (!texture) {
-            const texture_error error = texture.error();
+        auto changed = m_material_system->set_diffuse_texture(
+            *m_test_material,
+            next_name);
+        if (!changed) {
+            const material_error error = changed.error();
             ErrorLog(
-                "Texture cycle failed: texture_error={}, native_code={}",
+                "Texture cycle failed: material_error={}, native_code={}",
                 static_cast<u32>(error.code),
                 error.native_code);
             return;
         }
 
-        m_renderer->set_debug_texture(*texture);
-        if (!m_debug_texture_name.empty())
-            m_texture_system->release(m_debug_texture_name);
-        m_debug_texture_name = next_name;
         m_debug_texture_index =
             static_cast<u8>((m_debug_texture_index + 1) % texture_count);
     }

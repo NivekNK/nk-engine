@@ -47,6 +47,9 @@ namespace nk {
             bool has_transparency,
             Texture* out_texture) override;
         virtual void destroy_texture(Texture* texture) override;
+        virtual result<void, renderer_error> create_material(
+            Material& material) override;
+        virtual void destroy_material(Material& material) override;
 
     private:
         void on_default_texture_changed(Texture* texture) override {

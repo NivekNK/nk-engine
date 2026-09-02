@@ -9,6 +9,8 @@ namespace nk {
     class Platform;
     class Renderer;
     class TextureSystem;
+    class MaterialSystem;
+    struct Material;
 
     class Engine {
     public:
@@ -45,7 +47,8 @@ namespace nk {
         Platform* m_platform = nullptr;
         Renderer* m_renderer = nullptr;
         TextureSystem* m_texture_system = nullptr;
-        strview m_debug_texture_name{};
+        MaterialSystem* m_material_system = nullptr;
+        Material* m_test_material = nullptr;
         u8 m_debug_texture_index = 0;
         bool m_initialized = false;
 

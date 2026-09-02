@@ -181,13 +181,6 @@ namespace nk {
         if (!indices_uploaded)
             return err(indices_uploaded.error());
 
-        u32 object_id = 0;
-        if(!m_material_shader.acquire_resources(&object_id)) {
-            return err(renderer_error{
-                .code = renderer_error_code::object_resource_failed,
-                .native_code = 0,
-            });
-        }
         // TODO: temporary test code END
 
         return ok();
@@ -423,7 +416,10 @@ namespace nk {
     void VulkanRenderer::update_object(GeometryRenderData data) {
         CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
         
-        m_material_shader.update_object(m_graphics_command_buffers, m_image_index, data, m_frame_delta_time);
+        m_material_shader.update_object(
+            m_graphics_command_buffers,
+            m_image_index,
+            data);
 
         // TODO: temporary test code START
         m_material_shader.use(command_buffer);
@@ -597,6 +593,16 @@ namespace nk {
 
         m_allocator->deconstruct_t(TextureData, texture_data);
         *texture = {};
+    }
+
+    result<void, renderer_error> VulkanRenderer::create_material(
+        Material& material) {
+        return m_material_shader.acquire_resources(material);
+    }
+
+    void VulkanRenderer::destroy_material(Material& material) {
+        if (material.internal_id != numeric::invalid_id)
+            m_material_shader.release_resources(material);
     }
 
     result<void, renderer_error> VulkanRenderer::recreate_framebuffers() {
