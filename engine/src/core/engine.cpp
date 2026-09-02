@@ -3,6 +3,7 @@
 #include "core/engine.h"
 
 #include "memory/malloc_allocator.h"
+#include "systems/memory_system.h"
 #include "core/app.h"
 #include "platform/platform.h"
 #include "renderer/renderer.h"
@@ -178,6 +179,9 @@ namespace nk {
         u64 frame_count = 0;
         f64 target_frame_seconds = 1.0f / 60;
         u64 smoke_test_frames = 0;
+#if NK_MEMORY_TRACKING_ENABLED
+        u64 stable_frame_allocation_baseline = 0;
+#endif
         if (const cstr configured_frames = std::getenv("NK_SMOKE_TEST_FRAMES");
             configured_frames != nullptr) {
             char* end = nullptr;
@@ -235,6 +239,12 @@ namespace nk {
                 InputSystem::update(delta);
 
                 ++frame_count;
+#if NK_MEMORY_TRACKING_ENABLED
+                if (smoke_test_frames > 1 && frame_count == 1) {
+                    stable_frame_allocation_baseline =
+                        mem::MemorySystem::get().allocation_event_count();
+                }
+#endif
                 if (smoke_test_frames != 0 && frame_count >= smoke_test_frames)
                     m_platform->close();
 
@@ -242,6 +252,24 @@ namespace nk {
                 m_last_time = current_time;
             }
         }
+
+#if NK_MEMORY_TRACKING_ENABLED
+        if (smoke_test_frames > 1) {
+            const u64 allocation_events =
+                mem::MemorySystem::get().allocation_event_count() -
+                stable_frame_allocation_baseline;
+            if (allocation_events == 0) {
+                InfoLog(
+                    "Stable-frame allocation check: 0 allocation events across {} checked frame(s).",
+                    smoke_test_frames - 1);
+            } else {
+                ErrorLog(
+                    "Stable-frame allocation check: {} unexpected allocation event(s) across {} checked frame(s).",
+                    allocation_events,
+                    smoke_test_frames - 1);
+            }
+        }
+#endif
 
         m_platform->close();
     }

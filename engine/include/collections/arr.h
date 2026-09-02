@@ -65,17 +65,6 @@ namespace nk::cl {
                      std::is_destructible_v<T>;
 #endif
 
-        // An erased Allocator* cannot carry a correctly typed destructor.
-        // These transitional overloads compile but reject ownership safely.
-        bool _arr_init_own(mem::Allocator* allocator, u64 length);
-#if NK_MEMORY_TRACKING_ENABLED
-        bool _arr_init_own(
-            cstr file,
-            u32 line,
-            mem::Allocator* allocator,
-            u64 length);
-#endif
-
         bool _arr_init_list(
             mem::Allocator* allocator,
             std::initializer_list<T> list)
@@ -104,17 +93,6 @@ namespace nk::cl {
             std::initializer_list<T> list)
             requires std::is_copy_constructible_v<T> &&
                      std::is_destructible_v<T>;
-#endif
-
-        bool _arr_init_list_own(
-            mem::Allocator* allocator,
-            std::initializer_list<T> list);
-#if NK_MEMORY_TRACKING_ENABLED
-        bool _arr_init_list_own(
-            cstr file,
-            u32 line,
-            mem::Allocator* allocator,
-            std::initializer_list<T> list);
 #endif
 
         bool _arr_clear()
@@ -125,15 +103,6 @@ namespace nk::cl {
             noexcept(std::is_nothrow_destructible_v<T>)
             requires std::is_destructible_v<T>;
 #endif
-        bool _arr_clear(mem::Allocator* allocator)
-            noexcept(std::is_nothrow_destructible_v<T>)
-            requires std::is_destructible_v<T>;
-#if NK_MEMORY_TRACKING_ENABLED
-        bool _arr_clear(cstr file, u32 line, mem::Allocator* allocator)
-            noexcept(std::is_nothrow_destructible_v<T>)
-            requires std::is_destructible_v<T>;
-#endif
-
         bool _arr_shutdown()
             noexcept(std::is_nothrow_destructible_v<T>)
             requires std::is_destructible_v<T>;
@@ -142,26 +111,11 @@ namespace nk::cl {
             noexcept(std::is_nothrow_destructible_v<T>)
             requires std::is_destructible_v<T>;
 #endif
-        bool _arr_shutdown(mem::Allocator* allocator)
-            noexcept(std::is_nothrow_destructible_v<T>)
-            requires std::is_destructible_v<T>;
-#if NK_MEMORY_TRACKING_ENABLED
-        bool _arr_shutdown(cstr file, u32 line, mem::Allocator* allocator)
-            noexcept(std::is_nothrow_destructible_v<T>)
-            requires std::is_destructible_v<T>;
-#endif
-
         T& first();
         const T& first() const;
 
         T& last();
         const T& last() const;
-
-        bool arr_reset()
-            noexcept(std::is_nothrow_destructible_v<T>)
-            requires std::is_destructible_v<T> {
-            return _shutdown({nullptr, 0}, nullptr);
-        }
 
         T* data() noexcept { return m_data; }
         const T* data() const noexcept { return m_data; }
@@ -230,14 +184,10 @@ namespace nk::cl {
             requires std::is_copy_constructible_v<T> &&
                      std::is_destructible_v<T>;
 
-        bool _release_storage(
-            mem::SourceLocation source,
-            mem::Allocator* fallback_allocator)
+        bool _release_storage(mem::SourceLocation source)
             noexcept(std::is_nothrow_destructible_v<T>)
             requires std::is_destructible_v<T>;
-        bool _shutdown(
-            mem::SourceLocation source,
-            mem::Allocator* fallback_allocator)
+        bool _shutdown(mem::SourceLocation source)
             noexcept(std::is_nothrow_destructible_v<T>)
             requires std::is_destructible_v<T>;
         void _move_from(arr& other) noexcept;
@@ -261,7 +211,7 @@ namespace nk::cl {
         if (this == &other)
             return *this;
 
-        if (!_shutdown({__FILE__, __LINE__}, nullptr)) {
+        if (!_shutdown({__FILE__, __LINE__})) {
             _diagnostic("nk::cl::arr move assignment could not release its destination.");
             return *this;
         }
@@ -354,7 +304,7 @@ namespace nk::cl {
     template <IArrT T>
     arr<T>::~arr() noexcept(std::is_nothrow_destructible_v<T>)
         requires std::is_destructible_v<T> {
-        if (!_shutdown({__FILE__, __LINE__}, nullptr))
+        if (!_shutdown({__FILE__, __LINE__}))
             _diagnostic("nk::cl::arr destructor could not release its state.");
     }
 
@@ -431,20 +381,6 @@ namespace nk::cl {
 #endif
 
     template <IArrT T>
-    bool arr<T>::_arr_init_own(mem::Allocator*, u64) {
-        _diagnostic("nk::cl::arr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-
-#if NK_MEMORY_TRACKING_ENABLED
-    template <IArrT T>
-    bool arr<T>::_arr_init_own(cstr, u32, mem::Allocator*, u64) {
-        _diagnostic("nk::cl::arr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-#endif
-
-    template <IArrT T>
     bool arr<T>::_arr_init_list(
         mem::Allocator* allocator,
         const std::initializer_list<T> list)
@@ -501,26 +437,6 @@ namespace nk::cl {
             std::move(allocator_owner),
             list.begin(),
             static_cast<u64>(list.size()));
-    }
-#endif
-
-    template <IArrT T>
-    bool arr<T>::_arr_init_list_own(
-        mem::Allocator*,
-        std::initializer_list<T>) {
-        _diagnostic("nk::cl::arr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-
-#if NK_MEMORY_TRACKING_ENABLED
-    template <IArrT T>
-    bool arr<T>::_arr_init_list_own(
-        cstr,
-        u32,
-        mem::Allocator*,
-        std::initializer_list<T>) {
-        _diagnostic("nk::cl::arr ownership requires mem::AllocatorOwner.");
-        return false;
     }
 #endif
 
@@ -528,7 +444,7 @@ namespace nk::cl {
     bool arr<T>::_arr_clear()
         noexcept(std::is_nothrow_destructible_v<T>)
         requires std::is_destructible_v<T> {
-        return _release_storage({nullptr, 0}, nullptr);
+        return _release_storage({nullptr, 0});
     }
 
 #if NK_MEMORY_TRACKING_ENABLED
@@ -536,26 +452,7 @@ namespace nk::cl {
     bool arr<T>::_arr_clear(cstr file, const u32 line)
         noexcept(std::is_nothrow_destructible_v<T>)
         requires std::is_destructible_v<T> {
-        return _release_storage({file, line}, nullptr);
-    }
-#endif
-
-    template <IArrT T>
-    bool arr<T>::_arr_clear(mem::Allocator* allocator)
-        noexcept(std::is_nothrow_destructible_v<T>)
-        requires std::is_destructible_v<T> {
-        return _release_storage({nullptr, 0}, allocator);
-    }
-
-#if NK_MEMORY_TRACKING_ENABLED
-    template <IArrT T>
-    bool arr<T>::_arr_clear(
-        cstr file,
-        const u32 line,
-        mem::Allocator* allocator)
-        noexcept(std::is_nothrow_destructible_v<T>)
-        requires std::is_destructible_v<T> {
-        return _release_storage({file, line}, allocator);
+        return _release_storage({file, line});
     }
 #endif
 
@@ -563,7 +460,7 @@ namespace nk::cl {
     bool arr<T>::_arr_shutdown()
         noexcept(std::is_nothrow_destructible_v<T>)
         requires std::is_destructible_v<T> {
-        return _shutdown({nullptr, 0}, nullptr);
+        return _shutdown({nullptr, 0});
     }
 
 #if NK_MEMORY_TRACKING_ENABLED
@@ -571,26 +468,7 @@ namespace nk::cl {
     bool arr<T>::_arr_shutdown(cstr file, const u32 line)
         noexcept(std::is_nothrow_destructible_v<T>)
         requires std::is_destructible_v<T> {
-        return _shutdown({file, line}, nullptr);
-    }
-#endif
-
-    template <IArrT T>
-    bool arr<T>::_arr_shutdown(mem::Allocator* allocator)
-        noexcept(std::is_nothrow_destructible_v<T>)
-        requires std::is_destructible_v<T> {
-        return _shutdown({nullptr, 0}, allocator);
-    }
-
-#if NK_MEMORY_TRACKING_ENABLED
-    template <IArrT T>
-    bool arr<T>::_arr_shutdown(
-        cstr file,
-        const u32 line,
-        mem::Allocator* allocator)
-        noexcept(std::is_nothrow_destructible_v<T>)
-        requires std::is_destructible_v<T> {
-        return _shutdown({file, line}, allocator);
+        return _shutdown({file, line});
     }
 #endif
 
@@ -768,23 +646,18 @@ namespace nk::cl {
     }
 
     template <IArrT T>
-    bool arr<T>::_release_storage(
-        const mem::SourceLocation source,
-        mem::Allocator* fallback_allocator)
+    bool arr<T>::_release_storage(const mem::SourceLocation source)
         noexcept(std::is_nothrow_destructible_v<T>)
         requires std::is_destructible_v<T> {
         if (m_data == nullptr)
             return m_length == 0;
-
-        mem::Allocator* allocator =
-            m_allocator != nullptr ? m_allocator : fallback_allocator;
-        if (allocator == nullptr)
+        if (m_allocator == nullptr)
             return false;
 
         T* data = m_data;
         const u64 length = m_length;
         mem::destroy_range(data, length);
-        const bool freed = _free(*allocator, source, data, length);
+        const bool freed = _free(*m_allocator, source, data, length);
 
         m_data = nullptr;
         m_length = 0;
@@ -792,12 +665,10 @@ namespace nk::cl {
     }
 
     template <IArrT T>
-    bool arr<T>::_shutdown(
-        const mem::SourceLocation source,
-        mem::Allocator* fallback_allocator)
+    bool arr<T>::_shutdown(const mem::SourceLocation source)
         noexcept(std::is_nothrow_destructible_v<T>)
         requires std::is_destructible_v<T> {
-        if (!_release_storage(source, fallback_allocator))
+        if (!_release_storage(source))
             return false;
 
         mem::Allocator* allocator = m_allocator;
@@ -840,14 +711,8 @@ namespace nk::cl {
     #define arr_clear() \
         _arr_clear(__FILE__, __LINE__)
 
-    #define arr_clear_allocator(allocator) \
-        _arr_clear(__FILE__, __LINE__, (allocator))
-
     #define arr_shutdown() \
         _arr_shutdown(__FILE__, __LINE__)
-
-    #define arr_shutdown_allocator(allocator) \
-        _arr_shutdown(__FILE__, __LINE__, (allocator))
 
 #else
 
@@ -866,13 +731,7 @@ namespace nk::cl {
     #define arr_clear() \
         _arr_clear()
 
-    #define arr_clear_allocator(allocator) \
-        _arr_clear((allocator))
-
     #define arr_shutdown() \
         _arr_shutdown()
-
-    #define arr_shutdown_allocator(allocator) \
-        _arr_shutdown((allocator))
 
 #endif

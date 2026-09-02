@@ -6,8 +6,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
-#include <string>
-#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -270,25 +268,6 @@ namespace nk {
             const strbuf<TextCapacity>& value,
             const Spec& spec) noexcept {
             return format_value(output, value.view(), spec);
-        }
-
-        template <u64 Capacity>
-        bool format_value(
-            strbuf<Capacity>& output,
-            const std::string_view value,
-            const Spec& spec) noexcept {
-            return format_value(
-                output,
-                strview{value.data(), static_cast<u64>(value.length())},
-                spec);
-        }
-
-        template <u64 Capacity>
-        bool format_value(
-            strbuf<Capacity>& output,
-            const std::string& value,
-            const Spec& spec) noexcept {
-            return format_value(output, std::string_view{value}, spec);
         }
 
         template <u64 Capacity>

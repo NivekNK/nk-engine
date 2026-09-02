@@ -20,6 +20,7 @@ namespace nk {
             if (Engine::init()) {
                 NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
                 Engine::run();
+                NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
                 Engine::shutdown();
                 NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
             } else {

@@ -97,7 +97,7 @@ TEST(MallocAllocator, DetectsSizeMismatchUnknownAddressAndDoubleFree) {
 }
 #endif
 
-TEST(MallocAllocator, PreservesNativeAndTypedCompatibilityWrappers) {
+TEST(MallocAllocator, SupportsNativeAndTypedAllocationHelpers) {
     NK_MEMORY_SYSTEM_INIT();
 
     nk::u32* data = native_allocate_lot(nk::u32, 5);

@@ -199,16 +199,6 @@ namespace nk::mem {
         return _reset({nullptr, 0}, mode);
     }
 
-    bool LinearAllocator::_free_linear_allocator() noexcept {
-        return reset();
-    }
-
-#if NK_MEMORY_TRACKING_ENABLED
-    bool LinearAllocator::_free_linear_allocator(cstr file, u32 line) noexcept {
-        return _reset({file, line}, default_linear_reset_mode);
-    }
-#endif
-
     bool LinearAllocator::_release_backing() noexcept {
         if (!m_owns_memory || m_data == nullptr)
             return true;

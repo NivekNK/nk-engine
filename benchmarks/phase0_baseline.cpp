@@ -112,7 +112,8 @@ namespace {
             }
             const auto end = Clock::now();
 
-            if (allocator.get_allocation_count() != 0 || allocator.get_used_bytes() != 0)
+            if (allocator.get_active_allocation_count() != 0 ||
+                allocator.get_used_bytes() != 0)
                 std::abort();
 
             return elapsed_nanoseconds(start, end);

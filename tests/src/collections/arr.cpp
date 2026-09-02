@@ -312,7 +312,7 @@ TEST(Arr, RejectsFailedOrRepeatedInitializationTransactionally) {
     EXPECT_EQ(array.allocator(), &allocator);
 
     EXPECT_TRUE(array._arr_init(&allocator, 1));
-    EXPECT_TRUE(array.arr_reset());
+    EXPECT_TRUE(array._arr_shutdown());
     EXPECT_EQ(array.data(), nullptr);
     EXPECT_EQ(array.allocator(), nullptr);
 }
@@ -404,18 +404,6 @@ TEST(Arr, DestructorReleasesOwnedAllocatorAfterItsStorage) {
 
     EXPECT_EQ(OwnedAllocatorProbe::destruction_count, 1);
     EXPECT_EQ(Probe::live_count, 0);
-}
-
-TEST(Arr, RejectsErasedAllocatorOwnershipWithoutChangingState) {
-    nk::mem::MallocAllocator allocator{nk::mem::untracked};
-    nk::mem::Allocator* erased_allocator = &allocator;
-    nk::cl::arr<nk::u32> array;
-
-    EXPECT_FALSE(array._arr_init_own(erased_allocator, 3));
-    EXPECT_EQ(array.data(), nullptr);
-    EXPECT_EQ(array.length(), 0);
-    EXPECT_EQ(array.allocator(), nullptr);
-    EXPECT_EQ(allocator.get_active_allocation_count(), 0);
 }
 
 TEST(Arr, CopiesAndMovesFromDynamicArraysWithoutManualReset) {

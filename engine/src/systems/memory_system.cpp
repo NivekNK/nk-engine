@@ -205,6 +205,7 @@ namespace nk::mem {
             instance.m_dropped_event_count = 0;
             instance.m_reentrant_event_count = 0;
             instance.m_metadata_failure_count = 0;
+            instance.m_allocation_event_count = 0;
             instance.m_state = MemorySystemState::Cold;
         }
 
@@ -335,6 +336,7 @@ namespace nk::mem {
 
         if (m_state == MemorySystemState::Cold ||
             m_state == MemorySystemState::Bootstrapping) {
+            ++m_allocation_event_count;
             journal({
                 .type = EarlyAllocationEventType::Allocate,
                 .allocator_id = event.allocator_id,
@@ -343,6 +345,7 @@ namespace nk::mem {
                 .reset = {},
             });
         } else if (m_state == MemorySystemState::Ready) {
+            ++m_allocation_event_count;
             apply_allocate(event);
         }
     }

@@ -75,8 +75,8 @@ namespace nk::os {
     void* allocate_raw(u64 size_bytes, u64 alignment) noexcept;
     bool free_raw(void* data, u64 size_bytes) noexcept;
 
-    // Compatibility wrappers used by the public native_* macros. In tracking
-    // builds they emit events after the raw operation succeeds.
+    // Instrumented native-memory layer used by the public native_* macros. In
+    // tracking builds it emits events only after the raw operation succeeds.
     void* _native_allocate(u64 size_bytes, u64 alignment) noexcept;
 
     void _native_free(void* data, u64 size_bytes) noexcept;

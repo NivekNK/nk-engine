@@ -169,8 +169,8 @@ namespace nk::mem {
     static_assert(std::is_trivially_copyable_v<EarlyAllocationRecord>);
 
 #if NK_MEMORY_TRACKING_ENABLED
-    // Transitional bridge used only by the legacy macros. New code should pass
-    // an AllocationTracker& explicitly.
+    // Default runtime tracker used by source-location-aware public macros.
+    // Lower layers and tests can still inject an AllocationTracker explicitly.
     AllocationTracker& default_allocation_tracker() noexcept;
 #endif
 }

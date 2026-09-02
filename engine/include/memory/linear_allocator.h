@@ -34,12 +34,6 @@ namespace nk::mem {
 
         bool reset(LinearResetMode mode = default_linear_reset_mode) noexcept;
 
-        bool _free_linear_allocator() noexcept;
-
-#if NK_MEMORY_TRACKING_ENABLED
-        bool _free_linear_allocator(cstr file, u32 line) noexcept;
-#endif
-
         cstr to_cstr() const noexcept override { return "LinearAllocator"; }
         bool owns_backing_memory() const noexcept { return m_owns_memory; }
         Allocator* backing_allocator() const noexcept { return m_backing_allocator; }

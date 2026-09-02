@@ -580,15 +580,17 @@ Criterio de salida: toda memoria dinámica poseída por NK Engine pasa por un al
 
 ### Fase 11 — Limpieza y cierre
 
-- [ ] Retirar overloads inseguros de `*_init_own`.
-- [ ] Retirar wrappers de compatibilidad sin consumidores.
-- [ ] Eliminar implementaciones duplicadas entre Debug y Release.
-- [ ] Retirar de `nkpch.h` los headers STL que ya no tengan consumidores del runtime.
-- [ ] Mantener una whitelist revisada para facilidades estándar sin ownership y memoria externa.
-- [ ] Confirmar cero asignaciones inesperadas en el frame estable.
-- [ ] Comparar resultados finales contra la línea base de la fase 0.
-- [ ] Documentar las APIs finales y ejemplos de uso.
-- [ ] Decidir con evidencia si se necesita posteriormente `pool<T>` + `handle<T>`.
+- [x] Retirar overloads inseguros de `*_init_own`.
+- [x] Retirar wrappers de compatibilidad sin consumidores.
+- [x] Eliminar implementaciones duplicadas entre Debug y Release.
+- [x] Retirar de `nkpch.h` los headers STL que ya no tengan consumidores del runtime.
+- [x] Mantener una whitelist revisada para facilidades estándar sin ownership y memoria externa.
+- [x] Confirmar cero asignaciones inesperadas en el frame estable.
+- [x] Comparar resultados finales contra la línea base de la fase 0.
+- [x] Documentar las APIs finales y ejemplos de uso.
+- [x] Decidir con evidencia si se necesita posteriormente `pool<T>` + `handle<T>`.
+
+Evidencia: [cierre, API final y comparación](memory-containers-phase-11-closeout.md).
 
 Criterio de salida: la refactorización queda cerrada, documentada y sin compatibilidad temporal pendiente.
 
@@ -618,20 +620,20 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P10.4 | Propagación de allocators | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
 | P10.5 | `MemorySystem` | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
 | P10.6 | Auditoría e integración | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
-| P11 | Limpieza y cierre | pendiente | — | — |
+| P11 | Limpieza y cierre | completa | — | [evidencia](memory-containers-phase-11-closeout.md) |
 
-## Defectos conocidos que el refactor debe eliminar
+## Defectos cerrados durante el ciclo
 
-- Logging y assertions construyen `std::string` durante errores y pueden asignar mientras se reporta memoria.
-- El puente temporal `legacy_str = std::string` mantiene consumidores cuyo dominio de memoria aún no controla el engine.
-- `ObjectShader` y sus estados todavía poseen storage mediante `std::vector`.
-- `MemoryType` almacena callbacks mediante `std::function`, que puede poseer memoria fuera de los allocators del engine.
-- `dyarr_insert` puede escribir fuera de capacidad al insertar en un índice lejano.
-- `dyarr` usa `memmove` sobre tipos no triviales.
-- `resize` puede declarar objetos vivos sin construirlos.
-- Los move assignments actuales de `arr` y `dyarr` pueden perder el bloque previamente poseído por el destino.
-- `reset` no destruye actualmente objetos no triviales.
-- `*_init_own` no expresa cómo debe destruirse el allocator recibido.
+- [x] Logging y assertions ya no construyen `std::string` ni asignan en sus rutas medidas.
+- [x] Se eliminó el puente temporal `legacy_str = std::string`.
+- [x] `ObjectShader` y sus estados usan storage propio.
+- [x] `MemoryType` usa una interfaz `Provider` no propietaria.
+- [x] La inserción lejana de `dyarr` crece y construye el rango necesario.
+- [x] La relocalización no trivial usa primitivas de lifetime, no `memmove`.
+- [x] `resize` construye y destruye exactamente el rango vivo.
+- [x] Move assignment de `arr` y `dyarr` libera primero el destino.
+- [x] Reset destruye objetos no triviales.
+- [x] `*_init_own` recibe exclusivamente `AllocatorOwner` y conserva un destructor tipado.
 
 ## Fuera de alcance de este ciclo
 

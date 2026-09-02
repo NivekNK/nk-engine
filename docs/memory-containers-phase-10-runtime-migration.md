@@ -38,7 +38,7 @@ Estas operaciones no representan memoria poseída por los contenedores de NK Eng
 - **Wayland/XDG/XKB:** proxies, superficies, contexts, keymaps y states se destruyen con sus funciones `*_destroy`/`*_unref`; el display se cierra con `wl_display_disconnect`.
 - **Vulkan:** handles y memoria de dispositivo se crean y destruyen con sus pares `vkCreate*`/`vkDestroy*`, `vkAllocate*`/`vkFree*` y `vkAllocateMemory`/`vkFreeMemory`.
 
-Una búsqueda sobre `engine` y `editor`, excluyendo código vendor, no encontró objetos runtime `std::string`, `std::vector`, `std::unordered_map`, `std::map`, `std::function`, `std::format` ni `std::filesystem`. Sólo quedaron overloads transitorios de formatting y headers del PCH, que se retiran en la limpieza final.
+Una búsqueda sobre `engine` y `editor`, excluyendo código vendor, no encontró objetos runtime `std::string`, `std::vector`, `std::unordered_map`, `std::map`, `std::function`, `std::format` ni `std::filesystem`. Los overloads transitorios de formatting y sus imports del PCH se retiraron durante el cierre.
 
 ## Validación
 

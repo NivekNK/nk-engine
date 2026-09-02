@@ -55,6 +55,7 @@ namespace nk::mem {
         }
         u64 reentrant_event_count() const noexcept { return m_reentrant_event_count; }
         u64 metadata_failure_count() const noexcept { return m_metadata_failure_count; }
+        u64 allocation_event_count() const noexcept { return m_allocation_event_count; }
 
     private:
         MemorySystem() noexcept = default;
@@ -127,6 +128,7 @@ namespace nk::mem {
         u64 m_dropped_event_count = 0;
         u64 m_reentrant_event_count = 0;
         u64 m_metadata_failure_count = 0;
+        u64 m_allocation_event_count = 0;
         MemorySystemState m_state = MemorySystemState::Cold;
 
         friend struct MemorySystemStorageAccess;

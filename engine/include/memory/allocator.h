@@ -49,13 +49,6 @@ namespace nk::mem {
             return allocator;
         }
 
-        // Compatibility name for existing Release call sites.
-        template <typename A, typename... Args>
-            requires IAllocator<A, Args...>
-        Allocator* _allocator_init(Args&&... args) {
-            return _allocator_init_untracked<A>(std::forward<Args>(args)...);
-        }
-
 #if NK_MEMORY_TRACKING_ENABLED
         template <typename A, typename... Args>
             requires IAllocator<A, Args...>
@@ -245,11 +238,9 @@ namespace nk::mem {
         AllocatorId allocator_id() const noexcept;
 
         u64 get_reserved_bytes() const noexcept { return m_reserved_bytes; }
-        u64 get_size_bytes() const noexcept { return m_reserved_bytes; }
         u64 get_used_bytes() const noexcept { return m_used_bytes; }
         u64 get_peak_used_bytes() const noexcept { return m_peak_used_bytes; }
         u64 get_active_allocation_count() const noexcept { return m_active_allocations; }
-        u64 get_allocation_count() const noexcept { return m_active_allocations; }
         void* get_data() noexcept { return m_data; }
 
         AllocatorStatistics statistics() const noexcept {

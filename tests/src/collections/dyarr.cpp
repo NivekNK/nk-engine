@@ -497,7 +497,7 @@ TEST(Dyarr, MoveAssignmentTransfersTypedOwnership) {
     EXPECT_EQ(OwnedAllocatorProbe::destruction_count, 2);
 }
 
-TEST(Dyarr, OwnsAllocatorThroughTypedTokenAndRejectsErasedOwnership) {
+TEST(Dyarr, OwnsAllocatorThroughTypedToken) {
     OwnedAllocatorProbe::destruction_count = 0;
     auto owner = nk::mem::AllocatorOwner::make_native_untracked<
         OwnedAllocatorProbe>(nk::mem::untracked);
@@ -523,12 +523,6 @@ TEST(Dyarr, OwnsAllocatorThroughTypedTokenAndRejectsErasedOwnership) {
     EXPECT_EQ(array.allocator(), nullptr);
     EXPECT_EQ(OwnedAllocatorProbe::destruction_count, 1);
 
-    nk::mem::MallocAllocator borrowed{nk::mem::untracked};
-    nk::mem::Allocator* erased = &borrowed;
-    nk::cl::dyarr<nk::u32> rejected;
-    EXPECT_FALSE(rejected._dyarr_init_own(erased, 4));
-    EXPECT_EQ(rejected.data(), nullptr);
-    EXPECT_EQ(rejected.allocator(), nullptr);
 }
 
 TEST(Dyarr, TransfersTypedAllocatorOwnershipToFixedArray) {
@@ -556,7 +550,7 @@ TEST(Dyarr, TransfersTypedAllocatorOwnershipToFixedArray) {
     EXPECT_EQ(OwnedAllocatorProbe::destruction_count, 1);
 }
 
-TEST(Dyarr, SupportsPointerCompatibilityAndOveralignedMoveOnlyTypes) {
+TEST(Dyarr, SupportsPointerHelpersAndOveralignedMoveOnlyTypes) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     nk::cl::dyarr<nk::cstr> pointers;
     ASSERT_TRUE(pointers.dyarr_init(&allocator, 0));

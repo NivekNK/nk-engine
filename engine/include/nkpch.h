@@ -8,25 +8,18 @@
 // Memory
 #include <cstring>
 #include <cstdlib>
-#include <format>
-#include <string>
-#include <string_view>
 #include <optional>
 #include <cstdio>
 #include <sys/stat.h>
-#include <filesystem>
 #include <tuple>
 #include <initializer_list>
 
 // Functions
-#include <functional>
 #include <concepts>
 #include <compare>
 #include <type_traits>
-#include <variant>
 
 // Sync
-#include <mutex>
 #include <thread>
 #include <chrono>
 #include <ctime>

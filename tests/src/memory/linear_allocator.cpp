@@ -293,7 +293,7 @@ TEST(LinearAllocator, RejectsMoveAssignmentIntoActiveDestination) {
     EXPECT_EQ(parent.get_active_allocation_count(), 0);
 }
 
-TEST(LinearAllocator, PreservesTrackedInitializationAndResetCompatibility) {
+TEST(LinearAllocator, ResetsTrackedAllocationsWithoutReleasingBackingStorage) {
     NK_MEMORY_SYSTEM_INIT();
 
     {
@@ -317,7 +317,7 @@ TEST(LinearAllocator, PreservesTrackedInitializationAndResetCompatibility) {
 
         ASSERT_NE(allocator.allocate_raw(500, alignof(nk::f32)), nullptr);
         EXPECT_GE(allocator.get_used_bytes(), 500);
-        EXPECT_TRUE(allocator._free_linear_allocator());
+        EXPECT_TRUE(allocator.reset());
         EXPECT_EQ(allocator.get_used_bytes(), 0);
         EXPECT_EQ(allocator.get_active_allocation_count(), 0);
     }

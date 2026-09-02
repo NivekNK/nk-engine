@@ -103,27 +103,6 @@ namespace nk::cl {
                      std::is_destructible_v<T>;
 #endif
 
-        // An erased Allocator* cannot carry a correctly typed destructor.
-        // These transitional overloads compile but reject ownership safely.
-        bool _dyarr_init_own(mem::Allocator* allocator, u64 capacity);
-        bool _dyarr_init_own_len(
-            mem::Allocator* allocator,
-            u64 capacity,
-            u64 length);
-#if NK_MEMORY_TRACKING_ENABLED
-        bool _dyarr_init_own(
-            cstr file,
-            u32 line,
-            mem::Allocator* allocator,
-            u64 capacity);
-        bool _dyarr_init_own_len(
-            cstr file,
-            u32 line,
-            mem::Allocator* allocator,
-            u64 capacity,
-            u64 length);
-#endif
-
         bool _dyarr_init_list(
             mem::Allocator* allocator,
             std::initializer_list<T> list)
@@ -152,17 +131,6 @@ namespace nk::cl {
             std::initializer_list<T> list)
             requires std::is_copy_constructible_v<T> &&
                      std::is_destructible_v<T>;
-#endif
-
-        bool _dyarr_init_list_own(
-            mem::Allocator* allocator,
-            std::initializer_list<T> list);
-#if NK_MEMORY_TRACKING_ENABLED
-        bool _dyarr_init_list_own(
-            cstr file,
-            u32 line,
-            mem::Allocator* allocator,
-            std::initializer_list<T> list);
 #endif
 
         bool _dyarr_clear()
@@ -579,37 +547,6 @@ namespace nk::cl {
 #endif
 
     template <IArrT T>
-    bool dyarr<T>::_dyarr_init_own(mem::Allocator*, u64) {
-        _diagnostic("nk::cl::dyarr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-
-    template <IArrT T>
-    bool dyarr<T>::_dyarr_init_own_len(mem::Allocator*, u64, u64) {
-        _diagnostic("nk::cl::dyarr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-
-#if NK_MEMORY_TRACKING_ENABLED
-    template <IArrT T>
-    bool dyarr<T>::_dyarr_init_own(cstr, u32, mem::Allocator*, u64) {
-        _diagnostic("nk::cl::dyarr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-
-    template <IArrT T>
-    bool dyarr<T>::_dyarr_init_own_len(
-        cstr,
-        u32,
-        mem::Allocator*,
-        u64,
-        u64) {
-        _diagnostic("nk::cl::dyarr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-#endif
-
-    template <IArrT T>
     bool dyarr<T>::_dyarr_init_list(
         mem::Allocator* allocator,
         const std::initializer_list<T> list)
@@ -666,26 +603,6 @@ namespace nk::cl {
             std::move(allocator_owner),
             list.begin(),
             static_cast<u64>(list.size()));
-    }
-#endif
-
-    template <IArrT T>
-    bool dyarr<T>::_dyarr_init_list_own(
-        mem::Allocator*,
-        std::initializer_list<T>) {
-        _diagnostic("nk::cl::dyarr ownership requires mem::AllocatorOwner.");
-        return false;
-    }
-
-#if NK_MEMORY_TRACKING_ENABLED
-    template <IArrT T>
-    bool dyarr<T>::_dyarr_init_list_own(
-        cstr,
-        u32,
-        mem::Allocator*,
-        std::initializer_list<T>) {
-        _diagnostic("nk::cl::dyarr ownership requires mem::AllocatorOwner.");
-        return false;
     }
 #endif
 
