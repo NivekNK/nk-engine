@@ -17,11 +17,14 @@ namespace nk {
             EventSystem::init();
             InputSystem::init();
 
-            Engine::init();
-            NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
-            Engine::run();
-            Engine::shutdown();
-            NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
+            if (Engine::init()) {
+                NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
+                Engine::run();
+                Engine::shutdown();
+                NK_MEMORY_SYSTEM_INTERMEDIATE_LOG_REPORT();
+            } else {
+                ErrorLog("nk::Engine initialization failed.");
+            }
 
             InputSystem::shutdown();
             EventSystem::shutdown();

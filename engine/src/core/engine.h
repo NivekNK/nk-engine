@@ -13,7 +13,7 @@ namespace nk {
     public:
         ~Engine() = default;
 
-        static void init() { get().init_impl(); }
+        static bool init() { return get().init_impl(); }
 
         static void shutdown() { get().shutdown_impl(); }
 
@@ -29,7 +29,7 @@ namespace nk {
     private:
         Engine() = default;
 
-        void init_impl();
+        bool init_impl();
         void shutdown_impl();
         void run_impl();
         void exit_impl();
@@ -38,13 +38,14 @@ namespace nk {
         bool render(f64 delta_time);
         bool resize(u32 width, u32 height);
 
-        mem::Allocator* m_allocator;
-        App* m_app;
-        Platform* m_platform;
-        Renderer* m_renderer;
+        mem::Allocator* m_allocator = nullptr;
+        App* m_app = nullptr;
+        Platform* m_platform = nullptr;
+        Renderer* m_renderer = nullptr;
+        bool m_initialized = false;
 
         Clock m_clock;
-        f64 m_last_time;
+        f64 m_last_time = 0.0;
 
         friend bool on_resized(SystemEventCode, void*, void*, EventContext);
     };

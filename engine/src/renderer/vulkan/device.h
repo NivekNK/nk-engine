@@ -58,6 +58,7 @@ namespace nk {
         VkCommandPool get_graphics_command_pool() { return m_graphics_command_pool; }
         VkQueue get_graphics_queue() { return m_graphics_queue; }
         VkQueue get_present_queue() { return m_present_queue; }
+        mem::Allocator* allocator() const { return m_allocator; }
 
         VkDevice get() { return m_logical_device; }
         VkDevice operator()() { return m_logical_device; }

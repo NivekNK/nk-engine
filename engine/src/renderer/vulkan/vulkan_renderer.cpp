@@ -28,7 +28,7 @@ namespace nk {
         m_image_index = 0;
         m_current_frame = 0;
 
-        m_instance.init(m_application_name.c_str(), m_platform, m_allocator, m_vulkan_allocator);
+        m_instance.init(m_application_name.cstr(), m_platform, m_allocator, m_vulkan_allocator);
         m_device.init(m_platform, &m_instance, m_allocator, m_vulkan_allocator);
         m_swapchain.init(
             m_framebuffer_width,
@@ -74,6 +74,7 @@ namespace nk {
             image_count,
             &m_main_render_pass,
             &m_device,
+            m_allocator,
             m_vulkan_allocator);
         InfoLog("Vulkan Object Shader created.");
 
@@ -362,7 +363,7 @@ namespace nk {
         out_texture->generation = numeric::invalid_id;
 
         // TODO: Use an allocator for this.
-        out_texture->m_internal_data = m_allocator->allocate_t(TextureData);
+        out_texture->m_internal_data = m_allocator->construct_t(TextureData);
         TextureData* texture_data = static_cast<TextureData*>(out_texture->m_internal_data);
         VkDeviceSize image_size = width * height * channel_count;
 
@@ -462,7 +463,7 @@ namespace nk {
         vkDestroySampler(m_device, texture_data->sampler, m_vulkan_allocator);
         texture_data->sampler = nullptr;
 
-        m_allocator->free_t(TextureData, texture_data);
+        m_allocator->deconstruct_t(TextureData, texture_data);
         texture->m_internal_data = nullptr;
 
         memset(texture, 0, sizeof(Texture));

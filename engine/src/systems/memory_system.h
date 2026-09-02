@@ -4,6 +4,9 @@
 
 #if NK_MEMORY_TRACKING_ENABLED
 
+    #include "core/format.h"
+    #include "core/strview.h"
+    #include "memory/malloc_allocator.h"
     #include "memory/memory_type.h"
 
 namespace nk::mem {
@@ -50,6 +53,8 @@ namespace nk::mem {
         u64 dropped_event_count() const noexcept {
             return m_dropped_event_count + m_journal.dropped_count();
         }
+        u64 reentrant_event_count() const noexcept { return m_reentrant_event_count; }
+        u64 metadata_failure_count() const noexcept { return m_metadata_failure_count; }
 
     private:
         MemorySystem() noexcept = default;
@@ -62,33 +67,66 @@ namespace nk::mem {
         void apply_free(const AllocationEvent& event);
         void apply_reset(const AllocatorResetEvent& event);
 
-        void log_title(std::string_view msg) {
-            log("\033[38;2;170;129;246m", msg.data(), msg.length());
+        void log_title(strview msg) {
+            log("\033[38;2;170;129;246m", msg);
         }
 
-        void log_info(std::string_view msg) {
-            log("\033[38;2;255;255;255m", msg.data(), msg.length());
+        void log_info(strview msg) {
+            log("\033[38;2;255;255;255m", msg);
         }
 
-        void log_warn(std::string_view msg) {
-            log("\033[38;2;255;128;0m", msg.data(), msg.length());
+        void log_warn(strview msg) {
+            log("\033[38;2;255;128;0m", msg);
         }
 
-        void log_error(std::string_view msg) {
-            log("\033[38;2;233;38;109m", msg.data(), msg.length());
+        void log_error(strview msg) {
+            log("\033[38;2;233;38;109m", msg);
         }
 
-        void log_trace(std::string_view msg) {
-            log("\033[38;2;218;218;218m", msg.data(), msg.length());
+        void log_trace(strview msg) {
+            log("\033[38;2;218;218;218m", msg);
         }
 
-        void log(cstr color, cstr msg, std::size_t msg_size);
+        template <typename... Args>
+        void log_info(format_string<std::type_identity_t<Args>...> pattern, Args&&... args) {
+            log_formatted("\033[38;2;255;255;255m", pattern, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void log_warn(format_string<std::type_identity_t<Args>...> pattern, Args&&... args) {
+            log_formatted("\033[38;2;255;128;0m", pattern, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void log_error(format_string<std::type_identity_t<Args>...> pattern, Args&&... args) {
+            log_formatted("\033[38;2;233;38;109m", pattern, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void log_trace(format_string<std::type_identity_t<Args>...> pattern, Args&&... args) {
+            log_formatted("\033[38;2;218;218;218m", pattern, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void log_formatted(
+            cstr color,
+            format_string<std::type_identity_t<Args>...> pattern,
+            Args&&... args) {
+            strbuf<1024> message;
+            format_to(message, pattern, std::forward<Args>(args)...);
+            message.mark_truncated();
+            log(color, message.view());
+        }
+
+        void log(cstr color, strview msg);
 
         void* m_data = nullptr;
+        MallocAllocator m_metadata_allocator{untracked};
         EarlyAllocationJournal m_journal{};
         AllocatorId m_next_allocator_id = native_allocator_id + 1;
         u64 m_dropped_event_count = 0;
         u64 m_reentrant_event_count = 0;
+        u64 m_metadata_failure_count = 0;
         MemorySystemState m_state = MemorySystemState::Cold;
 
         friend struct MemorySystemStorageAccess;

@@ -5,6 +5,7 @@
 
 #include "resources/texture.h"
 #include "renderer/geometry_render_data.h"
+#include "core/str.h"
 
 namespace nk {
     namespace mem { class Allocator; }
@@ -18,7 +19,10 @@ namespace nk {
     public:
         virtual ~Renderer() = default;
 
-        static Renderer* create(mem::Allocator* allocator, Platform* platform, legacy_str application_name);
+        static Renderer* create(
+            mem::Allocator* allocator,
+            Platform* platform,
+            strview application_name);
         static void destroy(mem::Allocator* allocator, Renderer* renderer);
 
         virtual bool draw_frame(const RenderPacket& packet);
@@ -39,6 +43,9 @@ namespace nk {
         void set_view(glm::mat4 view) { m_view = view; }
 
     protected:
+        Renderer(mem::Allocator& allocator, strview application_name)
+            : m_application_name{allocator, application_name} {}
+
         virtual void init() = 0;
         virtual void shutdown() = 0;
         virtual void on_resized(u32 width, u32 height) = 0;
@@ -52,7 +59,7 @@ namespace nk {
         virtual void update_object(GeometryRenderData data) = 0;
         virtual bool end_frame(f64 delta_time) = 0;
 
-        legacy_str m_application_name;
+        str m_application_name;
         Platform* m_platform;
 
         mem::Allocator* m_allocator;

@@ -139,9 +139,14 @@ namespace nk {
 
         m_image_count = 0;
         VulkanCheck(vkGetSwapchainImagesKHR(m_device->get(), m_swapchain, &m_image_count, nullptr));
-        m_images = m_allocator->allocate_lot_t(VkImage, m_image_count);
-        m_views = m_allocator->allocate_lot_t(VkImageView, m_image_count);
-        VulkanCheck(vkGetSwapchainImagesKHR(m_device->get(), m_swapchain, &m_image_count, m_images));
+        if (!m_images.arr_init(m_allocator, m_image_count) ||
+            !m_views.arr_init(m_allocator, m_image_count)) {
+            m_views.arr_shutdown();
+            m_images.arr_shutdown();
+            FatalLog("Unable to allocate swapchain image storage.");
+            return;
+        }
+        VulkanCheck(vkGetSwapchainImagesKHR(m_device->get(), m_swapchain, &m_image_count, m_images.data()));
 
         for (u32 i = 0; i < m_image_count; i++) {
             VkImageViewCreateInfo view_info = {};
@@ -184,11 +189,8 @@ namespace nk {
             vkDestroyImageView(m_device->get(), m_views[i], m_vulkan_allocator);
         }
 
-        m_allocator->free_lot_t(VkImageView, m_views, m_image_count);
-        m_allocator->free_lot_t(VkImage, m_images, m_image_count);
-
-        m_images = nullptr;
-        m_views = nullptr;
+        m_views.arr_shutdown();
+        m_images.arr_shutdown();
 
         vkDestroySwapchainKHR(m_device->get(), m_swapchain, m_vulkan_allocator);
     }

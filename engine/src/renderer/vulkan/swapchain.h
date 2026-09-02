@@ -2,6 +2,7 @@
 
 #include "vulkan/vk.h"
 #include "vulkan/image.h"
+#include "collections/arr.h"
 
 namespace nk {
     class Device;
@@ -61,8 +62,8 @@ namespace nk {
         u8 m_max_frames_in_flight;
         VkSwapchainKHR m_swapchain;
         u32 m_image_count;
-        VkImage* m_images;
-        VkImageView* m_views;
+        cl::arr<VkImage> m_images;
+        cl::arr<VkImageView> m_views;
         Image m_depth_attachment;
     };
 }

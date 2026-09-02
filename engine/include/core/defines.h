@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <climits>
 #include <limits>
-#include <string>
 
 namespace nk {
     using u8 = std::uint8_t;
@@ -20,11 +19,6 @@ namespace nk {
     using f64 = double;
 
     using cstr = const char*;
-
-    // Transitional name for call sites that still depend on std::string.
-    // New owning text must use nk::str from core/str.h. This alias disappears
-    // when the runtime consumers are migrated.
-    using legacy_str = std::string;
 
     namespace numeric {
         static constexpr const u8 u8_max = UINT8_MAX;

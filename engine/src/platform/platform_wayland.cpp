@@ -208,7 +208,9 @@ namespace nk {
             return listener;
         }();
         xdg_toplevel_add_listener(m_toplevel, &toplevel_listener, this);
-        xdg_toplevel_set_title(m_toplevel, config.name.c_str());
+        strbuf<256> title{config.name};
+        title.mark_truncated();
+        xdg_toplevel_set_title(m_toplevel, title.cstr());
         xdg_toplevel_set_app_id(m_toplevel, "nk-engine");
 
         // A role-less empty commit asks the compositor for the initial configure.

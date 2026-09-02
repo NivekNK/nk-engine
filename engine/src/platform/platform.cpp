@@ -16,6 +16,8 @@
 
 namespace nk {
     Platform* Platform::create(mem::Allocator* allocator, const ApplicationConfig& config) {
+        if (allocator == nullptr)
+            return nullptr;
 #if defined(NK_PLATFORM_WINDOWS)
         return allocator->construct_t(PlatformWin32, config);
 #elif defined(NK_PLATFORM_LINUX)
@@ -32,11 +34,12 @@ namespace nk {
 
         if (prefer_wayland) {
             PlatformWayland* wayland = allocator->construct_t(PlatformWayland, config);
-            if (wayland->running())
+            if (wayland != nullptr && wayland->running())
                 return wayland;
 
             WarnLog("Native Wayland initialization failed; falling back to XCB/XWayland.");
-            allocator->deconstruct_t(PlatformWayland, wayland);
+            if (wayland != nullptr)
+                allocator->deconstruct_t(PlatformWayland, wayland);
         }
 
         return allocator->construct_t(PlatformLinux, config);
@@ -46,6 +49,8 @@ namespace nk {
     }
     
     void Platform::destroy(mem::Allocator* allocator, Platform* platform) {
+        if (allocator == nullptr || platform == nullptr)
+            return;
 #if defined(NK_PLATFORM_WINDOWS)
         allocator->deconstruct_t(PlatformWin32, platform);
 #elif defined(NK_PLATFORM_LINUX)

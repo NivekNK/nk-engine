@@ -14,14 +14,35 @@
 #include <glm/gtx/quaternion.hpp>
 
 namespace nk {
-    Renderer* Renderer::create(mem::Allocator* allocator, Platform* platform, legacy_str application_name) {
-        auto renderer = allocator->construct_t(VulkanRenderer);
+    Renderer* Renderer::create(
+        mem::Allocator* allocator,
+        Platform* platform,
+        const strview application_name) {
+        if (allocator == nullptr || platform == nullptr)
+            return nullptr;
 
-        renderer->m_application_name = application_name;
+        auto renderer = allocator->construct_t(
+            VulkanRenderer,
+            *allocator,
+            application_name);
+        if (renderer == nullptr)
+            return nullptr;
+
         renderer->m_platform = platform;
 
         renderer->m_allocator = native_construct(mem::MallocAllocator);
-        renderer->m_allocator->allocator_init(mem::MallocAllocator, "Renderer", MemoryType::Renderer);
+        if (renderer->m_allocator == nullptr) {
+            allocator->deconstruct_t(VulkanRenderer, renderer);
+            return nullptr;
+        }
+        if (renderer->m_allocator->allocator_init(
+                mem::MallocAllocator,
+                "Renderer",
+                MemoryType::Renderer) == nullptr) {
+            native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            allocator->deconstruct_t(VulkanRenderer, renderer);
+            return nullptr;
+        }
 
         renderer->m_frame_number = 0;
 
@@ -78,6 +99,8 @@ namespace nk {
     }
 
     void Renderer::destroy(mem::Allocator* allocator, Renderer* renderer) {
+        if (allocator == nullptr || renderer == nullptr)
+            return;
         renderer->destroy_texture(&renderer->m_default_texture);
         renderer->shutdown();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);

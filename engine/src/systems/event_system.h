@@ -71,7 +71,7 @@ namespace nk {
     private:
         EventSystem() = default;
 
-        mem::Allocator* m_allocator;
+        mem::Allocator* m_allocator = nullptr;
         EventCodeEntry m_registered[static_cast<u16>(SystemEventCode::MaxEventCode)];
     };
 }

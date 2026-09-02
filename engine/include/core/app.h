@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/strview.h"
+
 // TODO: Temporal include
 #include "glm/ext/matrix_float4x4.hpp"
 
@@ -8,7 +10,7 @@ namespace nk {
     namespace mem { class Allocator; }
 
     struct ApplicationConfig {
-        legacy_str name;
+        strview name;
         i16 start_pos_x;
         i16 start_pos_y;
         u32 start_width;
@@ -22,7 +24,7 @@ namespace nk {
         virtual ~App() {}
 
     protected:
-        App(ApplicationConfig config)
+        explicit App(const ApplicationConfig config)
             : initial_config{config} {}
 
         virtual bool update(f64 delta_time) { return true; }

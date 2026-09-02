@@ -39,3 +39,14 @@ TEST(Strbuf, AssignsAliasedSubrangesSafely) {
     EXPECT_FALSE(text.truncated());
     EXPECT_EQ(text.cstr()[text.length()], '\0');
 }
+
+TEST(Strbuf, MarksTruncatedOutputWithinItsFixedCapacity) {
+    nk::strbuf<16> text;
+    EXPECT_FALSE(text.append("a message that is much too long"));
+    text.mark_truncated();
+
+    EXPECT_EQ(text.length(), 16u);
+    EXPECT_EQ(text.view(), "a ...<truncated>");
+    EXPECT_TRUE(text.truncated());
+    EXPECT_EQ(text.cstr()[text.length()], '\0');
+}

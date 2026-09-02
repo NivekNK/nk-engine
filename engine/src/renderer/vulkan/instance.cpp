@@ -80,13 +80,14 @@ namespace nk {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
         m_extensions.dyarr_push_ptr(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-        legacy_str debug_extensions = "Required extensions:\n";
+        strbuf<2048> debug_extensions{"Required extensions:\n"};
         for (u64 i = 0; i < m_extensions.length(); i++) {
-            debug_extensions += "                        ";
-            debug_extensions += m_extensions[i];
-            debug_extensions += "\n";
+            debug_extensions.append("                        ");
+            debug_extensions.append(m_extensions[i]);
+            debug_extensions.append('\n');
         }
-        DebugLog(debug_extensions);
+        debug_extensions.mark_truncated();
+        DebugLog(debug_extensions.view());
 #endif
 
         instance_create_info.enabledExtensionCount = static_cast<u32>(m_extensions.length());

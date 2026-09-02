@@ -91,16 +91,40 @@ namespace nk {
     }
 
     void Engine::exit_impl() {
-        m_platform->close();
+        if (m_platform != nullptr)
+            m_platform->close();
     }
 
-    void Engine::init_impl() {
+    bool Engine::init_impl() {
+        if (m_initialized)
+            return true;
+
         m_allocator = native_construct(mem::MallocAllocator);
-        m_allocator->allocator_init(mem::MallocAllocator, "App", MemoryType::App);
+        if (m_allocator == nullptr)
+            return false;
+        if (m_allocator->allocator_init(mem::MallocAllocator, "App", MemoryType::App) == nullptr) {
+            native_deconstruct(mem::MallocAllocator, m_allocator);
+            m_allocator = nullptr;
+            return false;
+        }
 
         m_app = App::create(m_allocator);
+        if (m_app == nullptr) {
+            shutdown_impl();
+            return false;
+        }
+
         m_platform = Platform::create(m_allocator, m_app->initial_config);
+        if (m_platform == nullptr || !m_platform->running()) {
+            shutdown_impl();
+            return false;
+        }
+
         m_renderer = Renderer::create(m_allocator, m_platform, m_app->initial_config.name);
+        if (m_renderer == nullptr) {
+            shutdown_impl();
+            return false;
+        }
 
         Camera::init(m_renderer);
 
@@ -110,28 +134,57 @@ namespace nk {
         EventSystem::register_event(SystemEventCode::KeyPressed, nullptr, on_key);
         EventSystem::register_event(SystemEventCode::KeyReleased, nullptr, on_key);
         EventSystem::register_event(SystemEventCode::Resized, nullptr, on_resized);
+
+        m_initialized = true;
+        return true;
     }
 
     void Engine::shutdown_impl() {
-        EventSystem::unregister_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
-        EventSystem::unregister_event(SystemEventCode::KeyPressed, nullptr, on_key);
-        EventSystem::unregister_event(SystemEventCode::KeyReleased, nullptr, on_key);
-        EventSystem::unregister_event(SystemEventCode::Resized, nullptr, on_resized);
+        if (m_initialized) {
+            EventSystem::unregister_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
+            EventSystem::unregister_event(SystemEventCode::KeyPressed, nullptr, on_key);
+            EventSystem::unregister_event(SystemEventCode::KeyReleased, nullptr, on_key);
+            EventSystem::unregister_event(SystemEventCode::Resized, nullptr, on_resized);
+        }
 
-        Renderer::destroy(m_allocator, m_renderer);
-        Platform::destroy(m_allocator, m_platform);
-        App::destroy(m_allocator, m_app);
-        native_deconstruct(mem::MallocAllocator, m_allocator);
+        if (m_renderer != nullptr) {
+            Renderer::destroy(m_allocator, m_renderer);
+            m_renderer = nullptr;
+        }
+        if (m_platform != nullptr) {
+            Platform::destroy(m_allocator, m_platform);
+            m_platform = nullptr;
+        }
+        if (m_app != nullptr) {
+            App::destroy(m_allocator, m_app);
+            m_app = nullptr;
+        }
+        if (m_allocator != nullptr) {
+            native_deconstruct(mem::MallocAllocator, m_allocator);
+            m_allocator = nullptr;
+        }
+        m_initialized = false;
     }
 
     void Engine::run_impl() {
+        if (!m_initialized)
+            return;
+
         m_clock.start();
         m_clock.update();
         m_last_time = m_clock.elapsed();
 
         f64 running_time = 0;
-        u8 frame_count = 0;
+        u64 frame_count = 0;
         f64 target_frame_seconds = 1.0f / 60;
+        u64 smoke_test_frames = 0;
+        if (const cstr configured_frames = std::getenv("NK_SMOKE_TEST_FRAMES");
+            configured_frames != nullptr) {
+            char* end = nullptr;
+            const unsigned long long parsed = std::strtoull(configured_frames, &end, 10);
+            if (end != configured_frames && *end == '\0')
+                smoke_test_frames = static_cast<u64>(parsed);
+        }
 
         while (m_platform->running()) {
             if (!m_platform->pump_messages()) {
@@ -177,10 +230,13 @@ namespace nk {
                         m_platform->sleep(remaining_ms - 1);
                     }
 
-                    frame_count++;
                 }
 
                 InputSystem::update(delta);
+
+                ++frame_count;
+                if (smoke_test_frames != 0 && frame_count >= smoke_test_frames)
+                    m_platform->close();
 
                 // Update last time
                 m_last_time = current_time;

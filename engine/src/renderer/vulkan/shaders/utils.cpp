@@ -7,11 +7,15 @@
 
 namespace nk {
     bool create_shader_module(cstr name, cstr type, Device* device, VkAllocationCallbacks* allocator, VkShaderStageFlagBits stage, ShaderStage* out_stage) {
-        legacy_str shader_path = std::format("assets/shaders/{}.{}.spv", name, type);
+        strbuf<512> shader_path;
+        if (!format_to(shader_path, "assets/shaders/{}.{}.spv", name, type)) {
+            ErrorLog("Unable to build shader path for {}.{}", name, type);
+            return false;
+        }
         out_stage->module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 
-        File file;
-        if (!file.open(shader_path.c_str(), FileMode::Read, true)) {
+        File file{*device->allocator()};
+        if (!file.open(shader_path.view(), FileMode::Read, true)) {
             ErrorLog("Unable to read shader module: {}", shader_path);
             return false;
         }
@@ -40,7 +44,7 @@ namespace nk {
         out_stage->pipeline_create_info.pName = "main";
 
         if (file_buffer != nullptr) {
-            native_free_lot(u8, file_buffer, size);
+            device->allocator()->free_lot_t(u8, file_buffer, size);
             file_buffer = nullptr;
         }
 

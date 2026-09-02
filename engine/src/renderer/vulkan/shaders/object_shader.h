@@ -11,8 +11,7 @@
 #include "vulkan/shaders/object_shader_object_state.h"
 
 #include "collections/dyarr.h"
-
-#include <vector>
+#include "collections/arr.h"
 
 namespace nk {
     class Device;
@@ -42,6 +41,7 @@ namespace nk {
             u32 image_count,
             RenderPass* render_pass,
             Device* device,
+            mem::Allocator* allocator,
             VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
@@ -58,6 +58,7 @@ namespace nk {
 
     private:
         Device* m_device;
+        mem::Allocator* m_allocator;
         VkAllocationCallbacks* m_vulkan_allocator;
 
         ShaderStage m_stages[shader_stage_count];
@@ -67,7 +68,7 @@ namespace nk {
         VkDescriptorSetLayout m_global_descriptor_set_layout;
 
         u32 m_image_count;
-        std::vector<VkDescriptorSet> m_global_descriptor_sets;
+        cl::arr<VkDescriptorSet> m_global_descriptor_sets;
 
         // Global Uniform Object
         GlobalUniformObject m_global_ubo;

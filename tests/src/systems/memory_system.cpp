@@ -6,6 +6,8 @@ TEST(MemorySystem, MemorySystemInit) {
 #if NK_MEMORY_TRACKING_ENABLED
     auto& memory_system = NK_MEMORY_SYSTEM_INIT();
     EXPECT_EQ(memory_system.state(), nk::mem::MemorySystemState::Ready);
+    EXPECT_EQ(memory_system.reentrant_event_count(), 0u);
+    EXPECT_EQ(memory_system.metadata_failure_count(), 0u);
 
     nk::u32* data = native_allocate_lot(nk::u32, 5);
     ASSERT_NE(data, nullptr);

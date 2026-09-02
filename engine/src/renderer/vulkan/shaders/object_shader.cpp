@@ -22,8 +22,10 @@ namespace nk {
         u32 image_count,
         RenderPass* render_pass,
         Device* device,
+        mem::Allocator* allocator,
         VkAllocationCallbacks* vulkan_allocator) {
         m_device = device;
+        m_allocator = allocator;
         m_vulkan_allocator = vulkan_allocator;
         m_image_count = image_count;
         m_object_uniform_buffer_index = 0;
@@ -190,8 +192,15 @@ namespace nk {
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             true);
 
-        std::vector<VkDescriptorSetLayout> global_layouts(m_image_count, m_global_descriptor_set_layout);
-        m_global_descriptor_sets.resize(m_image_count);
+        cl::arr<VkDescriptorSetLayout> global_layouts;
+        if (!global_layouts.arr_init(m_allocator, m_image_count) ||
+            !m_global_descriptor_sets.arr_init(m_allocator, m_image_count)) {
+            ErrorLog("Unable to allocate global object shader descriptor storage.");
+            global_layouts.arr_shutdown();
+            return;
+        }
+        for (VkDescriptorSetLayout& layout : global_layouts)
+            layout = m_global_descriptor_set_layout;
 
         VkDescriptorSetAllocateInfo global_descriptor_set_allocate_info;
         memset(&global_descriptor_set_allocate_info, 0, sizeof(global_descriptor_set_allocate_info));
@@ -200,6 +209,7 @@ namespace nk {
         global_descriptor_set_allocate_info.descriptorSetCount = m_image_count;
         global_descriptor_set_allocate_info.pSetLayouts = global_layouts.data();
         VulkanCheck(vkAllocateDescriptorSets(m_device->get(), &global_descriptor_set_allocate_info, m_global_descriptor_sets.data()));
+        global_layouts.arr_shutdown();
 
         // Initialize the object uniform buffer
         m_object_uniform_buffer.init(
@@ -238,11 +248,11 @@ namespace nk {
         // Destroy global descriptor set layout
         vkDestroyDescriptorSetLayout(m_device->get(), m_global_descriptor_set_layout, m_vulkan_allocator);
 
-        m_global_descriptor_sets.clear();
+        m_global_descriptor_sets.arr_shutdown();
         for (u32 i = 0; i < m_object_uniform_buffer_index; ++i) {
-            m_object_states[i].descriptor_sets.clear();
+            m_object_states[i].descriptor_sets.arr_shutdown();
             for (u32 j = 0; j < ObjectShaderObjectState::descriptor_count; ++j)
-                m_object_states[i].descriptor_states[j].generations.clear();
+                m_object_states[i].descriptor_states[j].generations.arr_shutdown();
         }
 
         for (u32 i = 0; i < shader_stage_count; i++) {
@@ -253,7 +263,9 @@ namespace nk {
         }
 
         m_device = nullptr;
+        m_allocator = nullptr;
         m_vulkan_allocator = nullptr;
+        m_object_uniform_buffer_index = 0;
     }
 
     void ObjectShader::use(CommandBuffer* command_buffer) {
@@ -261,8 +273,8 @@ namespace nk {
     }
 
     void ObjectShader::update_global_state(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, f32 delta_time) {
-        if (image_index >= m_global_descriptor_sets.size()) {
-            ErrorLog("ObjectShader global descriptor index '{}' is out of range ({}).", image_index, m_global_descriptor_sets.size());
+        if (image_index >= m_global_descriptor_sets.length()) {
+            ErrorLog("ObjectShader global descriptor index '{}' is out of range ({}).", image_index, m_global_descriptor_sets.length());
             return;
         }
 
@@ -308,7 +320,7 @@ namespace nk {
 
     void ObjectShader::update_object(const cl::dyarr<CommandBuffer>& command_buffers, u32 image_index, GeometryRenderData data, f32 delta_time) {
         if (data.object_id >= m_object_uniform_buffer_index ||
-            image_index >= m_object_states[data.object_id].descriptor_sets.size()) {
+            image_index >= m_object_states[data.object_id].descriptor_sets.length()) {
             ErrorLog("ObjectShader object or image index is out of range.");
             return;
         }
@@ -429,13 +441,34 @@ namespace nk {
         
         u32 object_id = *out_object_id;
         ObjectShaderObjectState* object_state = &m_object_states[object_id];
-        object_state->descriptor_sets.resize(m_image_count);
+        if (!object_state->descriptor_sets.arr_init(m_allocator, m_image_count)) {
+            --m_object_uniform_buffer_index;
+            return false;
+        }
         for (u32 i = 0; i < ObjectShaderObjectState::descriptor_count; i++) {
-            object_state->descriptor_states[i].generations.assign(m_image_count, numeric::invalid_id);
+            auto& generations = object_state->descriptor_states[i].generations;
+            if (!generations.arr_init(m_allocator, m_image_count)) {
+                for (u32 initialized = 0; initialized < i; ++initialized)
+                    object_state->descriptor_states[initialized].generations.arr_shutdown();
+                object_state->descriptor_sets.arr_shutdown();
+                --m_object_uniform_buffer_index;
+                return false;
+            }
+            for (u32& generation : generations)
+                generation = numeric::invalid_id;
         }
 
         // Allocate descriptor sets
-        std::vector<VkDescriptorSetLayout> layouts(m_image_count, m_object_descriptor_set_layout);
+        cl::arr<VkDescriptorSetLayout> layouts;
+        if (!layouts.arr_init(m_allocator, m_image_count)) {
+            for (DescriptorState& state : object_state->descriptor_states)
+                state.generations.arr_shutdown();
+            object_state->descriptor_sets.arr_shutdown();
+            --m_object_uniform_buffer_index;
+            return false;
+        }
+        for (VkDescriptorSetLayout& layout : layouts)
+            layout = m_object_descriptor_set_layout;
 
         VkDescriptorSetAllocateInfo alloc_info;
         memset(&alloc_info, 0, sizeof(VkDescriptorSetAllocateInfo));
@@ -445,8 +478,13 @@ namespace nk {
         alloc_info.pSetLayouts = layouts.data();
 
         VkResult results = vkAllocateDescriptorSets(m_device->get(), &alloc_info, object_state->descriptor_sets.data());
+        layouts.arr_shutdown();
         if (results != VK_SUCCESS) {
             ErrorLog("Error allocating descriptor sets in shader!");
+            for (DescriptorState& state : object_state->descriptor_states)
+                state.generations.arr_shutdown();
+            object_state->descriptor_sets.arr_shutdown();
+            --m_object_uniform_buffer_index;
             return false;
         }
 
@@ -456,7 +494,7 @@ namespace nk {
     void ObjectShader::release_resources(u32 object_id) {
         ObjectShaderObjectState* object_state = &m_object_states[object_id];
 
-        const u32 descriptor_set_count = object_state->descriptor_sets.size();
+        const u32 descriptor_set_count = static_cast<u32>(object_state->descriptor_sets.length());
         // Release object descriptor sets
         VkResult result = vkFreeDescriptorSets(
             m_device->get(),
@@ -468,11 +506,12 @@ namespace nk {
         }
 
         for (u32 i = 0; i < ObjectShaderObjectState::descriptor_count; i++) {
-            for (u32 j = 0; j < object_state->descriptor_states[i].generations.size(); j++) {
+            for (u32 j = 0; j < object_state->descriptor_states[i].generations.length(); j++) {
                 object_state->descriptor_states[i].generations[j] = numeric::invalid_id;
             }
+            object_state->descriptor_states[i].generations.arr_shutdown();
         }
-        object_state->descriptor_sets.clear();
+        object_state->descriptor_sets.arr_shutdown();
 
         // TODO: add the object_id to the free list
     }

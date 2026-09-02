@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/format.h"
 #include "vendor/glm/color.h"
 
 namespace nk {
@@ -41,7 +42,8 @@ namespace nk {
 
         static LoggingSystemConfig get_default_config() {
             LoggingSystemConfig config = {};
-            std::copy(std::begin(default_style), std::end(default_style), config.style);
+            for (u8 index = 0; index < static_cast<u8>(LoggingLevel::Off); ++index)
+                config.style[index] = default_style[index];
             config.priority = LoggingLevel::Trace;
             config.show_file = true;
             config.show_time = true;
@@ -49,14 +51,31 @@ namespace nk {
             return config;
         }
 
-        template <typename... Args>
-        static void log(LoggingLevel level, std::string_view file, u32 line, std::string_view fmt, Args&&... args) {
-            std::string buffer;
-            std::vformat_to(std::back_inserter(buffer), fmt, std::make_format_args(args...));
-            log(level, file, line, buffer);
+        template <typename First, typename... Args>
+        static void log(
+            LoggingLevel level,
+            strview file,
+            u32 line,
+            format_string<
+                std::type_identity_t<First>,
+                std::type_identity_t<Args>...> format,
+            First&& first,
+            Args&&... args) noexcept {
+            strbuf<2048> message;
+            format_to(
+                message,
+                format,
+                std::forward<First>(first),
+                std::forward<Args>(args)...);
+            message.mark_truncated();
+            log(level, file, line, message.view());
         }
 
-        static void log(LoggingLevel level, std::string_view file, u32 line, std::string_view message);
+        static void log(
+            LoggingLevel level,
+            strview file,
+            u32 line,
+            strview message) noexcept;
 
     private:
         LoggingSystem() = default;
@@ -85,11 +104,11 @@ namespace nk {
             {.value = " [Fatal]: ", .size = 10},
         };
 
-        std::string m_style[static_cast<u8>(LoggingLevel::Off)];
-        LoggingLevel m_priority;
-        bool m_show_file;
-        bool m_show_time;
-        bool m_file_output;
+        strbuf<64> m_style[static_cast<u8>(LoggingLevel::Off)];
+        LoggingLevel m_priority = LoggingLevel::Trace;
+        bool m_show_file = true;
+        bool m_show_time = true;
+        bool m_file_output = false;
     };
 }
 

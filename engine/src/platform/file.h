@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/str.h"
+
 namespace nk {
     namespace FileMode {
         using Value = u8;
@@ -13,22 +15,23 @@ namespace nk {
 
     class File {
     public:
-        File()
+        explicit File(mem::Allocator& allocator)
             : m_file{nullptr},
               m_open{false},
               m_binary{false},
               m_mode{FileMode::None},
-              m_path{} {}
+              m_allocator{&allocator},
+              m_path{allocator} {}
               
         ~File();
 
         static bool exists(cstr path);
 
-        bool open(cstr path, FileMode::Value mode, bool binary);
+        bool open(strview path, FileMode::Value mode, bool binary);
         void close();
 
-        bool read_line(legacy_str* out_line);
-        bool write_line(cstr line);
+        bool read_line(str* out_line);
+        bool write_line(strview line);
 
         bool read(u64 data_size, void* out_data, u64* out_bytes_read);
         bool read_all_bytes(u8** out_data, u64* out_bytes_read);
@@ -40,6 +43,7 @@ namespace nk {
         bool m_open;
         bool m_binary;
         FileMode::Value m_mode;
-        legacy_str m_path;
+        mem::Allocator* m_allocator;
+        str m_path;
     };
 }

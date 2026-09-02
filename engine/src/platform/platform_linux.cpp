@@ -178,7 +178,7 @@ namespace nk {
             XCB_ATOM_WM_NAME,
             XCB_ATOM_STRING,
             8,
-            config.name.size(),
+            config.name.length(),
             config.name.data());
 
         m_wm_protocols = intern_atom(m_connection, "WM_PROTOCOLS");

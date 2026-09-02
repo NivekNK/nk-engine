@@ -70,6 +70,21 @@ namespace nk {
             m_data[0] = '\0';
         }
 
+        void mark_truncated(
+            const strview marker = strview{"...<truncated>"}) noexcept {
+            if (!m_truncated || Capacity == 0)
+                return;
+
+            const u64 marker_length = marker.length() < Capacity
+                ? marker.length()
+                : Capacity;
+            const u64 offset = Capacity - marker_length;
+            if (marker_length != 0)
+                std::memmove(m_data + offset, marker.data(), marker_length);
+            m_length = Capacity;
+            m_data[m_length] = '\0';
+        }
+
         char* data() noexcept { return m_data; }
         const char* data() const noexcept { return m_data; }
         nk::cstr cstr() const noexcept { return m_data; }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/format.h"
+
 #if NK_DEV_MODE <= NK_DEBUG
     #define NK_ENABLE_ASSERT TRUE
 #endif
@@ -7,31 +9,48 @@
 #if NK_ENABLE_ASSERT == TRUE
 
 namespace nk {
+    inline void write_assert_failure(
+        const strview expression,
+        const strview file,
+        const u32 line,
+        const strview message = {}) noexcept {
+        strbuf<4096> output;
+        if (message.empty())
+            format_to(output, "{} > Failed at {}:{}", expression, file, line);
+        else
+            format_to(output, "{} > Failed at {}:{}: '{}'", expression, file, line, message);
+        output.mark_truncated();
+
+        constexpr cstr style_text = "\033[38;2;255;255;255;48;2;145;23;23m";
+        constexpr cstr reset_text = "\n\033[0m";
+        constexpr strview style{
+            style_text,
+            sizeof("\033[38;2;255;255;255;48;2;145;23;23m") - 1};
+        constexpr strview reset{reset_text, sizeof("\n\033[0m") - 1};
+        os::write(style.data(), style.length());
+        os::write(output.data(), output.length());
+        os::write(reset.data(), reset.length());
+        os::flush();
+    }
+
     template <typename... Args>
-    inline void report_assert_failure(cstr expression, cstr file, u32 line, std::string_view fmt, Args&&... args) {
-        std::string msg;
-        std::vformat_to(std::back_inserter(msg), fmt, std::make_format_args(args...));
-        std::string buffer = std::format("{} > Failed at {}:{}: '{}'", expression, file, line, msg);
-        os::write("\033[38;2;255;255;255;48;2;145;23;23m", 34);
-        os::write(buffer.c_str(), buffer.size());
-        os::write("\n\033[0m", 5);
-        os::flush();
+    inline void report_assert_failure(
+        const cstr expression,
+        const cstr file,
+        const u32 line,
+        format_string<std::type_identity_t<Args>...> format,
+        Args&&... args) noexcept {
+        strbuf<2048> message;
+        format_to(message, format, std::forward<Args>(args)...);
+        message.mark_truncated();
+        write_assert_failure(expression, file, line, message.view());
     }
 
-    inline void report_assert_failure(cstr expression, cstr file, u32 line, cstr msg) {
-        std::string buffer = std::format("{} > Failed at {}:{}: '{}'", expression, file, line, msg);
-        os::write("\033[38;2;255;255;255;48;2;145;23;23m", 34);
-        os::write(buffer.c_str(), buffer.size());
-        os::write("\n\033[0m", 5);
-        os::flush();
-    }
-
-    inline void report_assert_failure(cstr expression, cstr file, u32 line) {
-        std::string buffer = std::format("{} > Failed at {}:{}", expression, file, line);
-        os::write("\033[38;2;255;255;255;48;2;145;23;23m", 34);
-        os::write(buffer.c_str(), buffer.size());
-        os::write("\n\033[0m", 5);
-        os::flush();
+    inline void report_assert_failure(
+        const cstr expression,
+        const cstr file,
+        const u32 line) noexcept {
+        write_assert_failure(expression, file, line);
     }
 }
 

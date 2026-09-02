@@ -513,68 +513,68 @@ La migración se realizará después de aprobar la fase de pruebas. `MemorySyste
 
 #### 10.1 Logging y assertions
 
-- [ ] Sustituir `std::string`, `std::string_view` y `std::format` por `strview`, `strbuf` y `format_to`.
-- [ ] Sustituir styles dinámicos por buffers fijos o literales.
-- [ ] Obtener el path del proyecto sin `std::filesystem` en la ruta de logging.
-- [ ] Garantizar truncación segura de mensajes largos.
-- [ ] Garantizar cero asignaciones para logs normales, assertions y errores de allocator.
-- [ ] Impedir que la escritura de un log genere eventos de tracking.
-- [ ] Separar la salida OS de diagnóstico temprano del `LoggingSystem` y reordenar el entry point según el ciclo de vida definido.
+- [x] Sustituir `std::string`, `std::string_view` y `std::format` por `strview`, `strbuf` y `format_to`.
+- [x] Sustituir styles dinámicos por buffers fijos o literales.
+- [x] Obtener el path del proyecto sin `std::filesystem` en la ruta de logging.
+- [x] Garantizar truncación segura de mensajes largos.
+- [x] Garantizar cero asignaciones para logs normales, assertions y errores de allocator.
+- [x] Impedir que la escritura de un log genere eventos de tracking.
+- [x] Separar la salida OS de diagnóstico temprano del `LoggingSystem` y reordenar el entry point según el ciclo de vida definido.
 
 #### 10.2 Core, texto y archivos
 
-- [ ] Eliminar el puente `legacy_str = std::string` al migrar sus consumidores al tipo `str` propio.
-- [ ] Migrar `ApplicationConfig`, `Renderer` y nombres de aplicación a `str`/`strview` según ownership.
-- [ ] Migrar `File`, paths, `read_line` y rutas de shaders con allocator explícito.
-- [ ] Usar `str{allocator, texto}` en todo call site propietario; usar `strview` para literales y entradas no propietarias.
-- [ ] Sustituir strings temporales de `Instance` y `Device` por vistas o buffers fijos.
-- [ ] Sustituir `std::function` de `MemoryType` por una interfaz C++ `MemoryTypeProvider` con métodos.
-- [ ] Sustituir los `new`/`delete` propietarios restantes por helpers de allocator.
+- [x] Eliminar el puente `legacy_str = std::string` al migrar sus consumidores al tipo `str` propio.
+- [x] Migrar `ApplicationConfig`, `Renderer` y nombres de aplicación a `str`/`strview` según ownership.
+- [x] Migrar `File`, paths, `read_line` y rutas de shaders con allocator explícito.
+- [x] Usar `str{allocator, texto}` en todo call site propietario; usar `strview` para literales y entradas no propietarias.
+- [x] Sustituir strings temporales de `Instance` y `Device` por vistas o buffers fijos.
+- [x] Sustituir `std::function` de `MemoryType` por una interfaz C++ `MemoryTypeProvider` con métodos.
+- [x] Sustituir los `new`/`delete` propietarios restantes por helpers de allocator.
 
 #### 10.3 Contenedores del renderer
 
-- [ ] Sustituir `std::vector<VkDescriptorSet>` de `ObjectShader` por `arr` o `dyarr` según su ciclo de vida.
-- [ ] Sustituir `std::vector` de `ObjectShaderObjectState` por estructuras propias.
-- [ ] Sustituir los vectors temporales de `VkDescriptorSetLayout` por `arr`, `dyarr` o storage temporal conocido.
-- [ ] Migrar extensiones y resultados Vulkan triviales de `Instance` y `Device`.
-- [ ] Migrar buffers temporales de consultas Vulkan.
-- [ ] Migrar `Swapchain` y sus arrays de imágenes y views.
-- [ ] Migrar `Framebuffer` y `arr<VkImageView>`.
-- [ ] Validar `dyarr<Framebuffer>`, `dyarr<CommandBuffer>`, `dyarr<Fence>` y `dyarr<Fence*>`.
-- [ ] Migrar el almacenamiento de `TextureData`.
+- [x] Sustituir `std::vector<VkDescriptorSet>` de `ObjectShader` por `arr` o `dyarr` según su ciclo de vida.
+- [x] Sustituir `std::vector` de `ObjectShaderObjectState` por estructuras propias.
+- [x] Sustituir los vectors temporales de `VkDescriptorSetLayout` por `arr`, `dyarr` o storage temporal conocido.
+- [x] Migrar extensiones y resultados Vulkan triviales de `Instance` y `Device`.
+- [x] Migrar buffers temporales de consultas Vulkan.
+- [x] Migrar `Swapchain` y sus arrays de imágenes y views.
+- [x] Migrar `Framebuffer` y `arr<VkImageView>`.
+- [x] Validar `dyarr<Framebuffer>`, `dyarr<CommandBuffer>`, `dyarr<Fence>` y `dyarr<Fence*>`.
+- [x] Migrar el almacenamiento de `TextureData`.
 
 #### 10.4 Propagación global de allocators
 
-- [ ] Construir y destruir `Engine`, `App`, `Platform`, `Renderer` y sistemas mediante allocators explícitos.
-- [ ] Evitar allocators globales obtenidos mediante service locator.
-- [ ] No introducir allocators ambientales por hilo, scopes implícitos ni macros que oculten la dependencia.
-- [ ] Mantener dominios nombrados para App, Renderer y Event usando inicialmente `MallocAllocator`.
-- [ ] Migrar `EventSystem` y sus `dyarr<RegisteredEvent>`.
-- [ ] Migrar toda memoria nativa poseída por `File`, recursos y renderer.
-- [ ] Asegurar que los allocators mismos tienen un owner y orden de destrucción definidos.
+- [x] Construir y destruir `Engine`, `App`, `Platform`, `Renderer` y sistemas mediante allocators explícitos.
+- [x] Evitar allocators globales obtenidos mediante service locator.
+- [x] No introducir allocators ambientales por hilo, scopes implícitos ni macros que oculten la dependencia.
+- [x] Mantener dominios nombrados para App, Renderer y Event usando inicialmente `MallocAllocator`.
+- [x] Migrar `EventSystem` y sus `dyarr<RegisteredEvent>`.
+- [x] Migrar toda memoria nativa poseída por `File`, recursos y renderer.
+- [x] Asegurar que los allocators mismos tienen un owner y orden de destrucción definidos.
 
 #### 10.5 `MemorySystem`
 
 - [x] Hacer que `MemorySystem` sea la implementación final de `AllocationTracker` conservando la interfaz desacoplada. (adelantado en fase 1)
 - [x] Incorporar el `EarlyAllocationJournal` inline y reproducirlo antes de entrar en `Ready`. (adelantado en fase 1)
-- [ ] Crear su `MallocAllocator` de metadata con el tag explícito `untracked`.
-- [ ] Sustituir `std::vector<AllocationStats>` por `dyarr<AllocatorRecord>`.
-- [ ] Sustituir `std::unordered_map` por un único `map<AllocationKey, AllocationRecord>`.
-- [ ] Usar `{allocator_id, address}` como clave de asignación.
-- [ ] Inicializar y reservar los contenedores durante `Bootstrapping`.
-- [ ] Deshabilitar eventos antes de reportar y destruir durante `ShuttingDown`.
-- [ ] Reportar por separado el consumo agregado del allocator de metadata.
-- [ ] Evitar logs y cualquier operación asignadora mientras se mutan las tablas de tracking.
-- [ ] Verificar que no existen asignaciones normales antes de preparar el tracker ni después de finalizarlo.
-- [ ] Reportar de forma visible cualquier overflow del journal o intento de asignación fuera del ciclo de vida.
+- [x] Crear su `MallocAllocator` de metadata con el tag explícito `untracked`.
+- [x] Sustituir `std::vector<AllocationStats>` por `dyarr<AllocatorRecord>`.
+- [x] Sustituir `std::unordered_map` por un único `map<AllocationKey, AllocationRecord>`.
+- [x] Usar `{allocator_id, address}` como clave de asignación.
+- [x] Inicializar y reservar los contenedores durante `Bootstrapping`.
+- [x] Deshabilitar eventos antes de reportar y destruir durante `ShuttingDown`.
+- [x] Reportar por separado el consumo agregado del allocator de metadata.
+- [x] Evitar logs y cualquier operación asignadora mientras se mutan las tablas de tracking.
+- [x] Verificar que no existen asignaciones normales antes de preparar el tracker ni después de finalizarlo.
+- [x] Reportar de forma visible cualquier overflow del journal o intento de asignación fuera del ciclo de vida.
 
 #### 10.6 Auditoría de ownership externo e integración
 
-- [ ] Clasificar los `malloc/free` restantes y conservar sólo los exigidos por APIs externas o por la capa OS raw.
-- [ ] Documentar XCB, Wayland, XKB, Vulkan y libc en la whitelist de ownership externo.
-- [ ] Confirmar mediante búsqueda que no quedan contenedores STL dinámicos fuera de la whitelist.
-- [ ] Ejecutar tests después de cada grupo de migración.
-- [ ] Ejecutar el motor en Wayland/Niri después de cada grupo de riesgo.
+- [x] Clasificar los `malloc/free` restantes y conservar sólo los exigidos por APIs externas o por la capa OS raw.
+- [x] Documentar XCB, Wayland, XKB, Vulkan y libc en la whitelist de ownership externo.
+- [x] Confirmar mediante búsqueda que no quedan contenedores STL dinámicos fuera de la whitelist.
+- [x] Ejecutar tests después de cada grupo de migración.
+- [x] Ejecutar el motor en Wayland/Niri después de cada grupo de riesgo.
 
 Criterio de salida: toda memoria dinámica poseída por NK Engine pasa por un allocator explícito, logging no asigna en su ruta normal y el motor inicia y cierra sin fugas ni dobles liberaciones detectadas.
 
@@ -612,12 +612,12 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P8.2 | `hash64`/rapidhash | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
 | P8.3 | `map<K, V>` | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
 | P9 | Tests y benchmarks | completa | — | [evidencia](memory-containers-phase-9-validation.md) |
-| P10.1 | Logging y assertions | pendiente | — | — |
-| P10.2 | Core, texto y archivos | pendiente | — | — |
-| P10.3 | Contenedores del renderer | pendiente | — | — |
-| P10.4 | Propagación de allocators | pendiente | — | — |
-| P10.5 | `MemorySystem` | pendiente | — | — |
-| P10.6 | Auditoría e integración | pendiente | — | — |
+| P10.1 | Logging y assertions | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
+| P10.2 | Core, texto y archivos | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
+| P10.3 | Contenedores del renderer | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
+| P10.4 | Propagación de allocators | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
+| P10.5 | `MemorySystem` | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
+| P10.6 | Auditoría e integración | completa | — | [evidencia](memory-containers-phase-10-runtime-migration.md) |
 | P11 | Limpieza y cierre | pendiente | — | — |
 
 ## Defectos conocidos que el refactor debe eliminar

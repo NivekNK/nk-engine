@@ -7,14 +7,24 @@ namespace nk {
         LoggingSystem& instance = get();
 
         for (u8 i = 0; i < static_cast<u8>(LoggingLevel::Off); i++) {
-            LoggingColor color = config.style[i];
+            const LoggingColor color = config.style[i];
             if (color.bg) {
-                instance.m_style[i] = std::format("\033[38;2;{};{};{};48;2;{};{};{}m",
-                                                color.fg.r, color.fg.g, color.fg.b,
-                                                color.bg->r, color.bg->g, color.bg->b);
+                format_to(
+                    instance.m_style[i],
+                    "\033[38;2;{};{};{};48;2;{};{};{}m",
+                    color.fg.r,
+                    color.fg.g,
+                    color.fg.b,
+                    color.bg->r,
+                    color.bg->g,
+                    color.bg->b);
             } else {
-                instance.m_style[i] = std::format("\033[38;2;{};{};{}m",
-                                                color.fg.r, color.fg.g, color.fg.b);
+                format_to(
+                    instance.m_style[i],
+                    "\033[38;2;{};{};{}m",
+                    color.fg.r,
+                    color.fg.g,
+                    color.fg.b);
             }
         }
 
@@ -32,40 +42,55 @@ namespace nk {
         TraceLog("nk::LoggingSystem Shutdown.");
     }
 
-    // TODO: Move to a more generalized place
-    std::string get_project_path() {
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
-        return NK_PROJECT_PATH;
+    strview get_project_path() noexcept {
+#if defined(NK_PROJECT_PATH)
+        return strview{NK_PROJECT_PATH};
 #else
-        return std::filesystem::current_path().string();
+        return {};
 #endif
     }
 
-    void LoggingSystem::log(LoggingLevel level, std::string_view file, u32 line, std::string_view message) {
-        if (level == LoggingLevel::Off)
+    void LoggingSystem::log(
+        const LoggingLevel level,
+        const strview file,
+        const u32 line,
+        const strview message) noexcept {
+        if (level == LoggingLevel::Off || level < get().m_priority)
             return;
 
         const u8 index = static_cast<u8>(level);
         auto& instance = get();
 
         // Add color
-        const std::string& color = instance.m_style[index];
-        os::write(color.c_str(), color.size());
+        const strbuf<64>& color = instance.m_style[index];
+        os::write(color.data(), color.length());
 
-        std::string buffer;
-        buffer.reserve(128);
+        strbuf<4096> buffer;
 
         if (instance.m_show_time) {
-            auto now = std::chrono::system_clock::now();
-            auto time_t = std::chrono::system_clock::to_time_t(now);
-            auto* tm = std::localtime(&time_t);
-
-            buffer.append(std::format("{:02}:{:02}:{:02}", tm->tm_hour, tm->tm_min, tm->tm_sec));
+            const auto now = std::chrono::system_clock::now();
+            const auto time_value = std::chrono::system_clock::to_time_t(now);
+            std::tm local_time{};
+#if defined(NK_PLATFORM_WINDOWS)
+            const bool has_time = ::localtime_s(&local_time, &time_value) == 0;
+#else
+            const bool has_time = ::localtime_r(&time_value, &local_time) != nullptr;
+#endif
+            if (has_time) {
+                strbuf<16> timestamp;
+                format_to(
+                    timestamp,
+                    "{:02}:{:02}:{:02}",
+                    local_time.tm_hour,
+                    local_time.tm_min,
+                    local_time.tm_sec);
+                buffer.append(timestamp.view());
+            }
         }
 
         if (level != LoggingLevel::None) {
             const auto& level_string = instance.logging_level[index];
-            buffer.append(level_string.value, level_string.size);
+            buffer.append(strview{level_string.value, level_string.size});
         } else {
             buffer.append(" ");
         }
@@ -73,17 +98,22 @@ namespace nk {
         buffer.append(message);
 
         if (instance.m_show_file) {
-            auto project_path = get_project_path();
-            auto pos = file.find(project_path);
-            if (pos != std::string_view::npos) {
-                buffer.append(std::format(" ({}:{})", file.substr(pos + project_path.size() + 1), line));
-            } else {
-                buffer.append(std::format(" ({}:{})", file, line));
-            }
+            const strview project_path = get_project_path();
+            const u64 position = project_path.empty()
+                ? strview::npos
+                : file.find(project_path);
+            const strview displayed_file = position == strview::npos
+                ? file
+                : file.substr(position + project_path.length() + 1);
+            strbuf<1024> location;
+            format_to(location, " ({}:{})", displayed_file, line);
+            buffer.append(location.view());
         }
 
-        buffer.append("\033[0m\n", 5);
+        buffer.mark_truncated();
 
         os::write(buffer.data(), buffer.length());
+        os::write("\033[0m\n", 5);
+        os::flush();
     }
 }

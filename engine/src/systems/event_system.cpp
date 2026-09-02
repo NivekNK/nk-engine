@@ -7,8 +7,20 @@ namespace nk {
     EventSystem& EventSystem::init() {
         EventSystem& instance = get();
 
+        if (instance.m_allocator != nullptr)
+            return instance;
+
         instance.m_allocator = native_construct(mem::MallocAllocator);
-        instance.m_allocator->allocator_init(mem::MallocAllocator, "EventSystem", MemoryType::Event);
+        if (instance.m_allocator == nullptr)
+            return instance;
+        if (instance.m_allocator->allocator_init(
+                mem::MallocAllocator,
+                "EventSystem",
+                MemoryType::Event) == nullptr) {
+            native_deconstruct(mem::MallocAllocator, instance.m_allocator);
+            instance.m_allocator = nullptr;
+            return instance;
+        }
 
         TraceLog("nk::EventSystem Initialized.");
         return instance;
@@ -16,6 +28,9 @@ namespace nk {
 
     void EventSystem::shutdown() {
         EventSystem& instance = get();
+
+        if (instance.m_allocator == nullptr)
+            return;
 
         const u16 max_event_codes = static_cast<u16>(SystemEventCode::MaxEventCode);
         for (u16 i = 0; i < max_event_codes; i++) {
@@ -25,6 +40,7 @@ namespace nk {
         }
 
         native_deconstruct(mem::MallocAllocator, instance.m_allocator);
+        instance.m_allocator = nullptr;
         TraceLog("nk::EventSystem Shutdown.");
     }
 
@@ -32,9 +48,15 @@ namespace nk {
         EventSystem& instance = get();
 
         const u16 code_value = static_cast<u16>(code);
+        if (instance.m_allocator == nullptr ||
+            code_value >= static_cast<u16>(SystemEventCode::MaxEventCode) ||
+            callback == nullptr) {
+            return false;
+        }
 
         if (instance.m_registered[code_value].events.capacity() <= 0) {
-            instance.m_registered[code_value].events.dyarr_init(instance.m_allocator, 4);
+            if (!instance.m_registered[code_value].events.dyarr_init(instance.m_allocator, 4))
+                return false;
         }
 
         const u64 registered_count = instance.m_registered[code_value].events.length();
@@ -44,18 +66,20 @@ namespace nk {
             }
         }
 
-        instance.m_registered[code_value].events.dyarr_push_copy(RegisteredEvent{
+        return instance.m_registered[code_value].events.dyarr_push_copy(RegisteredEvent{
             .listener = listener,
             .callback = callback,
         });
-
-        return true;
     }
 
     bool EventSystem::unregister_event(SystemEventCode code, void* listener, PFN_OnEvent callback) {
         EventSystem& instance = get();
 
         const u16 code_value = static_cast<u16>(code);
+        if (code_value >= static_cast<u16>(SystemEventCode::MaxEventCode) ||
+            callback == nullptr) {
+            return false;
+        }
 
         if (instance.m_registered[code_value].events.empty()) {
             return false;
@@ -77,6 +101,8 @@ namespace nk {
         EventSystem& instance = get();
 
         const u16 code_value = static_cast<u16>(code);
+        if (code_value >= static_cast<u16>(SystemEventCode::MaxEventCode))
+            return false;
 
         if (instance.m_registered[code_value].events.empty()) {
             return false;

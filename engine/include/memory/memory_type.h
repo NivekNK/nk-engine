@@ -15,18 +15,22 @@
                 __VA_ARGS__ __VA_OPT__(, )                                                \
                     OriginalMaxMemoryTypes,                                               \
             };                                                                            \
+            struct Provider {                                                             \
+                virtual ~Provider() = default;                                            \
+                virtual Value max() const noexcept = 0;                                   \
+                virtual cstr to_cstr(Value value) const noexcept = 0;                     \
+            };                                                                            \
             namespace Internal {                                                          \
-                static std::function<cstr(Value)> extended_to_cstr;                       \
-                static std::function<Value()> max;                                        \
+                inline const Provider* provider = nullptr;                                \
             }                                                                             \
-            inline Value max() {                                                          \
-                if (Internal::max)                                                        \
-                    return Internal::max();                                               \
+            inline Value max() noexcept {                                                 \
+                if (Internal::provider != nullptr)                                        \
+                    return Internal::provider->max();                                     \
                 return OriginalMaxMemoryTypes;                                            \
             }                                                                             \
-            inline nk::cstr to_cstr(const Value value) {                                  \
-                if (Internal::extended_to_cstr && value > OriginalMaxMemoryTypes)         \
-                    return Internal::extended_to_cstr(value);                             \
+            inline nk::cstr to_cstr(const Value value) noexcept {                         \
+                if (Internal::provider != nullptr && value > OriginalMaxMemoryTypes)      \
+                    return Internal::provider->to_cstr(value);                            \
                 switch (value) {                                                          \
                     case MemoryType::None:                                                \
                         return "None";                                                    \
@@ -46,23 +50,27 @@
                     _NK_GET_REST(__VA_ARGS__)                                                    \
                         MaxMemoryTypes,                                                          \
                 };                                                                               \
-                inline constexpr nk::MemoryType::Value extended_max() { return MaxMemoryTypes; } \
-                inline nk::cstr extended_to_cstr(nk::MemoryType::Value value) {                  \
-                    switch (value) {                                                             \
-                        NK_MAP(_NK_SWITCH_TO_STRING_MEMORY_TYPE, __VA_ARGS__)                    \
-                    }                                                                            \
-                    return "Invalid";                                                            \
-                }                                                                                \
+                struct ExtendedProvider final : Provider {                                       \
+                    Value max() const noexcept override { return MaxMemoryTypes; }                 \
+                    nk::cstr to_cstr(const Value value) const noexcept override {                  \
+                        switch (value) {                                                          \
+                            NK_MAP(_NK_SWITCH_TO_STRING_MEMORY_TYPE, __VA_ARGS__)                 \
+                        }                                                                         \
+                        return "Invalid";                                                         \
+                    }                                                                             \
+                };                                                                                \
+                inline const ExtendedProvider extended_provider{};                                \
             })
 
 _NK_DEFINE_MEMORY_TYPE(Native, Test, System, Event, App, Renderer)
 
 namespace nk {
-    void memory_system_extended_memory_type(const std::function<nk::MemoryType::Value()>& max_memory_type, const std::function<cstr(MemoryType::Value)>& memory_type_to_cstr);
+    void memory_system_extended_memory_type(
+        const MemoryType::Provider& provider) noexcept;
 }
 
     #define NK_MEMORY_SYSTEM_EXTENDED_MEMORY_TYPE() \
-        nk::memory_system_extended_memory_type(nk::MemoryType::extended_max, nk::MemoryType::extended_to_cstr)
+        nk::memory_system_extended_memory_type(nk::MemoryType::extended_provider)
 
 #else
 
