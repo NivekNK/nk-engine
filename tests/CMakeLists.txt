@@ -14,6 +14,7 @@ add_executable(${PROJECT_NAME} "src/main.cpp")
 target_compile_definitions(${PROJECT_NAME}
 PRIVATE
     NK_TEST_BUILD=1
+    NK_TEST_ASSET_ROOT="${CMAKE_SOURCE_DIR}/engine/assets"
 )
 
 if (WIN32)

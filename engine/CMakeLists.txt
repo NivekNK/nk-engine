@@ -65,6 +65,7 @@ set(SOURCES
     src/systems/input_system.cpp
     src/platform/platform.cpp
     src/platform/file.cpp
+    src/resources/image_loader.cpp
     src/renderer/renderer.cpp
     src/renderer/vulkan/vulkan_renderer.cpp
     src/renderer/vulkan/utils.cpp
@@ -238,3 +239,21 @@ endforeach(MODEL)
 
 add_custom_target(MODELS DEPENDS ${MODEL_BINARY_FILES})
 add_dependencies(engine MODELS)
+
+file(GLOB TEXTURE_FILES "assets/textures/*.png")
+
+foreach(TEXTURE ${TEXTURE_FILES})
+    get_filename_component(TEXTURE_NAME ${TEXTURE} NAME)
+    set(TEXTURE_OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/textures/${TEXTURE_NAME}")
+    add_custom_command(
+        OUTPUT ${TEXTURE_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/textures/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TEXTURE} ${TEXTURE_OUTPUT}
+        DEPENDS ${TEXTURE}
+        VERBATIM
+    )
+    list(APPEND TEXTURE_BINARY_FILES ${TEXTURE_OUTPUT})
+endforeach(TEXTURE)
+
+add_custom_target(TEXTURES DEPENDS ${TEXTURE_BINARY_FILES})
+add_dependencies(engine TEXTURES)
