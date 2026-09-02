@@ -58,6 +58,9 @@ namespace nk {
         VkCommandPool get_graphics_command_pool() { return m_graphics_command_pool; }
         VkQueue get_graphics_queue() { return m_graphics_queue; }
         VkQueue get_present_queue() { return m_present_queue; }
+        bool supports_device_local_host_visible() const noexcept {
+            return m_supports_device_local_host_visible;
+        }
         mem::Allocator* allocator() const { return m_allocator; }
 
         VkDevice get() { return m_logical_device; }
@@ -84,6 +87,7 @@ namespace nk {
         VkPhysicalDeviceProperties m_properties{};
         VkPhysicalDeviceFeatures m_features{};
         VkPhysicalDeviceMemoryProperties m_memory{};
+        bool m_supports_device_local_host_visible = false;
         SwapchainSupportInfo m_swapchain_support_info{};
 
         // Depth format

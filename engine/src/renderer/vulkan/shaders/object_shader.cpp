@@ -249,12 +249,18 @@ namespace nk {
         // Pipeline creation END
 
         // Initialize the global uniform buffer
+        const VkMemoryPropertyFlags optional_device_local =
+            m_device->supports_device_local_host_visible()
+                ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+                : 0;
         auto global_buffer_initialized = m_global_uniform_buffer.init(
             m_device,
             m_vulkan_allocator,
             sizeof(GlobalUniformObject),
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                optional_device_local,
             true);
         if (!global_buffer_initialized)
             return err(global_buffer_initialized.error());
@@ -291,7 +297,8 @@ namespace nk {
             m_vulkan_allocator,
             sizeof(ObjectUniformObject) * object_max_object_count,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             true);
         if (!object_buffer_initialized)
             return err(object_buffer_initialized.error());

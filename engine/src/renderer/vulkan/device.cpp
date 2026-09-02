@@ -69,6 +69,7 @@ namespace nk {
         }
 
         m_physical_device = nullptr;
+        m_supports_device_local_host_visible = false;
 
         m_swapchain_support_info.formats.dyarr_shutdown();
         m_swapchain_support_info.present_modes.dyarr_shutdown();
@@ -228,6 +229,16 @@ namespace nk {
         m_properties = properties;
         m_features = features;
         m_memory = memory;
+        m_supports_device_local_host_visible = false;
+        for (u32 index = 0; index < m_memory.memoryTypeCount; ++index) {
+            constexpr VkMemoryPropertyFlags required =
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+            if ((m_memory.memoryTypes[index].propertyFlags & required) == required) {
+                m_supports_device_local_host_visible = true;
+                break;
+            }
+        }
 
         m_allocator->free_lot_t(VkPhysicalDevice, physical_devices, physical_device_count);
 
