@@ -34,6 +34,10 @@ namespace nk::mem {
             const AllocatorDescriptor& descriptor) noexcept override;
         void unregister_allocator(AllocatorId allocator_id) noexcept override;
         void on_allocate(const AllocationEvent& event) noexcept override;
+        FreeValidation validate_free(
+            AllocatorId allocator_id,
+            void* address,
+            u64 size_bytes) noexcept override;
         void on_free(const AllocationEvent& event) noexcept override;
         void on_reset(const AllocatorResetEvent& event) noexcept override;
         cstr allocator_name(AllocatorId allocator_id) const noexcept override;

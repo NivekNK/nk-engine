@@ -57,6 +57,15 @@ namespace nk::mem {
         AllocatorStatistics statistics;
     };
 
+    enum class FreeValidation : u8 {
+        Valid,
+        UnknownAllocator,
+        UnknownAddress,
+        SizeMismatch,
+        AlreadyFreed,
+        TrackerUnavailable,
+    };
+
     struct AllocationTracker {
         virtual ~AllocationTracker() = default;
 
@@ -65,6 +74,10 @@ namespace nk::mem {
             const AllocatorDescriptor& descriptor) noexcept = 0;
         virtual void unregister_allocator(AllocatorId allocator_id) noexcept = 0;
         virtual void on_allocate(const AllocationEvent& event) noexcept = 0;
+        virtual FreeValidation validate_free(
+            AllocatorId allocator_id,
+            void* address,
+            u64 size_bytes) noexcept = 0;
         virtual void on_free(const AllocationEvent& event) noexcept = 0;
         virtual void on_reset(const AllocatorResetEvent& event) noexcept = 0;
         virtual cstr allocator_name(AllocatorId allocator_id) const noexcept = 0;

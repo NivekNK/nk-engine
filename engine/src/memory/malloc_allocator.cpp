@@ -25,8 +25,18 @@ namespace nk::mem {
 
     void* MallocAllocator::_do_allocate(
         const u64 size_bytes,
-        [[maybe_unused]] const u64 alignment) noexcept {
-        void* data = std::calloc(1, static_cast<std::size_t>(size_bytes));
+        const u64 alignment) noexcept {
+        if (size_bytes > numeric::u64_max - m_reserved_bytes ||
+            size_bytes > numeric::u64_max - m_used_bytes ||
+            m_active_allocations == numeric::u64_max) {
+            constexpr cstr message =
+                "nk::mem::MallocAllocator rejected allocation statistics overflow.\n";
+            os::write(message, std::char_traits<char>::length(message));
+            os::flush();
+            return nullptr;
+        }
+
+        void* data = (os::allocate_raw)(size_bytes, alignment);
         if (data == nullptr)
             return nullptr;
 
@@ -46,7 +56,9 @@ namespace nk::mem {
             return false;
         }
 
-        std::free(data);
+        if (!(os::free_raw)(data, size_bytes))
+            return false;
+
         --m_active_allocations;
         m_reserved_bytes -= size_bytes;
         m_used_bytes -= size_bytes;

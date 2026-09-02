@@ -1,8 +1,8 @@
 # Plan de refactorización de memoria y contenedores
 
-> Estado: plan final, implementación en curso; fases 0 y 1 completas
+> Estado: plan final, implementación en curso; fases 0, 1 y 2 completas
 >
-> Versión del plan: 4
+> Versión del plan: 5
 >
 > Última actualización: 2026-09-01
 
@@ -137,6 +137,10 @@ namespace nk::mem {
 
         virtual void unregister_allocator(u32 allocator_id) noexcept = 0;
         virtual void on_allocate(const AllocationEvent& event) noexcept = 0;
+        virtual FreeValidation validate_free(
+            u32 allocator_id,
+            void* address,
+            u64 size_bytes) noexcept = 0;
         virtual void on_free(const AllocationEvent& event) noexcept = 0;
         virtual void on_reset(const AllocatorResetEvent& event) noexcept = 0;
     };
@@ -333,13 +337,15 @@ Criterio de salida: el contrato base soporta correctamente allocators alineados,
 
 ### Fase 2 — `MallocAllocator`
 
-- [ ] Implementar asignación alineada correcta en Linux y Windows.
-- [ ] Emparejar cada forma de asignación con su liberación válida.
-- [ ] Separar memoria cruda de inicialización explícita a cero.
-- [ ] Actualizar estadísticas solamente tras operaciones exitosas.
-- [ ] Manejar `nullptr`, tamaño cero y alineaciones sobre `max_align_t`.
-- [ ] Detectar mismatches de tamaño y double free en builds instrumentadas.
-- [ ] Preservar wrappers compatibles hasta la migración de consumidores.
+- [x] Implementar asignación alineada correcta en Linux y Windows.
+- [x] Emparejar cada forma de asignación con su liberación válida.
+- [x] Separar memoria cruda de inicialización explícita a cero.
+- [x] Actualizar estadísticas solamente tras operaciones exitosas.
+- [x] Manejar `nullptr`, tamaño cero y alineaciones sobre `max_align_t`.
+- [x] Detectar mismatches de tamaño y double free en builds instrumentadas.
+- [x] Preservar wrappers compatibles hasta la migración de consumidores.
+
+Evidencia: [implementación, contratos y verificación de `MallocAllocator`](memory-containers-phase-2-malloc-allocator.md).
 
 Criterio de salida: todas las alineaciones soportadas son correctas y no existen underflows ni contadores falsos.
 
@@ -580,7 +586,7 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | --- | --- | --- | --- | --- |
 | P0 | Contratos y línea base | completa | — | [evidencia](memory-containers-phase-0-baseline.md) |
 | P1 | Base `Allocator` | completa | — | [evidencia](memory-containers-phase-1-allocator.md) |
-| P2 | `MallocAllocator` | pendiente | — | — |
+| P2 | `MallocAllocator` | completa | — | [evidencia](memory-containers-phase-2-malloc-allocator.md) |
 | P3 | `LinearAllocator` | pendiente | — | — |
 | P4 | Duración de objetos | pendiente | — | — |
 | P5 | `arr<T>` | pendiente | — | — |
@@ -602,7 +608,6 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 
 ## Defectos conocidos que el refactor debe eliminar
 
-- `MallocAllocator` ignora actualmente la alineación solicitada.
 - `LinearAllocator` ignora actualmente la alineación y el padding.
 - Logging y assertions construyen `std::string` durante errores y pueden asignar mientras se reporta memoria.
 - El alias `str = std::string` evita que los dominios de memoria del engine controlen sus textos.

@@ -264,6 +264,92 @@ namespace nk::mem {
         }
     }
 
+    FreeValidation MemorySystem::validate_free(
+        AllocatorId allocator_id,
+        void* address,
+        u64 size_bytes) noexcept {
+        if (inside_tracker_callback) {
+            ++m_reentrant_event_count;
+            return FreeValidation::TrackerUnavailable;
+        }
+        TrackerCallbackScope callback_scope;
+
+        if (address == nullptr)
+            return FreeValidation::UnknownAddress;
+        if (size_bytes == 0)
+            return FreeValidation::SizeMismatch;
+
+        if (m_state == MemorySystemState::Cold ||
+            m_state == MemorySystemState::Bootstrapping) {
+            bool allocator_registered = allocator_id == native_allocator_id;
+            bool address_seen = false;
+            bool address_freed = false;
+            u64 allocated_size = 0;
+
+            for (u32 index = 0; index < m_journal.count(); ++index) {
+                const EarlyAllocationRecord& record = m_journal[index];
+                switch (record.type) {
+                    case EarlyAllocationEventType::RegisterAllocator:
+                        if (record.allocator_id == allocator_id)
+                            allocator_registered = true;
+                        break;
+                    case EarlyAllocationEventType::UnregisterAllocator:
+                        if (record.allocator_id == allocator_id)
+                            allocator_registered = false;
+                        break;
+                    case EarlyAllocationEventType::Allocate:
+                        if (record.allocation.allocator_id == allocator_id &&
+                            record.allocation.address == address) {
+                            address_seen = true;
+                            address_freed = false;
+                            allocated_size = record.allocation.size_bytes;
+                        }
+                        break;
+                    case EarlyAllocationEventType::Free:
+                        if (record.allocation.allocator_id == allocator_id &&
+                            record.allocation.address == address && address_seen) {
+                            address_freed = true;
+                        }
+                        break;
+                    case EarlyAllocationEventType::Reset:
+                        if (record.reset.allocator_id == allocator_id && address_seen)
+                            address_freed = true;
+                        break;
+                }
+            }
+
+            if (!allocator_registered)
+                return FreeValidation::UnknownAllocator;
+            if (!address_seen)
+                return FreeValidation::UnknownAddress;
+            if (address_freed)
+                return FreeValidation::AlreadyFreed;
+            if (allocated_size != size_bytes)
+                return FreeValidation::SizeMismatch;
+            return FreeValidation::Valid;
+        }
+
+        if (m_state != MemorySystemState::Ready)
+            return FreeValidation::TrackerUnavailable;
+
+        MemorySystemInfo* info = system_info(*this);
+        if (info == nullptr || allocator_id >= info->allocators.size())
+            return FreeValidation::UnknownAllocator;
+
+        AllocationStats& stats = info->allocators[allocator_id];
+        if (!stats.registered)
+            return FreeValidation::UnknownAllocator;
+
+        const auto allocation = stats.allocation_log.find(address);
+        if (allocation == stats.allocation_log.end())
+            return FreeValidation::UnknownAddress;
+        if (allocation->second.freed.size_bytes != 0)
+            return FreeValidation::AlreadyFreed;
+        if (allocation->second.allocated.size_bytes != size_bytes)
+            return FreeValidation::SizeMismatch;
+        return FreeValidation::Valid;
+    }
+
     void MemorySystem::on_free(const AllocationEvent& event) noexcept {
         if (inside_tracker_callback) {
             ++m_reentrant_event_count;

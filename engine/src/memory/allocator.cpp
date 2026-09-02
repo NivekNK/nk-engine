@@ -135,6 +135,13 @@ namespace nk::mem {
         return _allocate_impl({nullptr, 0}, size_bytes, alignment);
     }
 
+    void* Allocator::_allocate_zeroed_raw(u64 size_bytes, u64 alignment) noexcept {
+        void* data = _allocate_impl({nullptr, 0}, size_bytes, alignment);
+        if (data != nullptr)
+            std::memset(data, 0, static_cast<std::size_t>(size_bytes));
+        return data;
+    }
+
     bool Allocator::_free_raw(void* data, u64 size_bytes) noexcept {
         return _free_impl({nullptr, 0}, data, size_bytes);
     }
@@ -146,6 +153,17 @@ namespace nk::mem {
         u64 size_bytes,
         u64 alignment) noexcept {
         return _allocate_impl({file, line}, size_bytes, alignment);
+    }
+
+    void* Allocator::_allocate_zeroed_raw(
+        cstr file,
+        u32 line,
+        u64 size_bytes,
+        u64 alignment) noexcept {
+        void* data = _allocate_impl({file, line}, size_bytes, alignment);
+        if (data != nullptr)
+            std::memset(data, 0, static_cast<std::size_t>(size_bytes));
+        return data;
     }
 
     bool Allocator::_free_raw(
@@ -212,6 +230,35 @@ namespace nk::mem {
 
         if (data == nullptr || size_bytes == 0)
             return false;
+
+#if NK_MEMORY_TRACKING_ENABLED
+        if (m_tracker != nullptr && m_allocator_id != invalid_allocator_id) {
+            const FreeValidation validation =
+                m_tracker->validate_free(m_allocator_id, data, size_bytes);
+            if (validation != FreeValidation::Valid) {
+                switch (validation) {
+                    case FreeValidation::UnknownAllocator:
+                        allocator_diagnostic("nk::mem::Allocator free rejected unknown allocator.");
+                        break;
+                    case FreeValidation::UnknownAddress:
+                        allocator_diagnostic("nk::mem::Allocator free rejected unknown address.");
+                        break;
+                    case FreeValidation::SizeMismatch:
+                        allocator_diagnostic("nk::mem::Allocator free rejected size mismatch.");
+                        break;
+                    case FreeValidation::AlreadyFreed:
+                        allocator_diagnostic("nk::mem::Allocator free rejected double free.");
+                        break;
+                    case FreeValidation::TrackerUnavailable:
+                        allocator_diagnostic("nk::mem::Allocator free rejected unavailable tracker.");
+                        break;
+                    case FreeValidation::Valid:
+                        break;
+                }
+                return false;
+            }
+        }
+#endif
 
         if (!_do_free(data, size_bytes))
             return false;

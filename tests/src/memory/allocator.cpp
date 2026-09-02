@@ -55,7 +55,8 @@ namespace {
             const nk::mem::AllocatorDescriptor& descriptor) noexcept override {
             ++register_count;
             last_descriptor = descriptor;
-            return next_id++;
+            registered_allocator_id = next_id++;
+            return registered_allocator_id;
         }
 
         void unregister_allocator(nk::mem::AllocatorId allocator_id) noexcept override {
@@ -66,11 +67,29 @@ namespace {
         void on_allocate(const nk::mem::AllocationEvent& event) noexcept override {
             ++allocation_count;
             last_allocation = event;
+            allocation_freed = false;
+        }
+
+        nk::mem::FreeValidation validate_free(
+            nk::mem::AllocatorId allocator_id,
+            void* address,
+            nk::u64 size_bytes) noexcept override {
+            ++validation_count;
+            if (allocator_id != registered_allocator_id)
+                return nk::mem::FreeValidation::UnknownAllocator;
+            if (allocation_count == 0 || address != last_allocation.address)
+                return nk::mem::FreeValidation::UnknownAddress;
+            if (allocation_freed)
+                return nk::mem::FreeValidation::AlreadyFreed;
+            if (size_bytes != last_allocation.size_bytes)
+                return nk::mem::FreeValidation::SizeMismatch;
+            return nk::mem::FreeValidation::Valid;
         }
 
         void on_free(const nk::mem::AllocationEvent& event) noexcept override {
             ++free_count;
             last_allocation = event;
+            allocation_freed = true;
         }
 
         void on_reset(const nk::mem::AllocatorResetEvent&) noexcept override {
@@ -82,14 +101,17 @@ namespace {
         }
 
         nk::mem::AllocatorId next_id = 17;
+        nk::mem::AllocatorId registered_allocator_id = nk::mem::invalid_allocator_id;
         nk::mem::AllocatorId last_allocator_id = nk::mem::invalid_allocator_id;
         nk::u32 register_count = 0;
         nk::u32 unregister_count = 0;
         nk::u32 allocation_count = 0;
+        nk::u32 validation_count = 0;
         nk::u32 free_count = 0;
         nk::u32 reset_count = 0;
         nk::mem::AllocatorDescriptor last_descriptor{};
         nk::mem::AllocationEvent last_allocation{};
+        bool allocation_freed = false;
     };
 
     struct ConstructionProbe {
@@ -159,10 +181,13 @@ TEST(Allocator, SupportsExplicitTrackerAndControlledDetach) {
     void* data = allocator._allocate_raw(16, 8);
     ASSERT_NE(data, nullptr);
     EXPECT_FALSE(allocator.detach_tracker());
+    EXPECT_FALSE(allocator._free_raw(data, 8));
     EXPECT_TRUE(allocator._free_raw(data, 16));
+    EXPECT_FALSE(allocator._free_raw(data, 16));
     EXPECT_TRUE(allocator.detach_tracker());
 
     EXPECT_EQ(tracker.allocation_count, 1);
+    EXPECT_EQ(tracker.validation_count, 3);
     EXPECT_EQ(tracker.free_count, 1);
     EXPECT_EQ(tracker.unregister_count, 1);
 }

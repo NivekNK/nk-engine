@@ -79,10 +79,21 @@ namespace nk::mem {
             return static_cast<T*>(_allocate_raw(sizeof(T), alignof(T)));
         }
 
+        template <typename T>
+        T* _allocate_zeroed_t() noexcept {
+            return static_cast<T*>(_allocate_zeroed_raw(sizeof(T), alignof(T)));
+        }
+
 #if NK_MEMORY_TRACKING_ENABLED
         template <typename T>
         T* _allocate_t(cstr file, u32 line) noexcept {
             return static_cast<T*>(_allocate_raw(file, line, sizeof(T), alignof(T)));
+        }
+
+        template <typename T>
+        T* _allocate_zeroed_t(cstr file, u32 line) noexcept {
+            return static_cast<T*>(
+                _allocate_zeroed_raw(file, line, sizeof(T), alignof(T)));
         }
 #endif
 
@@ -106,6 +117,14 @@ namespace nk::mem {
             return static_cast<T*>(_allocate_raw(size_bytes, alignof(T)));
         }
 
+        template <typename T>
+        T* _allocate_zeroed_lot_t(const u64 count) noexcept {
+            u64 size_bytes = 0;
+            if (!_checked_type_size<T>(count, size_bytes))
+                return nullptr;
+            return static_cast<T*>(_allocate_zeroed_raw(size_bytes, alignof(T)));
+        }
+
 #if NK_MEMORY_TRACKING_ENABLED
         template <typename T>
         T* _allocate_lot_t(cstr file, u32 line, const u64 count) noexcept {
@@ -113,6 +132,15 @@ namespace nk::mem {
             if (!_checked_type_size<T>(count, size_bytes))
                 return nullptr;
             return static_cast<T*>(_allocate_raw(file, line, size_bytes, alignof(T)));
+        }
+
+        template <typename T>
+        T* _allocate_zeroed_lot_t(cstr file, u32 line, const u64 count) noexcept {
+            u64 size_bytes = 0;
+            if (!_checked_type_size<T>(count, size_bytes))
+                return nullptr;
+            return static_cast<T*>(
+                _allocate_zeroed_raw(file, line, size_bytes, alignof(T)));
         }
 #endif
 
@@ -173,10 +201,16 @@ namespace nk::mem {
 #endif
 
         void* _allocate_raw(u64 size_bytes, u64 alignment) noexcept;
+        void* _allocate_zeroed_raw(u64 size_bytes, u64 alignment) noexcept;
         bool _free_raw(void* data, u64 size_bytes) noexcept;
 
 #if NK_MEMORY_TRACKING_ENABLED
         void* _allocate_raw(cstr file, u32 line, u64 size_bytes, u64 alignment) noexcept;
+        void* _allocate_zeroed_raw(
+            cstr file,
+            u32 line,
+            u64 size_bytes,
+            u64 alignment) noexcept;
         bool _free_raw(cstr file, u32 line, void* data, u64 size_bytes) noexcept;
 #endif
 
@@ -279,10 +313,14 @@ namespace nk::mem {
         _allocator_init_tracked<AllocatorType>(tracker, __FILE__, __LINE__, name, type __VA_OPT__(, ) __VA_ARGS__)
     #define allocate_t(Type) \
         _allocate_t<Type>(__FILE__, __LINE__)
+    #define allocate_zeroed_t(Type) \
+        _allocate_zeroed_t<Type>(__FILE__, __LINE__)
     #define free_t(Type, data) \
         _free_t<Type>(__FILE__, __LINE__, data)
     #define allocate_lot_t(Type, lot) \
         _allocate_lot_t<Type>(__FILE__, __LINE__, lot)
+    #define allocate_zeroed_lot_t(Type, lot) \
+        _allocate_zeroed_lot_t<Type>(__FILE__, __LINE__, lot)
     #define free_lot_t(Type, data, lot) \
         _free_lot_t<Type>(__FILE__, __LINE__, data, lot)
     #define construct_t(Type, ...) \
@@ -291,6 +329,8 @@ namespace nk::mem {
         _deconstruct_t<Type>(__FILE__, __LINE__, data)
     #define allocate_raw(size_bytes, alignment) \
         _allocate_raw(__FILE__, __LINE__, size_bytes, alignment)
+    #define allocate_zeroed_raw(size_bytes, alignment) \
+        _allocate_zeroed_raw(__FILE__, __LINE__, size_bytes, alignment)
     #define free_raw(data, size_bytes) \
         _free_raw(__FILE__, __LINE__, data, size_bytes)
     #define NK_ALLOCATOR_NAME(allocator) \
@@ -304,10 +344,14 @@ namespace nk::mem {
         _allocator_init_untracked<AllocatorType>(__VA_ARGS__)
     #define allocate_t(Type) \
         _allocate_t<Type>()
+    #define allocate_zeroed_t(Type) \
+        _allocate_zeroed_t<Type>()
     #define free_t(Type, data) \
         _free_t<Type>(data)
     #define allocate_lot_t(Type, lot) \
         _allocate_lot_t<Type>(lot)
+    #define allocate_zeroed_lot_t(Type, lot) \
+        _allocate_zeroed_lot_t<Type>(lot)
     #define free_lot_t(Type, data, lot) \
         _free_lot_t<Type>(data, lot)
     #define construct_t(Type, ...) \
@@ -316,6 +360,8 @@ namespace nk::mem {
         _deconstruct_t<Type>(data)
     #define allocate_raw(size_bytes, alignment) \
         _allocate_raw(size_bytes, alignment)
+    #define allocate_zeroed_raw(size_bytes, alignment) \
+        _allocate_zeroed_raw(size_bytes, alignment)
     #define free_raw(data, size_bytes) \
         _free_raw(data, size_bytes)
     #define NK_ALLOCATOR_NAME(allocator) \
