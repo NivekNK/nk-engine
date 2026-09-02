@@ -21,10 +21,10 @@ namespace nk {
             switch (error.code) {
                 case shader_error_code::path_format_failed:
                     return {renderer_error_code::shader_path_failed, 0};
-                case shader_error_code::file_failed:
+                case shader_error_code::resource_failed:
                     return {
                         renderer_error_code::shader_file_failed,
-                        static_cast<i32>(error.file),
+                        static_cast<i32>(error.resource.code),
                     };
                 case shader_error_code::invalid_binary:
                     return {renderer_error_code::shader_binary_invalid, 0};
@@ -54,10 +54,12 @@ namespace nk {
         RenderPass* render_pass,
         Device* device,
         mem::Allocator* allocator,
+        ResourceSystem* resources,
         VkAllocationCallbacks* vulkan_allocator,
         Texture* default_texture) {
         m_device = device;
         m_allocator = allocator;
+        m_resources = resources;
         m_vulkan_allocator = vulkan_allocator;
         m_default_texture = default_texture;
         m_image_count = image_count;
@@ -69,6 +71,7 @@ namespace nk {
             auto created = create_shader_module(
                 BUILTIN_SHADER_NAME_MATERIAL,
                 stage_type_strings[i],
+                *m_resources,
                 m_device,
                 m_vulkan_allocator,
                 stage_types[i],
@@ -362,6 +365,7 @@ namespace nk {
 
         m_device = nullptr;
         m_allocator = nullptr;
+        m_resources = nullptr;
         m_vulkan_allocator = nullptr;
         m_default_texture = nullptr;
     }

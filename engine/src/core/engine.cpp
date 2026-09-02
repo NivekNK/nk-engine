@@ -11,6 +11,7 @@
 #include "systems/texture_system.h"
 #include "systems/material_system.h"
 #include "systems/geometry_system.h"
+#include "systems/resource_system.h"
 
 // TODO: Temporal include
 #include "core/camera.h"
@@ -124,6 +125,18 @@ namespace nk {
             return false;
         }
 
+        auto resource_system = ResourceSystem::create(*m_allocator);
+        if (!resource_system) {
+            const resource_error error = resource_system.error();
+            ErrorLog(
+                "Resource system initialization failed: resource_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_resource_system = *resource_system;
+
         m_platform = Platform::create(m_allocator, m_app->initial_config);
         if (m_platform == nullptr || !m_platform->running()) {
             shutdown_impl();
@@ -133,6 +146,7 @@ namespace nk {
         auto renderer = Renderer::create(
             m_allocator,
             m_platform,
+            m_resource_system,
             m_app->initial_config.name);
         if (!renderer) {
             const renderer_error& error = renderer.error();
@@ -147,7 +161,8 @@ namespace nk {
 
         auto texture_system = TextureSystem::create(
             *m_allocator,
-            *m_renderer);
+            *m_renderer,
+            *m_resource_system);
         if (!texture_system) {
             const texture_error error = texture_system.error();
             ErrorLog(
@@ -162,7 +177,8 @@ namespace nk {
         auto material_system = MaterialSystem::create(
             *m_allocator,
             *m_renderer,
-            *m_texture_system);
+            *m_texture_system,
+            *m_resource_system);
         if (!material_system) {
             const material_error error = material_system.error();
             ErrorLog(
@@ -254,6 +270,10 @@ namespace nk {
         if (m_renderer != nullptr) {
             Renderer::destroy(m_allocator, m_renderer);
             m_renderer = nullptr;
+        }
+        if (m_resource_system != nullptr) {
+            ResourceSystem::destroy(*m_allocator, m_resource_system);
+            m_resource_system = nullptr;
         }
         if (m_platform != nullptr) {
             Platform::destroy(m_allocator, m_platform);

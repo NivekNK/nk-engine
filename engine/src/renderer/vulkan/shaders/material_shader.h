@@ -7,7 +7,7 @@
 #include "vulkan/pipeline.h"
 #include "vulkan/buffer.h"
 #include "vulkan/command_buffer.h"
-#include "platform/file.h"
+#include "resources/resource_loader.h"
 
 #include "vulkan/shaders/material_shader_instance_state.h"
 
@@ -18,10 +18,11 @@
 
 namespace nk {
     class Device;
+    class ResourceSystem;
 
     enum class shader_error_code : u8 {
         path_format_failed,
-        file_failed,
+        resource_failed,
         invalid_binary,
         module_creation_failed,
         out_of_memory,
@@ -29,7 +30,7 @@ namespace nk {
 
     struct shader_error {
         shader_error_code code;
-        file_error file;
+        resource_error resource;
         VkResult native_code;
     };
 
@@ -59,6 +60,7 @@ namespace nk {
             RenderPass* render_pass,
             Device* device,
             mem::Allocator* allocator,
+            ResourceSystem* resources,
             VkAllocationCallbacks* vulkan_allocator,
             Texture* default_texture);
         void shutdown();
@@ -85,6 +87,7 @@ namespace nk {
     private:
         Device* m_device = nullptr;
         mem::Allocator* m_allocator = nullptr;
+        ResourceSystem* m_resources = nullptr;
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
         Texture* m_default_texture = nullptr;
 

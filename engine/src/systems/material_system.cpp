@@ -2,61 +2,27 @@
 
 #include "systems/material_system.h"
 
-#include <cerrno>
-
-#include "core/format.h"
 #include "memory/allocator.h"
-#include "platform/file.h"
 #include "renderer/renderer.h"
+#include "systems/resource_system.h"
 #include "systems/texture_system.h"
 
 namespace nk {
     namespace {
-        strview trim(const strview text) noexcept {
-            u64 begin = 0;
-            u64 end = text.length();
-            while (begin < end) {
-                const char character = text[begin];
-                if (character != ' ' && character != '\t' &&
-                    character != '\r' && character != '\n') {
-                    break;
-                }
-                ++begin;
+        material_error translate_resource_error(
+            const resource_error& error) noexcept {
+            switch (error.code) {
+                case resource_error_code::invalid_name:
+                    return {material_error_code::invalid_name, error.native_code};
+                case resource_error_code::file_failed:
+                    return {material_error_code::file_failed, error.native_code};
+                case resource_error_code::invalid_data:
+                    return {material_error_code::invalid_config, error.native_code};
+                case resource_error_code::out_of_memory:
+                    return {material_error_code::out_of_memory, error.native_code};
+                default:
+                    return {material_error_code::resource_failed, error.native_code};
             }
-            while (end > begin) {
-                const char character = text[end - 1];
-                if (character != ' ' && character != '\t' &&
-                    character != '\r' && character != '\n') {
-                    break;
-                }
-                --end;
-            }
-            return text.substr(begin, end - begin);
-        }
-
-        bool parse_color(const strview text, glm::vec4& color) noexcept {
-            strbuf<255> buffer{text};
-            if (buffer.truncated())
-                return false;
-
-            const char* cursor = buffer.cstr();
-            char* end = nullptr;
-            glm::vec4 parsed{};
-            for (u32 component = 0; component < 4; ++component) {
-                errno = 0;
-                parsed[component] = std::strtof(cursor, &end);
-                if (end == cursor || errno == ERANGE)
-                    return false;
-                cursor = end;
-            }
-            while (*cursor == ' ' || *cursor == '\t' ||
-                   *cursor == '\r' || *cursor == '\n') {
-                ++cursor;
-            }
-            if (*cursor != '\0')
-                return false;
-            color = parsed;
-            return true;
         }
     }
 
@@ -68,6 +34,7 @@ namespace nk {
         mem::Allocator& allocator,
         Renderer& renderer,
         TextureSystem& textures,
+        ResourceSystem& resources,
         const u32 max_material_count) {
         MaterialSystem* system = allocator.construct_t(MaterialSystem);
         if (system == nullptr)
@@ -77,6 +44,7 @@ namespace nk {
             allocator,
             renderer,
             textures,
+            resources,
             max_material_count);
         if (!initialized) {
             const material_error error = initialized.error();
@@ -97,6 +65,7 @@ namespace nk {
         mem::Allocator& allocator,
         Renderer& renderer,
         TextureSystem& textures,
+        ResourceSystem& resources,
         const u32 max_material_count) {
         if (max_material_count == 0)
             return err(material_error{material_error_code::capacity_exceeded, 0});
@@ -104,6 +73,7 @@ namespace nk {
         m_allocator = &allocator;
         m_renderer = &renderer;
         m_textures = &textures;
+        m_resources = &resources;
         if (!m_materials.arr_init(&allocator, max_material_count)) {
             shutdown();
             return err(material_error{material_error_code::out_of_memory, 0});
@@ -150,6 +120,7 @@ namespace nk {
         m_loaded_count = 0;
         m_initialized = false;
         m_textures = nullptr;
+        m_resources = nullptr;
         m_renderer = nullptr;
         m_allocator = nullptr;
     }
@@ -191,10 +162,21 @@ namespace nk {
             return ok(&m_materials[reference->slot]);
         }
 
-        auto config = load_config(name);
-        if (!config)
-            return err(config.error());
-        return acquire(*config);
+        auto resource = m_resources->load(name, ResourceType::material);
+        if (!resource)
+            return err(translate_resource_error(resource.error()));
+
+        auto acquired = acquire(*resource->as<MaterialConfig>());
+        auto unloaded = m_resources->unload(*resource);
+        if (!unloaded) {
+            if (acquired)
+                release((*acquired)->name.view());
+            return err(material_error{
+                material_error_code::resource_failed,
+                unloaded.error().native_code,
+            });
+        }
+        return acquired;
     }
 
     result<Material*, material_error> MaterialSystem::acquire(
@@ -310,70 +292,6 @@ namespace nk {
             m_textures->release(previous_name.view());
         }
         return ok();
-    }
-
-    result<MaterialConfig, material_error> MaterialSystem::load_config(
-        const strview name) {
-        strbuf<512> path;
-        if (!format_to(path, "assets/materials/{}.kmt", name)) {
-            return err(material_error{
-                material_error_code::invalid_name,
-                0,
-            });
-        }
-
-        File file{*m_allocator};
-        auto opened = file.open(path.view(), FileMode::Read, false);
-        if (!opened) {
-            return err(material_error{
-                material_error_code::file_failed,
-                static_cast<i32>(opened.error()),
-            });
-        }
-
-        MaterialConfig config{};
-        config.name.assign(name);
-        str line{*m_allocator};
-        while (true) {
-            auto read = file.read_line(line);
-            if (!read) {
-                return err(material_error{
-                    material_error_code::file_failed,
-                    static_cast<i32>(read.error()),
-                });
-            }
-            if (*read == read_line_outcome::end_of_file)
-                break;
-
-            const strview content = trim(line.view());
-            if (content.empty() || content[0] == '#')
-                continue;
-            const u64 separator = content.find('=');
-            if (separator == strview::npos)
-                continue;
-
-            const strview key = trim(content.substr(0, separator));
-            const strview value = trim(content.substr(separator + 1));
-            if (key == strview{"name", 4}) {
-                if (!config.name.assign(value))
-                    return err(material_error{material_error_code::invalid_config, 0});
-            } else if (key == strview{"diffuse_map_name", 16}) {
-                if (!config.diffuse_map_name.assign(value))
-                    return err(material_error{material_error_code::invalid_config, 0});
-            } else if (key == strview{"diffuse_colour", 14}) {
-                if (!parse_color(value, config.diffuse_color))
-                    return err(material_error{material_error_code::invalid_config, 0});
-            }
-        }
-
-        auto closed = file.close();
-        if (!closed) {
-            return err(material_error{
-                material_error_code::file_failed,
-                static_cast<i32>(closed.error()),
-            });
-        }
-        return ok(config);
     }
 
     result<void, material_error> MaterialSystem::load_material(

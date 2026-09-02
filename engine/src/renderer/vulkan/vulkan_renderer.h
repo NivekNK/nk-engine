@@ -18,8 +18,11 @@
 namespace nk {
     class VulkanRenderer : public Renderer {
     public:
-        VulkanRenderer(mem::Allocator& allocator, const strview application_name)
-            : Renderer{allocator, application_name} {}
+        VulkanRenderer(
+            mem::Allocator& allocator,
+            ResourceSystem* resources,
+            const strview application_name)
+            : Renderer{allocator, resources, application_name} {}
         ~VulkanRenderer() = default;
 
         virtual void on_resized(u32 width, u32 height) override;

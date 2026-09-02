@@ -8,6 +8,7 @@
 
 namespace nk {
     class Renderer;
+    class ResourceSystem;
     namespace mem { class Allocator; }
 
     inline constexpr strview default_texture_name{"default", 7};
@@ -19,6 +20,7 @@ namespace nk {
         out_of_memory,
         file_failed,
         decode_failed,
+        resource_failed,
         renderer_failed,
     };
 
@@ -42,6 +44,7 @@ namespace nk {
         [[nodiscard]] static result<TextureSystem*, texture_error> create(
             mem::Allocator& allocator,
             Renderer& renderer,
+            ResourceSystem& resources,
             u32 max_texture_count = default_max_texture_count);
         static void destroy(mem::Allocator& allocator, TextureSystem* system);
 
@@ -68,6 +71,7 @@ namespace nk {
         [[nodiscard]] result<void, texture_error> init(
             mem::Allocator& allocator,
             Renderer& renderer,
+            ResourceSystem& resources,
             u32 max_texture_count);
         void shutdown();
         [[nodiscard]] result<void, texture_error> create_default_texture();
@@ -78,6 +82,7 @@ namespace nk {
 
         mem::Allocator* m_allocator = nullptr;
         Renderer* m_renderer = nullptr;
+        ResourceSystem* m_resources = nullptr;
         cl::arr<Texture> m_textures;
         cl::map<str, TextureReference> m_references;
         Texture m_default_texture{};

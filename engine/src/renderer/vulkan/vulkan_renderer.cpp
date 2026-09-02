@@ -3,6 +3,7 @@
 #include "vulkan/vulkan_renderer.h"
 
 #include "platform/platform.h"
+#include "systems/resource_system.h"
 #include "vulkan/utils.h"
 #include "vulkan/resources/texture_data.h"
 
@@ -119,6 +120,7 @@ namespace nk {
             &m_main_render_pass,
             &m_device,
             m_allocator,
+            m_resources,
             m_vulkan_allocator,
             m_default_texture);
         if (!shader_initialized)

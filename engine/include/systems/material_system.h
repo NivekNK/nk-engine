@@ -8,6 +8,7 @@
 
 namespace nk {
     class Renderer;
+    class ResourceSystem;
     class TextureSystem;
     namespace mem { class Allocator; }
 
@@ -20,6 +21,7 @@ namespace nk {
         out_of_memory,
         file_failed,
         invalid_config,
+        resource_failed,
         texture_failed,
         renderer_failed,
     };
@@ -45,6 +47,7 @@ namespace nk {
             mem::Allocator& allocator,
             Renderer& renderer,
             TextureSystem& textures,
+            ResourceSystem& resources,
             u32 max_material_count = default_max_material_count);
         static void destroy(mem::Allocator& allocator, MaterialSystem* system);
 
@@ -76,11 +79,10 @@ namespace nk {
             mem::Allocator& allocator,
             Renderer& renderer,
             TextureSystem& textures,
+            ResourceSystem& resources,
             u32 max_material_count);
         void shutdown();
         [[nodiscard]] result<void, material_error> create_default_material();
-        [[nodiscard]] result<MaterialConfig, material_error> load_config(
-            strview name);
         [[nodiscard]] result<void, material_error> load_material(
             const MaterialConfig& config,
             Material& material);
@@ -90,6 +92,7 @@ namespace nk {
         mem::Allocator* m_allocator = nullptr;
         Renderer* m_renderer = nullptr;
         TextureSystem* m_textures = nullptr;
+        ResourceSystem* m_resources = nullptr;
         cl::arr<Material> m_materials;
         cl::map<str, MaterialReference> m_references;
         Material m_default_material{};

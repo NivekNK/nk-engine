@@ -13,13 +13,15 @@ namespace nk {
     result<Renderer*, renderer_error> Renderer::create(
         mem::Allocator* allocator,
         Platform* platform,
+        ResourceSystem* resources,
         const strview application_name) {
-        if (allocator == nullptr || platform == nullptr)
+        if (allocator == nullptr || platform == nullptr || resources == nullptr)
             std::abort();
 
         auto renderer = allocator->construct_t(
             VulkanRenderer,
             *allocator,
+            resources,
             application_name);
         if (renderer == nullptr)
             return err(renderer_error{

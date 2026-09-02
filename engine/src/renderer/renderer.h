@@ -12,6 +12,7 @@
 namespace nk {
     namespace mem { class Allocator; }
     class Platform;
+    class ResourceSystem;
 
     struct RenderPacket {
         f64 delta_time;
@@ -26,6 +27,7 @@ namespace nk {
         [[nodiscard]] static result<Renderer*, renderer_error> create(
             mem::Allocator* allocator,
             Platform* platform,
+            ResourceSystem* resources,
             strview application_name);
         static void destroy(mem::Allocator* allocator, Renderer* renderer);
 
@@ -59,8 +61,12 @@ namespace nk {
         void set_view(glm::mat4 view) { m_view = view; }
 
     protected:
-        Renderer(mem::Allocator& allocator, strview application_name)
-            : m_application_name{allocator, application_name} {}
+        Renderer(
+            mem::Allocator& allocator,
+            ResourceSystem* resources,
+            strview application_name)
+            : m_application_name{allocator, application_name},
+              m_resources{resources} {}
 
         [[nodiscard]] virtual result<void, renderer_error> init() = 0;
         virtual void shutdown() = 0;
@@ -82,6 +88,7 @@ namespace nk {
         Platform* m_platform = nullptr;
 
         mem::Allocator* m_allocator = nullptr;
+        ResourceSystem* m_resources = nullptr;
 
         u64 m_frame_number = 0;
 

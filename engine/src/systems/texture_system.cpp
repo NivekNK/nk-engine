@@ -3,33 +3,37 @@
 #include "systems/texture_system.h"
 
 #include "collections/dyarr.h"
-#include "core/format.h"
 #include "memory/allocator.h"
 #include "renderer/renderer.h"
 #include "resources/image_loader.h"
+#include "systems/resource_system.h"
 
 namespace nk {
     namespace {
-        texture_error translate_image_error(const image_error& error) noexcept {
+        texture_error translate_resource_error(
+            const resource_error& error) noexcept {
             switch (error.code) {
-                case image_error_code::file_failed:
+                case resource_error_code::file_failed:
                     return {
                         texture_error_code::file_failed,
-                        static_cast<i32>(error.file),
+                        error.native_code,
                     };
-                case image_error_code::decode_failed:
-                case image_error_code::limits_exceeded:
+                case resource_error_code::decode_failed:
+                case resource_error_code::invalid_data:
                     return {
                         texture_error_code::decode_failed,
                         error.native_code,
                     };
-                case image_error_code::out_of_memory:
+                case resource_error_code::out_of_memory:
                     return {
                         texture_error_code::out_of_memory,
                         error.native_code,
                     };
+                case resource_error_code::invalid_name:
+                    return {texture_error_code::invalid_name, error.native_code};
+                default:
+                    return {texture_error_code::resource_failed, error.native_code};
             }
-            return {texture_error_code::decode_failed, error.native_code};
         }
     }
 
@@ -40,6 +44,7 @@ namespace nk {
     result<TextureSystem*, texture_error> TextureSystem::create(
         mem::Allocator& allocator,
         Renderer& renderer,
+        ResourceSystem& resources,
         const u32 max_texture_count) {
         TextureSystem* system = allocator.construct_t(TextureSystem);
         if (system == nullptr)
@@ -48,6 +53,7 @@ namespace nk {
         auto initialized = system->init(
             allocator,
             renderer,
+            resources,
             max_texture_count);
         if (!initialized) {
             const texture_error error = initialized.error();
@@ -67,12 +73,14 @@ namespace nk {
     result<void, texture_error> TextureSystem::init(
         mem::Allocator& allocator,
         Renderer& renderer,
+        ResourceSystem& resources,
         const u32 max_texture_count) {
         if (max_texture_count == 0)
             return err(texture_error{texture_error_code::capacity_exceeded, 0});
 
         m_allocator = &allocator;
         m_renderer = &renderer;
+        m_resources = &resources;
         if (!m_textures.arr_init(&allocator, max_texture_count)) {
             shutdown();
             return err(texture_error{texture_error_code::out_of_memory, 0});
@@ -121,6 +129,7 @@ namespace nk {
         m_loaded_count = 0;
         m_initialized = false;
         m_renderer = nullptr;
+        m_resources = nullptr;
         m_allocator = nullptr;
     }
 
@@ -254,17 +263,10 @@ namespace nk {
     result<void, texture_error> TextureSystem::load_texture(
         const strview name,
         Texture& texture) {
-        strbuf<512> path;
-        if (!format_to(path, "assets/textures/{}.png", name)) {
-            return err(texture_error{
-                texture_error_code::invalid_name,
-                0,
-            });
-        }
-
-        auto image = ImageLoader::load_png(*m_allocator, path.view());
-        if (!image)
-            return err(translate_image_error(image.error()));
+        auto resource = m_resources->load(name, ResourceType::image);
+        if (!resource)
+            return err(translate_resource_error(resource.error()));
+        DecodedImage* image = resource->as<DecodedImage>();
 
         auto created = m_renderer->create_texture(
             name,
@@ -274,6 +276,15 @@ namespace nk {
             image->pixels.data(),
             image->has_transparency,
             &texture);
+        auto unloaded = m_resources->unload(*resource);
+        if (!unloaded) {
+            if (created)
+                m_renderer->destroy_texture(&texture);
+            return err(texture_error{
+                texture_error_code::resource_failed,
+                unloaded.error().native_code,
+            });
+        }
         if (!created) {
             return err(texture_error{
                 texture_error_code::renderer_failed,

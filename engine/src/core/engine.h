@@ -8,6 +8,7 @@ namespace nk {
     class App;
     class Platform;
     class Renderer;
+    class ResourceSystem;
     class TextureSystem;
     class MaterialSystem;
     class GeometrySystem;
@@ -48,6 +49,7 @@ namespace nk {
         App* m_app = nullptr;
         Platform* m_platform = nullptr;
         Renderer* m_renderer = nullptr;
+        ResourceSystem* m_resource_system = nullptr;
         TextureSystem* m_texture_system = nullptr;
         MaterialSystem* m_material_system = nullptr;
         GeometrySystem* m_geometry_system = nullptr;

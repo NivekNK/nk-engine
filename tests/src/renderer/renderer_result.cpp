@@ -9,6 +9,7 @@
 #include "systems/texture_system.h"
 #include "systems/material_system.h"
 #include "systems/geometry_system.h"
+#include "systems/resource_system.h"
 
 namespace {
     class TestRenderer final : public nk::Renderer {
@@ -20,7 +21,7 @@ namespace {
         };
 
         TestRenderer(nk::mem::Allocator& allocator, BeginMode begin_mode)
-            : Renderer{allocator, "test"}, m_begin_mode{begin_mode} {
+            : Renderer{allocator, nullptr, "test"}, m_begin_mode{begin_mode} {
             m_allocator = &allocator;
         }
 
@@ -167,7 +168,7 @@ namespace {
     class TestableVulkanRenderer final : public nk::VulkanRenderer {
     public:
         explicit TestableVulkanRenderer(nk::mem::Allocator& owner)
-            : VulkanRenderer{owner, "test"} {}
+            : VulkanRenderer{owner, nullptr, "test"} {}
 
         void use_runtime_allocator(nk::mem::Allocator* allocator) {
             m_allocator = allocator;
@@ -262,7 +263,11 @@ TEST(RendererResult, AdvancesFrameOnlyAfterSuccessfulPresentation) {
 TEST(RendererResult, TreatsNullFactoryDependenciesAsContractViolations) {
     EXPECT_DEATH(
         {
-            auto created = nk::Renderer::create(nullptr, nullptr, "test");
+            auto created = nk::Renderer::create(
+                nullptr,
+                nullptr,
+                nullptr,
+                "test");
             static_cast<void>(created);
         },
         "");
@@ -303,7 +308,12 @@ TEST(RendererResult, TextureAllocationFailureDoesNotPublishPartialState) {
 TEST(TextureSystem, LoadsCachesAndAutoReleasesTextures) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    auto created = nk::TextureSystem::create(allocator, renderer, 4);
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 4);
     ASSERT_TRUE(created);
     nk::TextureSystem* textures = *created;
 
@@ -327,13 +337,19 @@ TEST(TextureSystem, LoadsCachesAndAutoReleasesTextures) {
     EXPECT_EQ(renderer.destroyed_textures(), 1u);
 
     nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
     EXPECT_EQ(renderer.destroyed_textures(), 2u);
 }
 
 TEST(TextureSystem, DoesNotPublishFailedLoads) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    auto created = nk::TextureSystem::create(allocator, renderer, 2);
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 2);
     ASSERT_TRUE(created);
     nk::TextureSystem* textures = *created;
 
@@ -354,13 +370,19 @@ TEST(TextureSystem, DoesNotPublishFailedLoads) {
     EXPECT_EQ(textures->loaded_count(), 0u);
 
     nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
     EXPECT_EQ(renderer.destroyed_textures(), 1u);
 }
 
 TEST(TextureSystem, EnforcesCapacityAndReusesReleasedSlots) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    auto created = nk::TextureSystem::create(allocator, renderer, 1);
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 1);
     ASSERT_TRUE(created);
     nk::TextureSystem* textures = *created;
 
@@ -376,17 +398,23 @@ TEST(TextureSystem, EnforcesCapacityAndReusesReleasedSlots) {
     EXPECT_EQ(textures->loaded_count(), 1u);
 
     nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
 }
 
 TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
     auto textures_created =
-        nk::TextureSystem::create(allocator, renderer, 4);
+        nk::TextureSystem::create(allocator, renderer, *resources, 4);
     ASSERT_TRUE(textures_created);
     nk::TextureSystem* textures = *textures_created;
     auto materials_created =
-        nk::MaterialSystem::create(allocator, renderer, *textures, 4);
+        nk::MaterialSystem::create(
+            allocator, renderer, *textures, *resources, 4);
     ASSERT_TRUE(materials_created);
     nk::MaterialSystem* materials = *materials_created;
 
@@ -412,18 +440,24 @@ TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
 
     nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
     EXPECT_EQ(renderer.destroyed_materials(), 2u);
 }
 
 TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
     auto textures_created =
-        nk::TextureSystem::create(allocator, renderer, 4);
+        nk::TextureSystem::create(allocator, renderer, *resources, 4);
     ASSERT_TRUE(textures_created);
     nk::TextureSystem* textures = *textures_created;
     auto materials_created =
-        nk::MaterialSystem::create(allocator, renderer, *textures, 4);
+        nk::MaterialSystem::create(
+            allocator, renderer, *textures, *resources, 4);
     ASSERT_TRUE(materials_created);
     nk::MaterialSystem* materials = *materials_created;
     auto material = materials->acquire("test_material");
@@ -442,6 +476,7 @@ TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
 
     nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
 }
 
 TEST(GeometrySystem, GeneratesSegmentedPlanesWithTiledCoordinates) {
@@ -468,12 +503,17 @@ TEST(GeometrySystem, GeneratesSegmentedPlanesWithTiledCoordinates) {
 TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
     auto textures_created =
-        nk::TextureSystem::create(allocator, renderer, 4);
+        nk::TextureSystem::create(allocator, renderer, *resources, 4);
     ASSERT_TRUE(textures_created);
     nk::TextureSystem* textures = *textures_created;
     auto materials_created =
-        nk::MaterialSystem::create(allocator, renderer, *textures, 4);
+        nk::MaterialSystem::create(
+            allocator, renderer, *textures, *resources, 4);
     ASSERT_TRUE(materials_created);
     nk::MaterialSystem* materials = *materials_created;
     auto geometries_created =
@@ -514,5 +554,6 @@ TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     nk::GeometrySystem::destroy(allocator, geometries);
     nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
     EXPECT_EQ(renderer.destroyed_geometries(), 2u);
 }
