@@ -1,8 +1,8 @@
 # Plan de refactorización de memoria y contenedores
 
-> Estado: plan final, implementación en curso; fases 0 a 6 completas
+> Estado: plan final, implementación en curso; fases 0 a 9 completas
 >
-> Versión del plan: 8
+> Versión del plan: 9
 >
 > Última actualización: 2026-09-02
 
@@ -481,27 +481,29 @@ Criterio de salida: existe una única tabla asociativa propia, plana y sin asign
 
 ### Fase 9 — Pruebas y benchmarks aislados
 
-- [ ] Separar tests con tracking activo e inactivo en configuraciones coherentes.
-- [ ] Eliminar el `#undef NK_ACTIVE_MEMORY_SYSTEM` local de los tests actuales.
-- [ ] Probar `MemorySystem` sin inicializar, inicializado y finalizado.
-- [ ] Probar un `AllocationTracker` C++ falso sin depender de `MemorySystem`.
-- [ ] Probar attach, detach y destrucción de allocators con el tracker en cada estado.
-- [ ] Probar captura, reproducción ordenada, cancelación de pares allocate/free y overflow del journal temprano.
-- [ ] Probar que el allocator interno no instrumentado no genera recursión.
-- [ ] Probar que un allocator sin inicializar rechaza asignaciones y que el modo `untracked` siempre es explícito.
-- [ ] Probar alineaciones de tipos normales y sobrealineados.
-- [ ] Probar fallos de asignación con un allocator de pruebas.
-- [ ] Probar tipos triviales, move-only, no default-constructible y contadores de destructores.
-- [ ] Cubrir todas las operaciones públicas de `arr`, `dyarr`, `str`, `strview`, `strbuf`, `slice` y `map`.
-- [ ] Verificar las formas `str{allocator}`, `str{allocator, texto}`, copia heredada, copia a otro dominio y ausencia de construcción propietaria ambiental.
-- [ ] Probar formatting, límites y truncación de `strbuf` sin asignaciones.
-- [ ] Probar colisiones forzadas y cadenas largas de sondeo en `map`.
-- [ ] Probar borrado al inicio, centro y final de clusters Robin Hood.
-- [ ] Ejecutar ASan y UBSan en Linux.
-- [ ] Ejecutar Debug y Release.
-- [ ] Medir asignaciones reales del logger actual para comparar después de la migración.
-- [ ] Medir P50/P95/P99 para lookup, insert y remove.
-- [ ] Comparar rapidhash con la línea base sobre claves reales del motor, sin incluir algoritmos alternativos en el producto final.
+- [x] Separar tests con tracking activo e inactivo en configuraciones coherentes.
+- [x] Eliminar el `#undef NK_ACTIVE_MEMORY_SYSTEM` local de los tests actuales.
+- [x] Probar `MemorySystem` sin inicializar, inicializado y finalizado.
+- [x] Probar un `AllocationTracker` C++ falso sin depender de `MemorySystem`.
+- [x] Probar attach, detach y destrucción de allocators con el tracker en cada estado.
+- [x] Probar captura, reproducción ordenada, cancelación de pares allocate/free y overflow del journal temprano.
+- [x] Probar que el allocator interno no instrumentado no genera recursión.
+- [x] Probar que un allocator sin inicializar rechaza asignaciones y que el modo `untracked` siempre es explícito.
+- [x] Probar alineaciones de tipos normales y sobrealineados.
+- [x] Probar fallos de asignación con un allocator de pruebas.
+- [x] Probar tipos triviales, move-only, no default-constructible y contadores de destructores.
+- [x] Cubrir todas las operaciones públicas de `arr`, `dyarr`, `str`, `strview`, `strbuf`, `slice` y `map`.
+- [x] Verificar las formas `str{allocator}`, `str{allocator, texto}`, copia heredada, copia a otro dominio y ausencia de construcción propietaria ambiental.
+- [x] Probar formatting, límites y truncación de `strbuf` sin asignaciones.
+- [x] Probar colisiones forzadas y cadenas largas de sondeo en `map`.
+- [x] Probar borrado al inicio, centro y final de clusters Robin Hood.
+- [x] Ejecutar ASan y UBSan en Linux.
+- [x] Ejecutar Debug y Release.
+- [x] Medir asignaciones reales del logger actual para comparar después de la migración.
+- [x] Medir P50/P95/P99 para lookup, insert y remove.
+- [x] Comparar rapidhash con la línea base sobre claves reales del motor, sin incluir algoritmos alternativos en el producto final.
+
+Evidencia: [matriz de tests, sanitizers y benchmarks](memory-containers-phase-9-validation.md).
 
 Criterio de salida: cero errores de sanitizers, cobertura de invariantes y ausencia de regresiones de rendimiento no explicadas.
 
@@ -609,7 +611,7 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P8.1 | `slice<T>` | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
 | P8.2 | `hash64`/rapidhash | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
 | P8.3 | `map<K, V>` | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
-| P9 | Tests y benchmarks | pendiente | — | — |
+| P9 | Tests y benchmarks | completa | — | [evidencia](memory-containers-phase-9-validation.md) |
 | P10.1 | Logging y assertions | pendiente | — | — |
 | P10.2 | Core, texto y archivos | pendiente | — | — |
 | P10.3 | Contenedores del renderer | pendiente | — | — |

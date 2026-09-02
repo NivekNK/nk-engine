@@ -48,7 +48,7 @@ namespace {
         bool _do_free(void*, nk::u64) noexcept override { return false; }
     };
 
-    class RecordingTracker final : public nk::mem::AllocationTracker {
+    class RecordingTracker : public nk::mem::AllocationTracker {
     public:
         nk::mem::AllocatorId register_allocator(
             nk::mem::Allocator&,
@@ -277,6 +277,97 @@ TEST(Allocator, EarlyJournalHasFixedCheckedCapacity) {
     EXPECT_EQ(journal.count(), 0);
     EXPECT_TRUE(journal.complete());
 }
+
+TEST(Allocator, EarlyJournalCancelsCompletedPairsWithoutReorderingSurvivors) {
+    nk::mem::EarlyAllocationJournal journal;
+    int first = 0;
+    int completed = 0;
+    int last = 0;
+    const auto allocation = [](void* address, const nk::u64 size) {
+        return nk::mem::EarlyAllocationRecord{
+            .type = nk::mem::EarlyAllocationEventType::Allocate,
+            .allocator_id = 7,
+            .descriptor = {},
+            .allocation = {
+                .allocator_id = 7,
+                .address = address,
+                .size_bytes = size,
+                .alignment = alignof(int),
+                .source = {__FILE__, __LINE__},
+                .statistics = {},
+            },
+            .reset = {},
+        };
+    };
+
+    ASSERT_TRUE(journal.push(allocation(&first, sizeof(first))));
+    ASSERT_TRUE(journal.push(allocation(&completed, sizeof(completed))));
+    ASSERT_TRUE(journal.push(allocation(&last, sizeof(last))));
+
+    auto freed = allocation(&completed, sizeof(completed));
+    freed.type = nk::mem::EarlyAllocationEventType::Free;
+    ASSERT_TRUE(journal.push(freed));
+
+    ASSERT_EQ(journal.count(), 2u);
+    EXPECT_EQ(journal[0].allocation.address, &first);
+    EXPECT_EQ(journal[1].allocation.address, &last);
+    EXPECT_TRUE(journal.complete());
+}
+
+#if NK_MEMORY_TRACKING_ENABLED
+TEST(Allocator, TrackerObservesAutomaticDetachAndRejectsInvalidAttachStates) {
+    RecordingTracker tracker;
+    {
+        ProbeAllocator allocator;
+        EXPECT_FALSE(allocator.attach_tracker(
+            tracker,
+            "Uninitialized",
+            1,
+            {__FILE__, __LINE__}));
+        ASSERT_NE(allocator._allocator_init_untracked<ProbeAllocator>(), nullptr);
+        ASSERT_TRUE(allocator.attach_tracker(
+            tracker,
+            "Destructor detach",
+            2,
+            {__FILE__, __LINE__}));
+    }
+
+    EXPECT_EQ(tracker.register_count, 1u);
+    EXPECT_EQ(tracker.unregister_count, 1u);
+}
+
+TEST(Allocator, UntrackedBackendAllocationInsideTrackerCallbackDoesNotReenter) {
+    class AllocatingTracker final : public RecordingTracker {
+    public:
+        void on_allocate(const nk::mem::AllocationEvent& event) noexcept override {
+            RecordingTracker::on_allocate(event);
+            void* metadata = internal._allocate_raw(64, alignof(std::max_align_t));
+            if (metadata != nullptr) {
+                ++internal_allocation_count;
+                (void)internal._free_raw(metadata, 64);
+            }
+        }
+
+        nk::mem::MallocAllocator internal{nk::mem::untracked};
+        nk::u32 internal_allocation_count = 0;
+    } tracker;
+
+    ProbeAllocator allocator;
+    ASSERT_NE(
+        allocator._allocator_init_tracked<ProbeAllocator>(
+            tracker,
+            __FILE__,
+            __LINE__,
+            "Reentry probe",
+            3),
+        nullptr);
+    void* data = allocator._allocate_raw(16, alignof(nk::u64));
+    ASSERT_NE(data, nullptr);
+    EXPECT_EQ(tracker.allocation_count, 1u);
+    EXPECT_EQ(tracker.internal_allocation_count, 1u);
+    EXPECT_TRUE(allocator._free_raw(data, 16));
+}
+#endif
 
 #if NK_MEMORY_TRACKING_ENABLED
 TEST(Allocator, RawOsMemoryIsUntrackedAndEarlyEventsAreReplayed) {

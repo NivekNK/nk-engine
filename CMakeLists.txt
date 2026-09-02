@@ -4,6 +4,8 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+project(nk-engine)
+
 # Generate compile_commands.json for IntelliSense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -28,6 +30,20 @@ add_compile_options(
     -Werror=vla
 )
 
+option(NK_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if (NK_ENABLE_SANITIZERS)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND UNIX)
+        add_compile_options(
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer
+        )
+        add_link_options(-fsanitize=address,undefined)
+    else()
+        message(FATAL_ERROR "NK_ENABLE_SANITIZERS requires GCC or Clang on a Unix platform")
+    endif()
+endif()
+
 if (UNIX AND NOT APPLE)
     set(OPERATIVE_SYSTEM "Linux")
 elseif(WIN32)
@@ -38,7 +54,21 @@ endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin/${OPERATIVE_SYSTEM}-${CMAKE_BUILD_TYPE}")
 
-project(nk-engine)
+include(CTest)
+
+# These definitions affect public header layouts, so every target in one build
+# tree must see the same tracking configuration.
+add_compile_definitions(
+    $<$<CONFIG:Debug>:NK_DEV_MODE=1>
+    $<$<CONFIG:Debug>:NK_ACTIVE_MEMORY_SYSTEM=1>
+    $<$<CONFIG:RelWithDebInfo>:NK_DEV_MODE=2>
+    $<$<CONFIG:RelWithDebInfo>:NK_ACTIVE_MEMORY_SYSTEM=1>
+    $<$<CONFIG:Release>:NK_DEV_MODE=3>
+    $<$<CONFIG:Release>:NK_ACTIVE_MEMORY_SYSTEM=0>
+    NK_DEBUG=1
+    NK_RELEASE_DEBUG_INFO=2
+    NK_RELEASE=3
+)
 
 if (WIN32)
     add_compile_definitions(NK_PLATFORM_WINDOWS)

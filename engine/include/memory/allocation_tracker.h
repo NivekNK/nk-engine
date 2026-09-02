@@ -104,6 +104,11 @@ namespace nk::mem {
         static constexpr u32 capacity = 1024;
 
         bool push(const EarlyAllocationRecord& record) noexcept {
+            if (record.type == EarlyAllocationEventType::Free &&
+                cancel_matching_allocation(record.allocation)) {
+                return true;
+            }
+
             if (m_count == capacity) {
                 ++m_dropped_count;
                 return false;
@@ -127,6 +132,30 @@ namespace nk::mem {
         bool complete() const noexcept { return m_dropped_count == 0; }
 
     private:
+        bool cancel_matching_allocation(const AllocationEvent& freed) noexcept {
+            for (u32 index = m_count; index > 0; --index) {
+                const EarlyAllocationRecord& candidate = m_records[index - 1];
+                if ((candidate.type == EarlyAllocationEventType::Reset ||
+                     candidate.type == EarlyAllocationEventType::UnregisterAllocator) &&
+                    (candidate.type != EarlyAllocationEventType::Reset
+                         ? candidate.allocator_id
+                         : candidate.reset.allocator_id) == freed.allocator_id) {
+                    return false;
+                }
+                if (candidate.type != EarlyAllocationEventType::Allocate ||
+                    candidate.allocation.allocator_id != freed.allocator_id ||
+                    candidate.allocation.address != freed.address) {
+                    continue;
+                }
+
+                for (u32 move = index; move < m_count; ++move)
+                    m_records[move - 1] = m_records[move];
+                --m_count;
+                return true;
+            }
+            return false;
+        }
+
         EarlyAllocationRecord m_records[capacity]{};
         u32 m_count = 0;
         u64 m_dropped_count = 0;

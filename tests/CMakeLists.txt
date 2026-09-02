@@ -13,13 +13,7 @@ add_executable(${PROJECT_NAME} "src/main.cpp")
 
 target_compile_definitions(${PROJECT_NAME}
 PRIVATE
-    $<$<CONFIG:Debug>:NK_DEV_MODE=1>
-    $<$<CONFIG:RelWithDebInfo>:NK_DEV_MODE=2>
-    $<$<CONFIG:Release>:NK_DEV_MODE=3>
-    NK_DEBUG=1
-    NK_RELEASE_DEBUG_INFO=2
-    NK_RELEASE=3
-    $<$<CONFIG:Debug>:NK_ACTIVE_MEMORY_SYSTEM=1>
+    NK_TEST_BUILD=1
 )
 
 if (WIN32)

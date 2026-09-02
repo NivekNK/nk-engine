@@ -23,10 +23,27 @@ case "$build_type" in
         ;;
 esac
 
-build_dir="${NK_BUILD_DIR:-$project_root/out/build/Linux-$build_type}"
+sanitizers="${NK_ENABLE_SANITIZERS:-OFF}"
+case "$sanitizers" in
+    ON|on|1|true|TRUE)
+        sanitizers="ON"
+        build_suffix="-Sanitized"
+        ;;
+    OFF|off|0|false|FALSE)
+        sanitizers="OFF"
+        build_suffix=""
+        ;;
+    *)
+        echo "Invalid NK_ENABLE_SANITIZERS value '$sanitizers'. Use ON or OFF." >&2
+        exit 2
+        ;;
+esac
+
+build_dir="${NK_BUILD_DIR:-$project_root/out/build/Linux-$build_type$build_suffix}"
 cmake_options=(
     "-DCMAKE_BUILD_TYPE=$build_type"
     "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+    "-DNK_ENABLE_SANITIZERS=$sanitizers"
 )
 
 if [[ -n "${SLANGC:-}" ]]; then

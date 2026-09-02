@@ -215,6 +215,7 @@ namespace {
     }
 
     void report_formatted_assertion() {
+#if NK_DEV_MODE <= NK_DEBUG
         nk::report_assert_failure(
             "phase0_expression",
             __FILE__,
@@ -222,6 +223,7 @@ namespace {
             "formatted assertion value={}, text={}",
             42,
             "a deliberately non-trivial formatted payload");
+#endif
     }
 
     void print_measurement(const Measurement& measurement) {
