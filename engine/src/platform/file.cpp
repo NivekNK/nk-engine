@@ -1,13 +1,15 @@
 #include "nkpch.h"
-#include "systems/logging_system.h"
+
+#include <cerrno>
 
 #include "platform/file.h"
 #include "memory/allocator.h"
 
 namespace nk {
     File::~File() {
-        if (m_open) close();
-    };
+        if (m_open)
+            (void)close();
+    }
 
     bool File::exists(cstr path) {
         if (path == nullptr)
@@ -16,9 +18,14 @@ namespace nk {
         return stat(path, &buffer) == 0;
     }
 
-    bool File::open(const strview path, const FileMode::Value mode, const bool binary) {
-        if (m_open || path.empty())
-            return false;
+    result<void, file_error> File::open(
+        const strview path,
+        const FileMode::Value mode,
+        const bool binary) {
+        if (m_open)
+            return err(file_error::already_open);
+        if (path.empty())
+            return err(file_error::invalid_path);
 
         cstr mode_str;
         if ((mode & FileMode::Read) != 0 && (mode & FileMode::Write) != 0) {
@@ -28,115 +35,144 @@ namespace nk {
         } else if ((mode & FileMode::Read) == 0 && (mode & FileMode::Write) != 0) {
             mode_str = binary ? "wb+" : "w";
         } else {
-            ErrorLog("Invalid mode passed while trying to open file: {}", path);
-            return false;
+            return err(file_error::invalid_mode);
         }
 
-        if (!m_path.assign(path)) {
-            ErrorLog("Unable to store file path: {}", path);
-            return false;
-        }
+        if (!m_path.assign(path))
+            return err(file_error::out_of_memory);
 
+        errno = 0;
         FILE* file = fopen(m_path.cstr(), mode_str);
         if (file == nullptr) {
-            ErrorLog("Failed to open file: {}", path);
+            const file_error error = errno == ENOENT
+                ? file_error::not_found
+                : file_error::open_failed;
             m_path.clear();
-            return false;
+            return err(error);
         }
 
         m_file = file;
         m_open = true;
         m_binary = binary;
         m_mode = mode;
-        return true;
+        return ok();
     }
 
-    void File::close() {
-        if (!m_open) return;
-        fclose(m_file);
+    result<void, file_error> File::close() noexcept {
+        if (!m_open)
+            return ok();
+
+        const i32 close_result = fclose(m_file);
         m_file = nullptr;
         m_open = false;
         m_binary = false;
         m_mode = FileMode::None;
         m_path.clear();
+        if (close_result != 0)
+            return err(file_error::close_failed);
+        return ok();
     }
 
-    bool File::read_line(str* out_line) {
-        if (!m_open || out_line == nullptr)
-            return false;
-        
+    result<read_line_outcome, file_error> File::read_line(str& out_line) {
+        if (!m_open)
+            return err(file_error::not_open);
+        if ((m_mode & FileMode::Read) == 0)
+            return err(file_error::operation_not_permitted);
+
         constexpr u64 buffer_size = 32000;
         char buffer[buffer_size];
-        if (fgets(buffer, buffer_size, m_file) == nullptr)
-            return false;
+        if (fgets(buffer, buffer_size, m_file) == nullptr) {
+            if (feof(m_file) != 0)
+                return ok(read_line_outcome::end_of_file);
+            return err(file_error::read_failed);
+        }
 
-        return out_line->assign(buffer);
+        if (!out_line.assign(buffer))
+            return err(file_error::out_of_memory);
+        return ok(read_line_outcome::line);
     }
 
-    bool File::write_line(const strview line) {
-        if (!m_open) return false;
+    result<void, file_error> File::write_line(const strview line) {
+        if (!m_open)
+            return err(file_error::not_open);
+        if ((m_mode & FileMode::Write) == 0)
+            return err(file_error::operation_not_permitted);
+
         const bool wrote_line =
             fwrite(line.data(), 1, line.length(), m_file) == line.length();
         const i32 result = wrote_line ? fputc('\n', m_file) : EOF;
 
-        // Make sure to flush the stream so it is written to the file immediately
-        // This prevents data loss in the event of a crash
-        fflush(m_file);
-        return result != EOF;
+        if (result == EOF || fflush(m_file) != 0)
+            return err(file_error::write_failed);
+        return ok();
     }
 
-    bool File::read(u64 data_size, void* out_data, u64* out_bytes_read) {
-        if (!m_open || data_size == 0 || out_data == nullptr || out_bytes_read == nullptr)
-            return false;
+    result<u64, file_error> File::read(const cl::slice<u8> output) {
+        if (!m_open)
+            return err(file_error::not_open);
+        if ((m_mode & FileMode::Read) == 0)
+            return err(file_error::operation_not_permitted);
+        if (output.empty())
+            return ok(u64{0});
 
-        *out_bytes_read = fread(out_data, 1, data_size, m_file);
-        if (*out_bytes_read != data_size)
-            return false;
+        const u64 bytes_read = fread(
+            output.data(),
+            1,
+            output.length(),
+            m_file);
+        if (bytes_read != output.length() && ferror(m_file) != 0)
+            return err(file_error::read_failed);
 
-        return true;
+        return ok(bytes_read);
     }
 
-    bool File::read_all_bytes(u8** out_data, u64* out_bytes_read) {
-        if (!m_open || out_data == nullptr || out_bytes_read == nullptr ||
-            m_allocator == nullptr) {
-            return false;
-        }
-
-        *out_data = nullptr;
-        *out_bytes_read = 0;
+    result<cl::dyarr<u8>, file_error> File::read_all_bytes() {
+        if (!m_open)
+            return err(file_error::not_open);
+        if ((m_mode & FileMode::Read) == 0)
+            return err(file_error::operation_not_permitted);
 
         if (fseek(m_file, 0, SEEK_END) != 0)
-            return false;
+            return err(file_error::seek_failed);
         const long file_size = ftell(m_file);
-        rewind(m_file);
+        if (file_size < 0 || fseek(m_file, 0, SEEK_SET) != 0)
+            return err(file_error::seek_failed);
 
-        if (file_size <= 0)
-            return false;
         const u64 size = static_cast<u64>(file_size);
-
-        *out_data = m_allocator->allocate_lot_t(u8, size);
-        if (*out_data == nullptr)
-            return false;
-        *out_bytes_read = fread(*out_data, 1, size, m_file);
-        if (*out_bytes_read != size) {
-            m_allocator->free_lot_t(u8, *out_data, size);
-            *out_data = nullptr;
-            *out_bytes_read = 0;
-            return false;
+        cl::dyarr<u8> data;
+        if (size == 0) {
+            if (!data.dyarr_init(m_allocator, 0))
+                return err(file_error::out_of_memory);
+            return ok(std::move(data));
         }
+        if (!data.dyarr_init_len(m_allocator, size, size))
+            return err(file_error::out_of_memory);
 
-        return true;
+        auto bytes_read = read(cl::slice<u8>{data});
+        if (!bytes_read)
+            return err(bytes_read.error());
+        if (*bytes_read != size)
+            return err(file_error::read_failed);
+
+        return ok(std::move(data));
     }
 
-    bool File::write(u64 data_size, const void* data, u64* out_bytes_written) {
-        if (!m_open || data_size == 0 || data == nullptr || out_bytes_written == nullptr)
-            return false;
+    result<u64, file_error> File::write(const cl::slice<const u8> input) {
+        if (!m_open)
+            return err(file_error::not_open);
+        if ((m_mode & FileMode::Write) == 0)
+            return err(file_error::operation_not_permitted);
+        if (input.empty())
+            return ok(u64{0});
 
-        *out_bytes_written = fwrite(data, 1, data_size, m_file);
-        if (*out_bytes_written != data_size)
-            return false;
+        const u64 bytes_written = fwrite(
+            input.data(),
+            1,
+            input.length(),
+            m_file);
+        if (bytes_written != input.length() || fflush(m_file) != 0)
+            return err(file_error::write_failed);
 
-        fflush(m_file);
-        return true;
+        return ok(bytes_written);
     }
 }

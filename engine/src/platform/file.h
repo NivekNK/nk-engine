@@ -1,5 +1,8 @@
 #pragma once
 
+#include "collections/dyarr.h"
+#include "collections/slice.h"
+#include "core/result.h"
 #include "core/str.h"
 
 namespace nk {
@@ -13,6 +16,27 @@ namespace nk {
         };
     }
 
+    enum class file_error : u8 {
+        none,
+        invalid_path,
+        invalid_mode,
+        already_open,
+        not_open,
+        operation_not_permitted,
+        not_found,
+        open_failed,
+        seek_failed,
+        read_failed,
+        write_failed,
+        close_failed,
+        out_of_memory,
+    };
+
+    enum class read_line_outcome : u8 {
+        line,
+        end_of_file,
+    };
+
     class File {
     public:
         explicit File(mem::Allocator& allocator)
@@ -22,21 +46,33 @@ namespace nk {
               m_mode{FileMode::None},
               m_allocator{&allocator},
               m_path{allocator} {}
-              
+
         ~File();
+
+        File(const File&) = delete;
+        File& operator=(const File&) = delete;
+        File(File&&) = delete;
+        File& operator=(File&&) = delete;
 
         static bool exists(cstr path);
 
-        bool open(strview path, FileMode::Value mode, bool binary);
-        void close();
+        [[nodiscard]] result<void, file_error> open(
+            strview path,
+            FileMode::Value mode,
+            bool binary);
+        [[nodiscard]] result<void, file_error> close() noexcept;
 
-        bool read_line(str* out_line);
-        bool write_line(strview line);
+        [[nodiscard]] result<read_line_outcome, file_error> read_line(
+            str& out_line);
+        [[nodiscard]] result<void, file_error> write_line(strview line);
 
-        bool read(u64 data_size, void* out_data, u64* out_bytes_read);
-        bool read_all_bytes(u8** out_data, u64* out_bytes_read);
+        [[nodiscard]] result<u64, file_error> read(cl::slice<u8> output);
+        [[nodiscard]] result<cl::dyarr<u8>, file_error> read_all_bytes();
 
-        bool write(u64 data_size, const void* data, u64* out_bytes_written);
+        [[nodiscard]] result<u64, file_error> write(
+            cl::slice<const u8> input);
+
+        bool is_open() const noexcept { return m_open; }
 
     private:
         FILE* m_file;

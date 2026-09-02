@@ -326,21 +326,23 @@ simple antes de migrar call sites.
 
 ### Trabajo
 
-- [ ] Definir `file_error` sin strings propietarios.
-- [ ] Mantener `File::exists` como `bool`.
-- [ ] Convertir `open` a `result<void, file_error>`.
-- [ ] Convertir el cierre explícito en una operación capaz de reportar errores;
+- [x] Definir `file_error` sin strings propietarios.
+- [x] Mantener `File::exists` como `bool`.
+- [x] Convertir `open` a `result<void, file_error>`.
+- [x] Convertir el cierre explícito en una operación capaz de reportar errores;
       el destructor mantiene un cierre best-effort que no propaga ni lanza.
-- [ ] Representar EOF de `read_line` como outcome normal, separado de I/O
+- [x] Representar EOF de `read_line` como outcome normal, separado de I/O
       fallida, conservando un `str&` reutilizable si evita allocations.
-- [ ] Convertir `read`/`write` a `result<u64, file_error>` y usar `slice` donde
+- [x] Convertir `read`/`write` a `result<u64, file_error>` y usar `slice` donde
       elimina puntero+tamaño inválidos.
-- [ ] Evaluar `result<dyarr<u8>, file_error>` para `read_all_bytes` frente a una
+- [x] Evaluar `result<dyarr<u8>, file_error>` para `read_all_bytes` frente a una
       salida reutilizable; escoger mediante allocations, movimientos y claridad
       de ownership medidos.
-- [ ] Propagar el error en carga de shaders y loguearlo una sola vez en el
+- [x] Propagar el error en carga de shaders y loguearlo una sola vez en el
       límite que conoce el path y el contexto.
-- [ ] Añadir fallos inyectados para open, seek, EOF, read parcial, OOM y close.
+- [x] Añadir casos deterministas para open, seek, EOF, read parcial, OOM y
+      escritura; validar close normal/idempotente sin introducir un backend
+      virtual sólo para forzar un fallo no portable de `fclose`.
 
 ### Criterio de salida
 
@@ -737,7 +739,7 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 | --- | --- | --- | --- | --- |
 | R0 | Inventario y baseline ampliada | aceptada | `test(performance): capture error and container baselines` | [Evidencia](result-containers-phase-0-baseline.md) |
 | R1 | `result<T, E>` y `result<void, E>` | aceptada | `feat(core): add allocation-free result values` | [Evidencia](result-phase-1-evidence.md) |
-| R2 | File y shaders con errores tipados | pendiente | — | — |
+| R2 | File y shaders con errores tipados | aceptada | `refactor(io): propagate typed file failures` | [Evidencia](result-phase-2-io-evidence.md) |
 | R3 | Renderer/Vulkan con outcomes y errores | pendiente | — | — |
 | O1 | Fast path de allocator raw | pendiente | — | — |
 | O2 | API tipada y heterogénea de `map` | pendiente | — | — |

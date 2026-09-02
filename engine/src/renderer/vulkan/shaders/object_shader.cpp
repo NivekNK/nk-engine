@@ -34,8 +34,22 @@ namespace nk {
         VkShaderStageFlagBits stage_types[shader_stage_count] = { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT };
         for (u32 i = 0; i < shader_stage_count; i++) {
             DebugLog("Creating {} shader module for '{}'", stage_type_strings[i], BUILTIN_SHADER_NAME_OBJECT);
-            if (!create_shader_module(BUILTIN_SHADER_NAME_OBJECT, stage_type_strings[i], m_device, m_vulkan_allocator, stage_types[i], &m_stages[i])) {
-                ErrorLog("Unable to create {} shader module for '{}'", stage_type_strings[i], BUILTIN_SHADER_NAME_OBJECT);
+            auto created = create_shader_module(
+                BUILTIN_SHADER_NAME_OBJECT,
+                stage_type_strings[i],
+                m_device,
+                m_vulkan_allocator,
+                stage_types[i],
+                &m_stages[i]);
+            if (!created) {
+                const shader_error& error = created.error();
+                ErrorLog(
+                    "Unable to create {} shader module for '{}': shader_error={}, file_error={}, native_code={}",
+                    stage_type_strings[i],
+                    BUILTIN_SHADER_NAME_OBJECT,
+                    static_cast<u32>(error.code),
+                    static_cast<u32>(error.file),
+                    static_cast<i32>(error.native_code));
                 return;
             }
         }
