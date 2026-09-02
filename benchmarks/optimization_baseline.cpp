@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <utility>
 
+#include "collections/arr.h"
 #include "collections/dyarr.h"
 #include "collections/map.h"
 #include "core/hash.h"
@@ -55,6 +56,7 @@ namespace {
     constexpr nk::u64 dyarr_element_count = 100000;
     constexpr nk::u64 dyarr_range_element_count = 1048576;
     constexpr nk::u64 string_operation_count = 100000;
+    constexpr nk::u64 string_iteration_count = 1048576;
     constexpr nk::u64 owning_contract_operation_count = 20000;
 
     enum class BaselineStatus : nk::u8 {
@@ -685,6 +687,81 @@ namespace {
         });
     }
 
+    Distribution benchmark_str_append(const nk::u64 length) {
+        static const StringInput input;
+        return measure([=](const nk::u64 sample, nk::u64& checksum) {
+            nk::mem::MallocAllocator allocator{nk::mem::untracked};
+            nk::str value{allocator};
+            if (!value.reserve(length))
+                std::abort();
+            for (nk::u64 operation = 0; operation < string_operation_count; ++operation) {
+                value.clear();
+                if (!value.append(input.view(length)))
+                    std::abort();
+                checksum += length == 0
+                    ? value.length()
+                    : static_cast<nk::u8>(value[operation % length]);
+            }
+            checksum ^= sample + value.capacity();
+        });
+    }
+
+    Distribution benchmark_str_compare(const nk::u64 length) {
+        static const StringInput input;
+        return measure([=](const nk::u64 sample, nk::u64& checksum) {
+            nk::mem::MallocAllocator allocator{nk::mem::untracked};
+            nk::str value{allocator, input.view(length)};
+            nk::str equal{allocator, input.view(length)};
+            nk::str different{allocator, input.view(length)};
+            if (length != 0)
+                different[length - 1] ^= 1;
+
+            for (nk::u64 operation = 0; operation < string_operation_count; ++operation) {
+                const nk::str& candidate = (operation & 1u) == 0
+                    ? equal
+                    : different;
+                checksum += value == candidate;
+            }
+            checksum ^= sample;
+        });
+    }
+
+    template <bool Fixed>
+    Distribution benchmark_str_iteration() {
+        static const StringInput input;
+        return measure([](const nk::u64 sample, nk::u64& checksum) {
+            constexpr nk::u64 entry_count = 4096;
+            constexpr nk::u64 repetitions =
+                string_iteration_count / entry_count;
+            nk::mem::MallocAllocator allocator{nk::mem::untracked};
+            nk::cl::dyarr<nk::str> dynamic;
+            if (!dynamic.dyarr_init(&allocator, entry_count))
+                std::abort();
+            for (nk::u64 index = 0; index < entry_count; ++index) {
+                if (!dynamic.dyarr_emplace_back(
+                        allocator,
+                        input.view(8))) {
+                    std::abort();
+                }
+            }
+
+            if constexpr (Fixed) {
+                nk::cl::arr<nk::str> values{std::move(dynamic)};
+                for (nk::u64 repetition = 0; repetition < repetitions; ++repetition) {
+                    for (const nk::str& value : values)
+                        checksum += value.length() + value[repetition & 7u];
+                }
+                checksum ^= sample;
+            } else {
+                for (nk::u64 repetition = 0; repetition < repetitions; ++repetition) {
+                    for (const nk::str& value : dynamic)
+                        checksum += value.length() + value[repetition & 7u];
+                }
+                checksum ^= sample;
+            }
+        });
+    }
+
     void print_layouts() {
         std::printf(
             "layout sizeof_texture=%zu sizeof_str=%zu alignof_str=%zu str_inline_capacity=%llu sizeof_dyarr_u8=%zu sizeof_map_u64_record=%zu sizeof_result_void_u8=%zu sizeof_result_u64_u8=%zu sizeof_result_texture_u8=%zu sizeof_result_str_u8=%zu sizeof_result_dyarr_u8_u8=%zu\n",
@@ -735,6 +812,8 @@ namespace {
         constexpr std::array<nk::u64, 6> lengths{0, 8, 23, 24, 64, 256};
         for (const nk::u64 length : lengths) {
             char assign_name[64]{};
+            char append_name[64]{};
+            char compare_name[64]{};
             char move_name[64]{};
             const int assign_written = std::snprintf(
                 assign_name,
@@ -746,17 +825,45 @@ namespace {
                 sizeof(move_name),
                 "str.move.length_%llu",
                 static_cast<unsigned long long>(length));
-            if (assign_written <= 0 || move_written <= 0)
+            const int append_written = std::snprintf(
+                append_name,
+                sizeof(append_name),
+                "str.append.length_%llu",
+                static_cast<unsigned long long>(length));
+            const int compare_written = std::snprintf(
+                compare_name,
+                sizeof(compare_name),
+                "str.compare.length_%llu",
+                static_cast<unsigned long long>(length));
+            if (assign_written <= 0 || append_written <= 0 ||
+                compare_written <= 0 || move_written <= 0) {
                 std::abort();
+            }
             print(
                 assign_name,
                 string_operation_count,
                 benchmark_str_assign(length));
             print(
+                append_name,
+                string_operation_count,
+                benchmark_str_append(length));
+            print(
+                compare_name,
+                string_operation_count,
+                benchmark_str_compare(length));
+            print(
                 move_name,
                 string_operation_count,
                 benchmark_str_move(length));
         }
+        print(
+            "str.iterate.dyarr.length_8",
+            string_iteration_count,
+            benchmark_str_iteration<false>());
+        print(
+            "str.iterate.arr.length_8",
+            string_iteration_count,
+            benchmark_str_iteration<true>());
     }
 }
 
