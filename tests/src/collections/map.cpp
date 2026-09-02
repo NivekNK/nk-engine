@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -16,6 +17,28 @@ namespace map_test {
     inline nk::u64 hash64(const CollisionKey&, const nk::u64 seed) noexcept {
         return seed ^ 3;
     }
+
+    struct WrapKey {
+        nk::u32 value;
+
+        bool operator==(const WrapKey&) const noexcept = default;
+    };
+
+    inline nk::u64 hash64(const WrapKey&, const nk::u64) noexcept {
+        return nk::numeric::u64_max;
+    }
+
+    struct alignas(64) OveralignedValue {
+        explicit OveralignedValue(const nk::u64 initial_value) noexcept
+            : value{initial_value} {}
+
+        OveralignedValue(const OveralignedValue&) = delete;
+        OveralignedValue& operator=(const OveralignedValue&) = delete;
+        OveralignedValue(OveralignedValue&&) noexcept = default;
+        OveralignedValue& operator=(OveralignedValue&&) = delete;
+
+        nk::u64 value;
+    };
 
     struct MoveOnly {
         static inline int live_count = 0;
@@ -141,27 +164,27 @@ TEST(Map, HandlesLongRobinHoodClustersAndMoveOnlyValues) {
     nk::cl::map<map_test::CollisionKey, map_test::MoveOnly> values;
     ASSERT_TRUE(values.map_init(&allocator, 0, 0x1234));
 
-    for (nk::u32 index = 0; index < 48; ++index) {
+    for (nk::u32 index = 0; index < 300; ++index) {
         ASSERT_TRUE(values.insert(
             map_test::CollisionKey{index},
             map_test::MoveOnly{static_cast<int>(index * 3)}));
     }
-    EXPECT_EQ(values.length(), 48);
-    EXPECT_GE(values.capacity(), 64);
+    EXPECT_EQ(values.length(), 300);
+    EXPECT_GE(values.capacity(), 512);
 
-    for (nk::u32 index = 0; index < 48; ++index) {
+    for (nk::u32 index = 0; index < 300; ++index) {
         const auto* value = values.find(map_test::CollisionKey{index});
         ASSERT_NE(value, nullptr);
         EXPECT_EQ(value->value, static_cast<int>(index * 3));
     }
 
     EXPECT_TRUE(values.remove(map_test::CollisionKey{0}));
-    EXPECT_TRUE(values.remove(map_test::CollisionKey{24}));
-    EXPECT_TRUE(values.remove(map_test::CollisionKey{47}));
+    EXPECT_TRUE(values.remove(map_test::CollisionKey{150}));
+    EXPECT_TRUE(values.remove(map_test::CollisionKey{299}));
     EXPECT_FALSE(values.contains(map_test::CollisionKey{0}));
-    EXPECT_FALSE(values.contains(map_test::CollisionKey{24}));
-    EXPECT_FALSE(values.contains(map_test::CollisionKey{47}));
-    EXPECT_EQ(values.length(), 45);
+    EXPECT_FALSE(values.contains(map_test::CollisionKey{150}));
+    EXPECT_FALSE(values.contains(map_test::CollisionKey{299}));
+    EXPECT_EQ(values.length(), 297);
 
     EXPECT_TRUE(values.map_shutdown());
     EXPECT_EQ(map_test::MoveOnly::live_count, 0);
@@ -267,6 +290,66 @@ TEST(Map, ReserveReportsCapacityOverflow) {
     ASSERT_FALSE(reserved);
     EXPECT_EQ(reserved.error(), nk::cl::map_error::capacity_overflow);
     EXPECT_EQ(values.capacity(), 0u);
+}
+
+TEST(Map, EncodesTheFullSupportedProbeDistanceWithoutTruncation) {
+    constexpr nk::u64 maximum_distance =
+        static_cast<nk::u64>(nk::numeric::u16_max) - 1;
+    static_assert(nk::cl::map_detail::probe_distance_fits(maximum_distance));
+    static_assert(!nk::cl::map_detail::probe_distance_fits(
+        maximum_distance + 1));
+    static_assert(
+        nk::cl::map_detail::encode_probe_distance(maximum_distance) ==
+        nk::numeric::u16_max);
+}
+
+TEST(Map, PreservesWraparoundClustersDuringBackwardShift) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::cl::map<map_test::WrapKey, nk::u32> values;
+    ASSERT_TRUE(values.map_init(&allocator, 6, 0));
+
+    for (nk::u32 index = 0; index < 6; ++index)
+        ASSERT_TRUE(values.insert(map_test::WrapKey{index}, index * 11));
+    ASSERT_TRUE(values.remove(map_test::WrapKey{2}));
+
+    for (nk::u32 index = 0; index < 6; ++index) {
+        if (index == 2)
+            continue;
+        ASSERT_NE(values.find(map_test::WrapKey{index}), nullptr);
+        EXPECT_EQ(values.at(map_test::WrapKey{index}), index * 11);
+    }
+    EXPECT_FALSE(values.contains(map_test::WrapKey{2}));
+}
+
+TEST(Map, PreservesAliasedValuesAcrossGrowth) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::cl::map<nk::u32, nk::u64> values;
+    ASSERT_TRUE(values.map_init(&allocator, 1, nk::hash_seed::deterministic));
+    for (nk::u32 index = 0; index < 7; ++index)
+        ASSERT_TRUE(values.insert(index, static_cast<nk::u64>(index + 100)));
+
+    const nk::u64& aliased_value = values.at(3u);
+    const nk::u32 new_key = 100;
+    auto inserted = values.insert(new_key, aliased_value);
+    ASSERT_TRUE(inserted);
+    EXPECT_EQ(inserted.value(), nk::cl::insert_outcome::inserted);
+    EXPECT_EQ(values.at(new_key), 103u);
+    EXPECT_EQ(values.at(3u), 103u);
+}
+
+TEST(Map, AlignsSlotsForOveralignedValues) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::cl::map<nk::u32, map_test::OveralignedValue> values;
+    ASSERT_TRUE(values.map_init(&allocator, 4, nk::hash_seed::deterministic));
+    ASSERT_TRUE(values.try_emplace(9u, 27u));
+
+    const auto* value = values.find(9u);
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(
+        reinterpret_cast<std::uintptr_t>(value) %
+            alignof(map_test::OveralignedValue),
+        0u);
+    EXPECT_EQ(value->value, 27u);
 }
 
 TEST(MapDeathTest, RejectsOperationsBeforeInitialization) {

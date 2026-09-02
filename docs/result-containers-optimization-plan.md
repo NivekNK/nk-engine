@@ -484,21 +484,21 @@ nunca trunca silenciosamente el valor.
 
 ### Trabajo
 
-- [ ] Medir `sizeof` efectivo del bucket actual para todos los tipos de la
+- [x] Medir `sizeof` efectivo del bucket actual para todos los tipos de la
       baseline.
-- [ ] Definir estados empty/full y fingerprint sin colisionar con valores de
+- [x] Definir estados empty/full y fingerprint sin colisionar con valores de
       control.
-- [ ] Escoger `u8` o `u16` para distancia con pruebas de clusters extremos.
-- [ ] Eliminar el hash completo por slot sólo si recomputarlo en rehash resulta
+- [x] Escoger `u8` o `u16` para distancia con pruebas de clusters extremos.
+- [x] Eliminar el hash completo por slot sólo si recomputarlo en rehash resulta
       neutral o favorable globalmente.
-- [ ] Calcular sin overflow un único bloque con metadata, padding de alineación
+- [x] Calcular sin overflow un único bloque con metadata, padding de alineación
       y slots. Mantener una allocation por tabla salvo que dos bloques demuestren
       una ventaja suficiente para justificar otro evento y otra liberación.
-- [ ] Reimplementar insert, find, remove, iteration y rehash preservando los
+- [x] Reimplementar insert, find, remove, iteration y rehash preservando los
       contratos públicos.
-- [ ] Probar wrap-around, distancia máxima, colisiones, move-only, aliasing,
+- [x] Probar wrap-around, distancia máxima, colisiones, move-only, aliasing,
       fallos de cada allocation y backward-shift.
-- [ ] Medir hits/misses, claves pequeñas/grandes, tablas pequeñas/grandes y
+- [x] Medir hits/misses, claves pequeñas/grandes, tablas pequeñas/grandes y
       churn.
 
 ### Puerta específica
