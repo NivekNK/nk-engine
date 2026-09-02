@@ -2,6 +2,7 @@
 
 #include <glm/ext/matrix_float4x4.hpp>
 #include <glm/ext/vector_float3.hpp>
+#include <glm/vertex_2d.h>
 
 #include "resources/texture.h"
 #include "renderer/geometry_render_data.h"
@@ -18,6 +19,13 @@ namespace nk {
         f64 delta_time;
         u32 geometry_count = 0;
         const GeometryRenderData* geometries = nullptr;
+        u32 ui_geometry_count = 0;
+        const GeometryRenderData* ui_geometries = nullptr;
+    };
+
+    enum class RenderPassKind : u8 {
+        world,
+        ui,
     };
 
     class Renderer {
@@ -56,6 +64,10 @@ namespace nk {
             Geometry& geometry,
             cl::slice<const glm::Vertex3D> vertices,
             cl::slice<const u32> indices) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> create_geometry(
+            Geometry& geometry,
+            cl::slice<const glm::Vertex2D> vertices,
+            cl::slice<const u32> indices) = 0;
         virtual void destroy_geometry(Geometry& geometry) = 0;
 
         void set_view(glm::mat4 view) { m_view = view; }
@@ -73,13 +85,21 @@ namespace nk {
         virtual void on_resized(u32 width, u32 height) = 0;
         [[nodiscard]] virtual result<frame_outcome, renderer_error> begin_frame(
             f64 delta_time) = 0;
-        virtual void update_global_state(
+        virtual void begin_render_pass(RenderPassKind pass) = 0;
+        virtual void end_render_pass(RenderPassKind pass) = 0;
+        virtual void update_global_world_state(
             glm::mat4 projection,
             glm::mat4 view,
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) = 0;
-        virtual void draw_geometry(GeometryRenderData data) = 0;
+        virtual void update_global_ui_state(
+            glm::mat4 projection,
+            glm::mat4 view,
+            i32 mode) = 0;
+        virtual void draw_geometry(
+            RenderPassKind pass,
+            GeometryRenderData data) = 0;
         virtual void on_default_texture_changed(Texture*) {}
         [[nodiscard]] virtual result<frame_outcome, renderer_error> end_frame(
             f64 delta_time) = 0;
@@ -94,6 +114,8 @@ namespace nk {
 
         glm::mat4 m_projection;
         glm::mat4 m_view;
+        glm::mat4 m_ui_projection;
+        glm::mat4 m_ui_view{1.0f};
         f32 m_near_clip = 0.0f;
         f32 m_far_clip = 0.0f;
 

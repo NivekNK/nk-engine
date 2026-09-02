@@ -21,26 +21,36 @@ namespace nk {
         m_clear_color = create_info.clear_color;
         m_depth = create_info.depth;
         m_stencil = create_info.stencil;
+        m_clear_flags = create_info.clear_flags;
 
         // Main subpass
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
-        // Attachments
-        // TODO: make this configurable.
-        constexpr u32 attachment_description_count = 2;
-        VkAttachmentDescription attachment_descriptions[attachment_description_count];
+        VkAttachmentDescription attachment_descriptions[2]{};
+        m_attachment_count = create_info.has_depth_attachment ? 2 : 1;
 
         // Color attachment
         VkAttachmentDescription color_attachment = {};
         color_attachment.format = swapchain.get_image_format().format; // TODO: configurable
         color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        const bool clear_color = has_flag(
+            create_info.clear_flags, RenderPassClearFlags::color);
+        color_attachment.loadOp = clear_color
+            ? VK_ATTACHMENT_LOAD_OP_CLEAR
+            : create_info.has_previous_pass
+                ? VK_ATTACHMENT_LOAD_OP_LOAD
+                : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;     // Do not expect any particular layout before render pass starts.
-        color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // Transitioned to after the render pass
+        color_attachment.initialLayout =
+            create_info.has_previous_pass && !clear_color
+                ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                : VK_IMAGE_LAYOUT_UNDEFINED;
+        color_attachment.finalLayout = create_info.has_next_pass
+            ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         color_attachment.flags = 0;
 
         attachment_descriptions[0] = color_attachment;
@@ -52,13 +62,18 @@ namespace nk {
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &color_attachment_reference;
 
-        // Depth attachment, if there is one
         VkAttachmentDescription depth_attachment = {};
         depth_attachment.format = m_device->get_depth_format();
         depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth_attachment.loadOp = has_flag(
+            create_info.clear_flags, RenderPassClearFlags::depth)
+            ? VK_ATTACHMENT_LOAD_OP_CLEAR
+            : VK_ATTACHMENT_LOAD_OP_LOAD;
         depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depth_attachment.stencilLoadOp = has_flag(
+            create_info.clear_flags, RenderPassClearFlags::stencil)
+            ? VK_ATTACHMENT_LOAD_OP_CLEAR
+            : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -70,10 +85,9 @@ namespace nk {
         depth_attachment_reference.attachment = 1;
         depth_attachment_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-        // TODO: other attachment types (input, resolve, preserve)
-
-        // Depth stencil data.
-        subpass.pDepthStencilAttachment = &depth_attachment_reference;
+        subpass.pDepthStencilAttachment = create_info.has_depth_attachment
+            ? &depth_attachment_reference
+            : nullptr;
 
         // Input from a shader
         subpass.inputAttachmentCount = 0;
@@ -91,15 +105,22 @@ namespace nk {
         dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
         dependency.dstSubpass = 0;
         dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependency.srcAccessMask = 0;
-        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.srcAccessMask = create_info.has_previous_pass
+            ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+            : 0;
+        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+            (create_info.has_depth_attachment
+                ? VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                : 0);
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dependency.dependencyFlags = 0;
+        if (create_info.has_depth_attachment)
+            dependency.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        dependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
         // Render pass create.
         VkRenderPassCreateInfo render_pass_create_info = {};
         render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        render_pass_create_info.attachmentCount = attachment_description_count;
+        render_pass_create_info.attachmentCount = m_attachment_count;
         render_pass_create_info.pAttachments = attachment_descriptions;
         render_pass_create_info.subpassCount = 1;
         render_pass_create_info.pSubpasses = &subpass;
@@ -136,8 +157,7 @@ namespace nk {
         begin_info.framebuffer = framebuffer;
         begin_info.renderArea = m_render_area;
 
-        constexpr u32 clear_values_count = 2;
-        VkClearValue clear_values[clear_values_count];
+        VkClearValue clear_values[2]{};
         clear_values[0].color.float32[0] = m_clear_color.r;
         clear_values[0].color.float32[1] = m_clear_color.g;
         clear_values[0].color.float32[2] = m_clear_color.b;
@@ -145,7 +165,7 @@ namespace nk {
         clear_values[1].depthStencil.depth = m_depth;
         clear_values[1].depthStencil.stencil = m_stencil;
 
-        begin_info.clearValueCount = clear_values_count;
+        begin_info.clearValueCount = m_attachment_count;
         begin_info.pClearValues = clear_values;
 
         vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);

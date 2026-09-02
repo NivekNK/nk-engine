@@ -26,8 +26,17 @@ namespace {
         }
 
         nk::u64 frame_number() const { return m_frame_number; }
-        nk::u32 global_updates() const { return m_global_updates; }
-        nk::u32 object_updates() const { return m_object_updates; }
+        nk::u32 global_updates() const {
+            return m_world_global_updates + m_ui_global_updates;
+        }
+        nk::u32 object_updates() const {
+            return m_world_object_updates + m_ui_object_updates;
+        }
+        nk::u32 world_global_updates() const { return m_world_global_updates; }
+        nk::u32 ui_global_updates() const { return m_ui_global_updates; }
+        nk::u32 world_object_updates() const { return m_world_object_updates; }
+        nk::u32 ui_object_updates() const { return m_ui_object_updates; }
+        nk::u32 pass_trace() const { return m_pass_trace; }
         nk::u32 end_calls() const { return m_end_calls; }
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
@@ -86,6 +95,15 @@ namespace {
             return nk::ok();
         }
 
+        nk::result<void, nk::renderer_error> create_geometry(
+            nk::Geometry& geometry,
+            nk::cl::slice<const glm::Vertex2D>,
+            nk::cl::slice<const nk::u32>) override {
+            geometry.internal_id = m_created_geometries++;
+            geometry.generation = 0;
+            return nk::ok();
+        }
+
         void destroy_geometry(nk::Geometry& geometry) override {
             ++m_destroyed_geometries;
             geometry.internal_id = nk::numeric::invalid_id;
@@ -117,17 +135,39 @@ namespace {
             std::abort();
         }
 
-        void update_global_state(
+        void begin_render_pass(const nk::RenderPassKind pass) override {
+            m_pass_trace = m_pass_trace * 10 +
+                (pass == nk::RenderPassKind::world ? 1 : 3);
+        }
+
+        void end_render_pass(const nk::RenderPassKind pass) override {
+            m_pass_trace = m_pass_trace * 10 +
+                (pass == nk::RenderPassKind::world ? 2 : 4);
+        }
+
+        void update_global_world_state(
             glm::mat4,
             glm::mat4,
             glm::vec3,
             glm::vec4,
             nk::i32) override {
-            ++m_global_updates;
+            ++m_world_global_updates;
         }
 
-        void draw_geometry(nk::GeometryRenderData) override {
-            ++m_object_updates;
+        void update_global_ui_state(
+            glm::mat4,
+            glm::mat4,
+            nk::i32) override {
+            ++m_ui_global_updates;
+        }
+
+        void draw_geometry(
+            const nk::RenderPassKind pass,
+            nk::GeometryRenderData) override {
+            if (pass == nk::RenderPassKind::world)
+                ++m_world_object_updates;
+            else
+                ++m_ui_object_updates;
         }
 
         nk::result<nk::frame_outcome, nk::renderer_error> end_frame(
@@ -145,8 +185,11 @@ namespace {
         BeginMode m_begin_mode;
         bool m_fail_end = false;
         bool m_fail_texture_create = false;
-        nk::u32 m_global_updates = 0;
-        nk::u32 m_object_updates = 0;
+        nk::u32 m_world_global_updates = 0;
+        nk::u32 m_ui_global_updates = 0;
+        nk::u32 m_world_object_updates = 0;
+        nk::u32 m_ui_object_updates = 0;
+        nk::u32 m_pass_trace = 0;
         nk::u32 m_end_calls = 0;
         nk::u32 m_destroyed_textures = 0;
         nk::u32 m_created_materials = 0;
@@ -243,10 +286,33 @@ TEST(RendererResult, PreservesBeginAndEndFailuresWithoutAdvancingFrame) {
     ASSERT_FALSE(ended);
     EXPECT_EQ(ended.error().code, nk::renderer_error_code::queue_submit_failed);
     EXPECT_EQ(ended.error().native_code, VK_ERROR_DEVICE_LOST);
-    EXPECT_EQ(end_failure.global_updates(), 1);
+    EXPECT_EQ(end_failure.global_updates(), 2);
     EXPECT_EQ(end_failure.object_updates(), 1);
     EXPECT_EQ(end_failure.end_calls(), 1);
     EXPECT_EQ(end_failure.frame_number(), 0);
+}
+
+TEST(RendererResult, RunsWorldAndUiPassesInOrder) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    nk::GeometryRenderData world_geometry{};
+    nk::GeometryRenderData ui_geometry{};
+
+    auto frame = renderer.draw_frame({
+        .delta_time = 1.0 / 60.0,
+        .geometry_count = 1,
+        .geometries = &world_geometry,
+        .ui_geometry_count = 1,
+        .ui_geometries = &ui_geometry,
+    });
+
+    ASSERT_TRUE(frame);
+    EXPECT_EQ(*frame, nk::frame_outcome::rendered);
+    EXPECT_EQ(renderer.pass_trace(), 1234u);
+    EXPECT_EQ(renderer.world_global_updates(), 1u);
+    EXPECT_EQ(renderer.ui_global_updates(), 1u);
+    EXPECT_EQ(renderer.world_object_updates(), 1u);
+    EXPECT_EQ(renderer.ui_object_updates(), 1u);
 }
 
 TEST(RendererResult, AdvancesFrameOnlyAfterSuccessfulPresentation) {

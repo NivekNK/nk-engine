@@ -61,6 +61,14 @@ namespace nk {
             glm::radians(45.0f), aspect, renderer->m_near_clip, renderer->m_far_clip);
         renderer->m_view = glm::inverse(
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -30.0f)));
+        renderer->m_ui_projection = glm::ortho(
+            0.0f,
+            static_cast<f32>(platform->width()),
+            static_cast<f32>(platform->height()),
+            0.0f,
+            -100.0f,
+            100.0f);
+        renderer->m_ui_view = glm::mat4(1.0f);
 
         auto initialized = renderer->init();
         if (!initialized) {
@@ -90,7 +98,8 @@ namespace nk {
         if (*begun == frame_outcome::skipped_swapchain_recreation)
             return ok(frame_outcome::skipped_swapchain_recreation);
 
-        update_global_state(
+        begin_render_pass(RenderPassKind::world);
+        update_global_world_state(
             m_projection,
             m_view,
             glm::vec3(0.0f),
@@ -98,7 +107,14 @@ namespace nk {
             0);
 
         for (u32 index = 0; index < packet.geometry_count; ++index)
-            draw_geometry(packet.geometries[index]);
+            draw_geometry(RenderPassKind::world, packet.geometries[index]);
+        end_render_pass(RenderPassKind::world);
+
+        begin_render_pass(RenderPassKind::ui);
+        update_global_ui_state(m_ui_projection, m_ui_view, 0);
+        for (u32 index = 0; index < packet.ui_geometry_count; ++index)
+            draw_geometry(RenderPassKind::ui, packet.ui_geometries[index]);
+        end_render_pass(RenderPassKind::ui);
 
         return end_frame_impl(packet.delta_time);
     }
@@ -106,6 +122,13 @@ namespace nk {
     void Renderer::resize(u32 width, u32 height) {
         m_projection = glm::perspective(
             glm::radians(45.0f), width / static_cast<f32>(height), m_near_clip, m_far_clip);
+        m_ui_projection = glm::ortho(
+            0.0f,
+            static_cast<f32>(width),
+            static_cast<f32>(height),
+            0.0f,
+            -100.0f,
+            100.0f);
         on_resized(width, height);
     }
 

@@ -21,7 +21,9 @@ namespace nk {
         VkPipelineShaderStageCreateInfo* stages;
         VkViewport viewport;
         VkRect2D scissor;
+        u32 vertex_stride;
         bool is_wireframe;
+        bool depth_test_enabled;
     };
 
     class Pipeline {

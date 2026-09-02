@@ -40,6 +40,11 @@ namespace nk {
         VkPipelineShaderStageCreateInfo pipeline_create_info;
     };
 
+    enum class ShaderVertexLayout : u8 {
+        vertex_3d,
+        vertex_2d,
+    };
+
     class MaterialShader {
     public:
         static constexpr u32 shader_stage_count = 2;
@@ -54,6 +59,9 @@ namespace nk {
         MaterialShader& operator=(MaterialShader&&) = delete;
 
         [[nodiscard]] result<void, renderer_error> init(
+            cstr name,
+            ShaderVertexLayout vertex_layout,
+            bool depth_test_enabled,
             u32 width,
             u32 height,
             u32 image_count,
@@ -77,7 +85,10 @@ namespace nk {
 
         [[nodiscard]] result<void, renderer_error> acquire_resources(
             Material& material);
+        [[nodiscard]] result<void, renderer_error> acquire_resources(
+            u32 instance_id);
         void release_resources(Material& material);
+        void release_resources(u32 instance_id);
 
         void set_global_ubo(const GlobalUniformObject& global_ubo) { m_global_ubo = global_ubo; }
         void set_default_texture(Texture* texture) noexcept {

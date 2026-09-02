@@ -31,13 +31,21 @@ namespace nk {
         virtual void shutdown() override;
         virtual result<frame_outcome, renderer_error> begin_frame(
             f64 delta_time) override;
-        virtual void update_global_state(
+        virtual void begin_render_pass(RenderPassKind pass) override;
+        virtual void end_render_pass(RenderPassKind pass) override;
+        virtual void update_global_world_state(
             glm::mat4 projection,
             glm::mat4 view,
             glm::vec3 view_position,
             glm::vec4 ambient_color,
             i32 mode) override;
-        virtual void draw_geometry(GeometryRenderData data) override;
+        virtual void update_global_ui_state(
+            glm::mat4 projection,
+            glm::mat4 view,
+            i32 mode) override;
+        virtual void draw_geometry(
+            RenderPassKind pass,
+            GeometryRenderData data) override;
         virtual result<frame_outcome, renderer_error> end_frame(
             f64 delta_time) override;
     
@@ -57,17 +65,28 @@ namespace nk {
             Geometry& geometry,
             cl::slice<const glm::Vertex3D> vertices,
             cl::slice<const u32> indices) override;
+        virtual result<void, renderer_error> create_geometry(
+            Geometry& geometry,
+            cl::slice<const glm::Vertex2D> vertices,
+            cl::slice<const u32> indices) override;
         virtual void destroy_geometry(Geometry& geometry) override;
 
     private:
         void on_default_texture_changed(Texture* texture) override {
             m_material_shader.set_default_texture(texture);
+            m_ui_shader.set_default_texture(texture);
         }
         [[nodiscard]] result<void, renderer_error> recreate_framebuffers();
         [[nodiscard]] result<void, renderer_error> recreate_command_buffers();
         [[nodiscard]] result<void, renderer_error> recreate_sync_objects();
         [[nodiscard]] result<void, renderer_error> recreate_swapchain();
         [[nodiscard]] result<void, renderer_error> create_buffers();
+        [[nodiscard]] result<void, renderer_error> create_geometry_internal(
+            Geometry& geometry,
+            u64 vertex_stride,
+            u64 vertex_count,
+            const void* vertices,
+            cl::slice<const u32> indices);
 
         [[nodiscard]] result<void, renderer_error> upload_data_range(
             VkCommandPool pool,
@@ -96,8 +115,10 @@ namespace nk {
         Instance m_instance;
         Device m_device;
         Swapchain m_swapchain;
-        RenderPass m_main_render_pass;
-        cl::dyarr<Framebuffer> m_framebuffers;
+        RenderPass m_world_render_pass;
+        RenderPass m_ui_render_pass;
+        cl::dyarr<Framebuffer> m_world_framebuffers;
+        cl::dyarr<Framebuffer> m_ui_framebuffers;
         cl::dyarr<CommandBuffer> m_graphics_command_buffers;
 
         // Per-frame semaphores for synchronization
@@ -124,6 +145,7 @@ namespace nk {
 
         // Shaders
         MaterialShader m_material_shader;
+        MaterialShader m_ui_shader;
 
         // Buffers
         Buffer m_object_vertex_buffer;
@@ -138,6 +160,7 @@ namespace nk {
         bool m_instance_initialized = false;
         bool m_device_initialized = false;
         bool m_swapchain_initialized = false;
-        bool m_render_pass_initialized = false;
+        bool m_world_render_pass_initialized = false;
+        bool m_ui_render_pass_initialized = false;
     };
 }

@@ -8,6 +8,7 @@
 #include "vulkan/resources/texture_data.h"
 
 #include <glm/vertex_3d.h>
+#include <glm/vertex_2d.h>
 
 namespace nk {
     void VulkanRenderer::on_resized(u32 width, u32 height) {
@@ -57,23 +58,49 @@ namespace nk {
             return err(swapchain_initialized.error());
 
         // clang-format off
-        auto render_pass_initialized = m_main_render_pass.init(
+        auto world_render_pass_initialized = m_world_render_pass.init(
             {
                 .render_area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
                 .clear_color = {0.0f, 0.0f, 0.45f, 1.0f},
                 .depth = 1.0f,
                 .stencil = 0,
+                .clear_flags = RenderPassClearFlags::color |
+                    RenderPassClearFlags::depth |
+                    RenderPassClearFlags::stencil,
+                .has_previous_pass = false,
+                .has_next_pass = true,
+                .has_depth_attachment = true,
             },
             m_swapchain, &m_device, m_vulkan_allocator
         );
-        m_render_pass_initialized = true;
-        if (!render_pass_initialized)
-            return err(render_pass_initialized.error());
+        m_world_render_pass_initialized = true;
+        if (!world_render_pass_initialized)
+            return err(world_render_pass_initialized.error());
+
+        auto ui_render_pass_initialized = m_ui_render_pass.init(
+            {
+                .render_area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
+                .clear_color = glm::vec4(0.0f),
+                .depth = 1.0f,
+                .stencil = 0,
+                .clear_flags = RenderPassClearFlags::none,
+                .has_previous_pass = true,
+                .has_next_pass = false,
+                .has_depth_attachment = false,
+            },
+            m_swapchain, &m_device, m_vulkan_allocator
+        );
+        m_ui_render_pass_initialized = true;
+        if (!ui_render_pass_initialized)
+            return err(ui_render_pass_initialized.error());
         // clang-format on
 
         const u32 image_count = m_swapchain.get_image_count();
 
-        if (!m_framebuffers.dyarr_init_len(m_allocator, image_count, image_count))
+        if (!m_world_framebuffers.dyarr_init_len(
+                m_allocator, image_count, image_count) ||
+            !m_ui_framebuffers.dyarr_init_len(
+                m_allocator, image_count, image_count))
             return err(renderer_error{
                 .code = renderer_error_code::out_of_memory,
                 .native_code = 0,
@@ -81,7 +108,9 @@ namespace nk {
         auto framebuffers_created = recreate_framebuffers();
         if (!framebuffers_created)
             return err(framebuffers_created.error());
-        InfoLog("Vulkan Framebuffers created ({}).", m_framebuffers.length());
+        InfoLog(
+            "Vulkan world/UI Framebuffers created ({} each).",
+            m_world_framebuffers.length());
 
         if (!m_graphics_command_buffers.dyarr_init_len(
                 m_allocator, image_count, image_count))
@@ -114,10 +143,13 @@ namespace nk {
         InfoLog("Vulkan Sync Objects created.");
 
         auto shader_initialized = m_material_shader.init(
+            "Builtin.MaterialShader",
+            ShaderVertexLayout::vertex_3d,
+            true,
             m_framebuffer_width,
             m_framebuffer_height,
             image_count,
-            &m_main_render_pass,
+            &m_world_render_pass,
             &m_device,
             m_allocator,
             m_resources,
@@ -126,6 +158,23 @@ namespace nk {
         if (!shader_initialized)
             return err(shader_initialized.error());
         InfoLog("Vulkan Material Shader created.");
+
+        auto ui_shader_initialized = m_ui_shader.init(
+            "Builtin.UIShader",
+            ShaderVertexLayout::vertex_2d,
+            false,
+            m_framebuffer_width,
+            m_framebuffer_height,
+            image_count,
+            &m_ui_render_pass,
+            &m_device,
+            m_allocator,
+            m_resources,
+            m_vulkan_allocator,
+            m_default_texture);
+        if (!ui_shader_initialized)
+            return err(ui_shader_initialized.error());
+        InfoLog("Vulkan UI Shader created.");
 
         auto buffers_created = create_buffers();
         if (!buffers_created)
@@ -144,8 +193,9 @@ namespace nk {
         m_object_index_buffer.shutdown();
         InfoLog("Vulkan Object Buffers shutdown.");
 
+        m_ui_shader.shutdown();
         m_material_shader.shutdown();
-        InfoLog("Vulkan Material Shader shutdown.");
+        InfoLog("Vulkan Material/UI Shaders shutdown.");
 
         // Clean up per-frame semaphores
         const u64 max_frames_in_flight = m_image_available_semaphores.length();
@@ -167,12 +217,17 @@ namespace nk {
         m_graphics_command_buffers.dyarr_shutdown();
         InfoLog("Vulkan Command Buffers shutdown.");
 
-        m_framebuffers.dyarr_shutdown();
-        InfoLog("Vulkan Framebuffers shutdown.");
+        m_ui_framebuffers.dyarr_shutdown();
+        m_world_framebuffers.dyarr_shutdown();
+        InfoLog("Vulkan world/UI Framebuffers shutdown.");
 
-        if (m_render_pass_initialized) {
-            m_main_render_pass.shutdown();
-            m_render_pass_initialized = false;
+        if (m_ui_render_pass_initialized) {
+            m_ui_render_pass.shutdown();
+            m_ui_render_pass_initialized = false;
+        }
+        if (m_world_render_pass_initialized) {
+            m_world_render_pass.shutdown();
+            m_world_render_pass_initialized = false;
         }
         if (m_swapchain_initialized) {
             m_swapchain.shutdown();
@@ -267,16 +322,12 @@ namespace nk {
         vkCmdSetViewport(command_buffer, 0, 1, &viewport);
         vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-        m_main_render_pass.begin(command_buffer, m_framebuffers[m_image_index]);
-
         return ok(frame_outcome::rendered);
     }
 
-    result<frame_outcome, renderer_error> VulkanRenderer::end_frame(f64 delta_time) {
+    result<frame_outcome, renderer_error> VulkanRenderer::end_frame(f64) {
         CommandBuffer& command_buffer = m_graphics_command_buffers[m_image_index];
 
-        // End renderpass
-        m_main_render_pass.end(command_buffer);
         auto command_ended = command_buffer.end();
         if (!command_ended)
             return err(command_ended.error());
@@ -349,21 +400,73 @@ namespace nk {
         return ok(frame_outcome::rendered);
     }
 
-    void VulkanRenderer::update_global_state(glm::mat4 projection, glm::mat4 view, glm::vec3 view_position, glm::vec4 ambient_color, i32 mode) {
+    void VulkanRenderer::begin_render_pass(const RenderPassKind pass) {
+        CommandBuffer& command_buffer =
+            m_graphics_command_buffers[m_image_index];
+        switch (pass) {
+            case RenderPassKind::world:
+                m_world_render_pass.begin(
+                    command_buffer, m_world_framebuffers[m_image_index]);
+                m_material_shader.use(&command_buffer);
+                break;
+            case RenderPassKind::ui:
+                m_ui_render_pass.begin(
+                    command_buffer, m_ui_framebuffers[m_image_index]);
+                m_ui_shader.use(&command_buffer);
+                break;
+        }
+    }
+
+    void VulkanRenderer::end_render_pass(const RenderPassKind pass) {
+        CommandBuffer& command_buffer =
+            m_graphics_command_buffers[m_image_index];
+        switch (pass) {
+            case RenderPassKind::world:
+                m_world_render_pass.end(command_buffer);
+                break;
+            case RenderPassKind::ui:
+                m_ui_render_pass.end(command_buffer);
+                break;
+        }
+    }
+
+    void VulkanRenderer::update_global_world_state(
+        const glm::mat4 projection,
+        const glm::mat4 view,
+        glm::vec3,
+        glm::vec4,
+        i32) {
         CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
         m_material_shader.use(command_buffer);
 
-        m_material_shader.set_global_ubo({
-            .projection = projection,
-            .view = view,
-        });
+        GlobalUniformObject global_ubo{};
+        global_ubo.projection = projection;
+        global_ubo.view = view;
+        m_material_shader.set_global_ubo(global_ubo);
 
         // TODO: Other ubo properties
 
         m_material_shader.update_global_state(m_graphics_command_buffers, m_image_index, m_frame_delta_time);
     }
 
-    void VulkanRenderer::draw_geometry(const GeometryRenderData data) {
+    void VulkanRenderer::update_global_ui_state(
+        const glm::mat4 projection,
+        const glm::mat4 view,
+        i32) {
+        CommandBuffer* command_buffer =
+            &m_graphics_command_buffers[m_image_index];
+        m_ui_shader.use(command_buffer);
+        GlobalUniformObject global_ubo{};
+        global_ubo.projection = projection;
+        global_ubo.view = view;
+        m_ui_shader.set_global_ubo(global_ubo);
+        m_ui_shader.update_global_state(
+            m_graphics_command_buffers, m_image_index, m_frame_delta_time);
+    }
+
+    void VulkanRenderer::draw_geometry(
+        const RenderPassKind pass,
+        const GeometryRenderData data) {
         if (data.geometry == nullptr ||
             data.geometry->internal_id >= max_geometry_count) {
             return;
@@ -375,14 +478,24 @@ namespace nk {
             return;
         }
 
+        const u64 expected_vertex_stride = pass == RenderPassKind::world
+            ? sizeof(glm::Vertex3D)
+            : sizeof(glm::Vertex2D);
+        if (geometry.vertex_size !=
+            geometry.vertex_count * expected_vertex_stride) {
+            ErrorLog("Geometry vertex layout does not match the active render pass.");
+            return;
+        }
+
         CommandBuffer* command_buffer =
             &m_graphics_command_buffers[m_image_index];
-        m_material_shader.use(command_buffer);
-        m_material_shader.set_model(*command_buffer, data.model);
-        m_material_shader.apply_material(
-            m_graphics_command_buffers,
-            m_image_index,
-            *data.geometry->material);
+        MaterialShader& shader = pass == RenderPassKind::world
+            ? m_material_shader
+            : m_ui_shader;
+        shader.use(command_buffer);
+        shader.set_model(*command_buffer, data.model);
+        shader.apply_material(
+            m_graphics_command_buffers, m_image_index, *data.geometry->material);
 
         VkDeviceSize offsets[1] = {geometry.vertex_buffer_offset};
         VkBuffer vertex_buffer = m_object_vertex_buffer.get();
@@ -571,20 +684,57 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::create_material(
         Material& material) {
-        return m_material_shader.acquire_resources(material);
+        auto world_resources = m_material_shader.acquire_resources(material);
+        if (!world_resources)
+            return err(world_resources.error());
+
+        auto ui_resources = m_ui_shader.acquire_resources(material.internal_id);
+        if (!ui_resources) {
+            m_material_shader.release_resources(material);
+            return err(ui_resources.error());
+        }
+        return ok();
     }
 
     void VulkanRenderer::destroy_material(Material& material) {
-        if (material.internal_id != numeric::invalid_id)
+        if (material.internal_id != numeric::invalid_id) {
+            m_ui_shader.release_resources(material.internal_id);
             m_material_shader.release_resources(material);
+        }
     }
 
     result<void, renderer_error> VulkanRenderer::create_geometry(
         Geometry& geometry,
         const cl::slice<const glm::Vertex3D> vertices,
         const cl::slice<const u32> indices) {
-        if (vertices.empty() ||
-            vertices.length() > numeric::u32_max ||
+        return create_geometry_internal(
+            geometry,
+            sizeof(glm::Vertex3D),
+            vertices.length(),
+            vertices.data(),
+            indices);
+    }
+
+    result<void, renderer_error> VulkanRenderer::create_geometry(
+        Geometry& geometry,
+        const cl::slice<const glm::Vertex2D> vertices,
+        const cl::slice<const u32> indices) {
+        return create_geometry_internal(
+            geometry,
+            sizeof(glm::Vertex2D),
+            vertices.length(),
+            vertices.data(),
+            indices);
+    }
+
+    result<void, renderer_error> VulkanRenderer::create_geometry_internal(
+        Geometry& geometry,
+        const u64 vertex_stride,
+        const u64 vertex_count,
+        const void* vertices,
+        const cl::slice<const u32> indices) {
+        if (vertices == nullptr || vertex_count == 0 ||
+            vertex_count > numeric::u32_max ||
             indices.length() > numeric::u32_max) {
             return err(renderer_error{
                 renderer_error_code::object_resource_failed,
@@ -608,8 +758,7 @@ namespace nk {
             });
         }
 
-        const u64 vertex_size =
-            vertices.length() * sizeof(glm::Vertex3D);
+        const u64 vertex_size = vertex_count * vertex_stride;
         const u64 index_size = indices.length() * sizeof(u32);
         if (m_geometry_vertex_offset > m_object_vertex_buffer.size() ||
             vertex_size > m_object_vertex_buffer.size() - m_geometry_vertex_offset ||
@@ -628,7 +777,7 @@ namespace nk {
             &m_object_vertex_buffer,
             m_geometry_vertex_offset,
             vertex_size,
-            vertices.data());
+            vertices);
         if (!vertices_uploaded)
             return err(vertices_uploaded.error());
 
@@ -650,7 +799,7 @@ namespace nk {
             .generation = geometry.generation == numeric::invalid_id
                 ? 0
                 : geometry.generation + 1,
-            .vertex_count = vertices.length(),
+            .vertex_count = vertex_count,
             .vertex_size = vertex_size,
             .vertex_buffer_offset = m_geometry_vertex_offset,
             .index_count = indices.length(),
@@ -681,18 +830,19 @@ namespace nk {
     result<void, renderer_error> VulkanRenderer::recreate_framebuffers() {
         const u32 image_count = m_swapchain.get_image_count();
 
-        if (image_count != m_framebuffers.length()) {
-            if (!m_framebuffers.dyarr_resize(image_count))
+        if (image_count != m_world_framebuffers.length()) {
+            if (!m_world_framebuffers.dyarr_resize(image_count) ||
+                !m_ui_framebuffers.dyarr_resize(image_count))
                 return err(renderer_error{
                     .code = renderer_error_code::out_of_memory,
                     .native_code = 0,
                 });
         }
 
-        for (u32 i = 0; i < m_framebuffers.length(); i++) {
-            cl::arr<VkImageView> attachments;
+        for (u32 i = 0; i < m_world_framebuffers.length(); i++) {
+            cl::arr<VkImageView> world_attachments;
             // clang-format off
-            if (!attachments.arr_init_list(m_allocator, {
+            if (!world_attachments.arr_init_list(m_allocator, {
                 m_swapchain.get_image_view_at(i),
                 m_swapchain.get_depth_attachment()->get_view(),
             })) {
@@ -702,15 +852,33 @@ namespace nk {
                 });
             }
             // clang-format on
-            auto renewed = m_framebuffers[i].renew(
+            auto world_renewed = m_world_framebuffers[i].renew(
                 m_framebuffer_width,
                 m_framebuffer_height,
-                attachments,
+                world_attachments,
                 &m_device,
-                m_main_render_pass,
+                m_world_render_pass,
                 m_vulkan_allocator);
-            if (!renewed)
-                return err(renewed.error());
+            if (!world_renewed)
+                return err(world_renewed.error());
+
+            cl::arr<VkImageView> ui_attachments;
+            if (!ui_attachments.arr_init_list(
+                    m_allocator, {m_swapchain.get_image_view_at(i)})) {
+                return err(renderer_error{
+                    .code = renderer_error_code::out_of_memory,
+                    .native_code = 0,
+                });
+            }
+            auto ui_renewed = m_ui_framebuffers[i].renew(
+                m_framebuffer_width,
+                m_framebuffer_height,
+                ui_attachments,
+                &m_device,
+                m_ui_render_pass,
+                m_vulkan_allocator);
+            if (!ui_renewed)
+                return err(ui_renewed.error());
         }
         return ok();
     }
@@ -818,6 +986,13 @@ namespace nk {
                 .native_code = static_cast<i32>(wait_result),
             });
 
+        // Framebuffers must release their references to the old swapchain
+        // image views and depth attachment before those resources are replaced.
+        for (Framebuffer& framebuffer : m_ui_framebuffers)
+            framebuffer.shutdown();
+        for (Framebuffer& framebuffer : m_world_framebuffers)
+            framebuffer.shutdown();
+
         auto swapchain_recreated = m_swapchain.recreate(
             m_cached_framebuffer_width, m_cached_framebuffer_height);
         if (!swapchain_recreated)
@@ -836,11 +1011,12 @@ namespace nk {
         // Update framebuffer size generation
         m_framebuffer_last_generation = m_framebuffer_size_generation;
 
-        VkRect2D& render_area = m_main_render_pass.get_render_area();
-        render_area.offset.x = 0;
-        render_area.offset.y = 0;
-        render_area.extent.width = m_framebuffer_width;
-        render_area.extent.height = m_framebuffer_height;
+        VkRect2D& world_render_area = m_world_render_pass.get_render_area();
+        world_render_area.offset = {0, 0};
+        world_render_area.extent = {m_framebuffer_width, m_framebuffer_height};
+        VkRect2D& ui_render_area = m_ui_render_pass.get_render_area();
+        ui_render_area.offset = {0, 0};
+        ui_render_area.extent = {m_framebuffer_width, m_framebuffer_height};
 
         auto framebuffers_created = recreate_framebuffers();
         if (!framebuffers_created)

@@ -7,7 +7,6 @@
 #include "vulkan/command_buffer.h"
 #include "vulkan/utils.h"
 
-#include <glm/vertex_3d.h>
 #include <glm/ext/matrix_float4x4.hpp>
 
 namespace nk {
@@ -54,8 +53,8 @@ namespace nk {
         VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info;
         memset(&depth_stencil_create_info, 0, sizeof(depth_stencil_create_info));
         depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depth_stencil_create_info.depthTestEnable = VK_TRUE;
-        depth_stencil_create_info.depthWriteEnable = VK_TRUE;
+        depth_stencil_create_info.depthTestEnable = create_info.depth_test_enabled;
+        depth_stencil_create_info.depthWriteEnable = create_info.depth_test_enabled;
         depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
         depth_stencil_create_info.depthBoundsTestEnable = VK_FALSE;
         depth_stencil_create_info.stencilTestEnable = VK_FALSE;
@@ -102,7 +101,7 @@ namespace nk {
         VkVertexInputBindingDescription vertex_input_binding_create_info;
         memset(&vertex_input_binding_create_info, 0, sizeof(vertex_input_binding_create_info));
         vertex_input_binding_create_info.binding = 0; // Binding index
-        vertex_input_binding_create_info.stride = sizeof(glm::Vertex3D);
+        vertex_input_binding_create_info.stride = create_info.vertex_stride;
         vertex_input_binding_create_info.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
         // Attributes

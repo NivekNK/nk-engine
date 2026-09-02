@@ -11,11 +11,35 @@ namespace nk {
     class CommandBuffer;
     class Framebuffer;
 
+    enum class RenderPassClearFlags : u8 {
+        none = 0,
+        color = 1 << 0,
+        depth = 1 << 1,
+        stencil = 1 << 2,
+    };
+
+    constexpr RenderPassClearFlags operator|(
+        const RenderPassClearFlags left,
+        const RenderPassClearFlags right) noexcept {
+        return static_cast<RenderPassClearFlags>(
+            static_cast<u8>(left) | static_cast<u8>(right));
+    }
+
+    constexpr bool has_flag(
+        const RenderPassClearFlags flags,
+        const RenderPassClearFlags flag) noexcept {
+        return (static_cast<u8>(flags) & static_cast<u8>(flag)) != 0;
+    }
+
     struct RenderPassCreateInfo {
         VkRect2D render_area;
         glm::vec4 clear_color;
         f32 depth;
         u32 stencil;
+        RenderPassClearFlags clear_flags;
+        bool has_previous_pass;
+        bool has_next_pass;
+        bool has_depth_attachment;
     };
 
     class RenderPass {
@@ -54,5 +78,7 @@ namespace nk {
         glm::vec4 m_clear_color{};
         f32 m_depth = 0.0f;
         u32 m_stencil = 0;
+        RenderPassClearFlags m_clear_flags = RenderPassClearFlags::none;
+        u32 m_attachment_count = 0;
     };
 }

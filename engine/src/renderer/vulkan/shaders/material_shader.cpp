@@ -11,9 +11,8 @@
 #include "collections/dyarr.h"
 
 #include <glm/ext/vector_float3.hpp>
+#include <glm/ext/vector_float2.hpp>
 #include <glm/trigonometric.hpp>
-
-#define BUILTIN_SHADER_NAME_MATERIAL "Builtin.MaterialShader"
 
 namespace nk {
     namespace {
@@ -48,6 +47,9 @@ namespace nk {
     }
 
     result<void, renderer_error> MaterialShader::init(
+        const cstr name,
+        const ShaderVertexLayout vertex_layout,
+        const bool depth_test_enabled,
         u32 width,
         u32 height,
         u32 image_count,
@@ -67,9 +69,9 @@ namespace nk {
         char stage_type_strings[shader_stage_count][10] = { "vertex", "fragment" };
         VkShaderStageFlagBits stage_types[shader_stage_count] = { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT };
         for (u32 i = 0; i < shader_stage_count; i++) {
-            DebugLog("Creating {} shader module for '{}'", stage_type_strings[i], BUILTIN_SHADER_NAME_MATERIAL);
+            DebugLog("Creating {} shader module for '{}'", stage_type_strings[i], name);
             auto created = create_shader_module(
-                BUILTIN_SHADER_NAME_MATERIAL,
+                name,
                 stage_type_strings[i],
                 *m_resources,
                 m_device,
@@ -201,12 +203,16 @@ namespace nk {
         constexpr u32 attribute_count = 2;
         VkVertexInputAttributeDescription attribute_descriptions[attribute_count];
         // Position, texcoords
-        VkFormat formats[attribute_count] = { 
-            VK_FORMAT_R32G32B32_SFLOAT,
+        VkFormat formats[attribute_count] = {
+            vertex_layout == ShaderVertexLayout::vertex_3d
+                ? VK_FORMAT_R32G32B32_SFLOAT
+                : VK_FORMAT_R32G32_SFLOAT,
             VK_FORMAT_R32G32_SFLOAT,
         };
         u64 sizes[attribute_count] = {
-            sizeof(glm::vec3),
+            vertex_layout == ShaderVertexLayout::vertex_3d
+                ? sizeof(glm::vec3)
+                : sizeof(glm::vec2),
             sizeof(glm::vec2),
         };
         for (u32 i = 0; i < attribute_count; i++) {
@@ -244,7 +250,9 @@ namespace nk {
             .stages = stages,
             .viewport = viewport,
             .scissor = scissor,
-            .is_wireframe = false
+            .vertex_stride = static_cast<u32>(sizes[0] + sizes[1]),
+            .is_wireframe = false,
+            .depth_test_enabled = depth_test_enabled,
         });
         if (!pipeline_initialized)
             return err(pipeline_initialized.error());
@@ -551,6 +559,24 @@ namespace nk {
             });
         }
 
+        auto acquired = acquire_resources(instance_id);
+        if (!acquired)
+            return err(acquired.error());
+
+        material.internal_id = instance_id;
+        return ok();
+    }
+
+    result<void, renderer_error> MaterialShader::acquire_resources(
+        const u32 instance_id) {
+        if (instance_id >= max_material_count ||
+            m_instance_states[instance_id].descriptor_sets.allocator() != nullptr) {
+            return err(renderer_error{
+                renderer_error_code::object_resource_failed,
+                0,
+            });
+        }
+
         MaterialShaderInstanceState& instance = m_instance_states[instance_id];
         if (!instance.descriptor_sets.arr_init(m_allocator, m_image_count))
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
@@ -613,17 +639,21 @@ namespace nk {
             });
         }
 
-        material.internal_id = instance_id;
         return ok();
     }
 
     void MaterialShader::release_resources(Material& material) {
         if (material.internal_id >= max_material_count)
             return;
-        MaterialShaderInstanceState& instance =
-            m_instance_states[material.internal_id];
+        release_resources(material.internal_id);
+        material.internal_id = numeric::invalid_id;
+    }
+
+    void MaterialShader::release_resources(const u32 instance_id) {
+        if (instance_id >= max_material_count)
+            return;
+        MaterialShaderInstanceState& instance = m_instance_states[instance_id];
         if (instance.descriptor_sets.allocator() == nullptr) {
-            material.internal_id = numeric::invalid_id;
             return;
         }
 
@@ -643,6 +673,5 @@ namespace nk {
             (void)state.ids.arr_shutdown();
         }
         (void)instance.descriptor_sets.arr_shutdown();
-        material.internal_id = numeric::invalid_id;
     }
 }
