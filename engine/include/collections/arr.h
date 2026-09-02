@@ -286,20 +286,17 @@ namespace nk::cl {
     template <IArrT T>
     arr<T>::arr(dyarr<T>&& other)
         requires mem::RelocatableObject<T> {
-        if (other.m_own_allocator) {
-            _diagnostic("nk::cl::arr cannot transfer legacy erased allocator ownership.");
-            return;
-        }
-
         if (other.m_capacity == other.m_length) {
             m_data = other.m_data;
             m_length = other.m_length;
             m_allocator = other.m_allocator;
+            m_allocator_destroy = other.m_allocator_destroy;
 
             other.m_data = nullptr;
             other.m_length = 0;
             other.m_capacity = 0;
             other.m_allocator = nullptr;
+            other.m_allocator_destroy = nullptr;
             return;
         }
 
@@ -315,9 +312,11 @@ namespace nk::cl {
             }
 
             m_allocator = other.m_allocator;
+            m_allocator_destroy = other.m_allocator_destroy;
             other.m_data = nullptr;
             other.m_capacity = 0;
             other.m_allocator = nullptr;
+            other.m_allocator_destroy = nullptr;
             return;
         }
 
@@ -340,11 +339,13 @@ namespace nk::cl {
         m_data = destination;
         m_length = other.m_length;
         m_allocator = other.m_allocator;
+        m_allocator_destroy = other.m_allocator_destroy;
 
         other.m_data = nullptr;
         other.m_length = 0;
         other.m_capacity = 0;
         other.m_allocator = nullptr;
+        other.m_allocator_destroy = nullptr;
 
         if (!source_storage_freed)
             _diagnostic("nk::cl::arr could not release dyarr storage after relocation.");

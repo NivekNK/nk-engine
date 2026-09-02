@@ -1,8 +1,8 @@
 # Plan de refactorización de memoria y contenedores
 
-> Estado: plan final, implementación en curso; fases 0 a 5 completas
+> Estado: plan final, implementación en curso; fases 0 a 6 completas
 >
-> Versión del plan: 7
+> Versión del plan: 8
 >
 > Última actualización: 2026-09-02
 
@@ -395,16 +395,18 @@ Criterio de salida: ningún elemento se usa antes de ser construido ni se destru
 
 ### Fase 6 — `dyarr<T>`
 
-- [ ] Separar reserva de memoria de construcción de elementos.
-- [ ] Corregir crecimiento y el cálculo de capacidad para índices lejanos.
-- [ ] Reimplementar push y push_copy mediante construcción en el extremo.
-- [ ] Mantener push_ptr como alias de compatibilidad.
-- [ ] Reimplementar insert para tipos triviales y no triviales.
-- [ ] Inicializar correctamente los huecos de una inserción lejana.
-- [ ] Reimplementar resize, pop, remove, reset, clear y shutdown.
-- [ ] Corregir move assignment y self-move.
-- [ ] Implementar ownership explícito para `dyarr_init_own`.
-- [ ] Garantizar que operaciones dentro de capacidad no asignan memoria.
+- [x] Separar reserva de memoria de construcción de elementos.
+- [x] Corregir crecimiento y el cálculo de capacidad para índices lejanos.
+- [x] Reimplementar push y push_copy mediante construcción en el extremo.
+- [x] Mantener push_ptr como alias de compatibilidad.
+- [x] Reimplementar insert para tipos triviales y no triviales.
+- [x] Inicializar correctamente los huecos de una inserción lejana.
+- [x] Reimplementar resize, pop, remove, reset, clear y shutdown.
+- [x] Corregir move assignment y self-move.
+- [x] Implementar ownership explícito para `dyarr_init_own`.
+- [x] Garantizar que operaciones dentro de capacidad no asignan memoria.
+
+Evidencia: [contratos, crecimiento y verificación de `dyarr<T>`](memory-containers-phase-6-dyarr.md).
 
 Criterio de salida: `dyarr<Framebuffer>`, `dyarr<CommandBuffer>` y `dyarr<Fence>` son legalmente almacenables sin `memmove` sobre objetos vivos.
 
@@ -596,7 +598,7 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P3 | `LinearAllocator` | completa | — | [evidencia](memory-containers-phase-3-linear-allocator.md) |
 | P4 | Duración de objetos | completa | — | [evidencia](memory-containers-phase-4-object-lifetime.md) |
 | P5 | `arr<T>` | completa | — | [evidencia](memory-containers-phase-5-arr.md) |
-| P6 | `dyarr<T>` | pendiente | — | — |
+| P6 | `dyarr<T>` | completa | — | [evidencia](memory-containers-phase-6-dyarr.md) |
 | P7.1 | `strview` | pendiente | — | — |
 | P7.2 | `str` | pendiente | — | — |
 | P7.3 | `strbuf<N>` y formatting | pendiente | — | — |
