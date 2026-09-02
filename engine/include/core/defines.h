@@ -34,19 +34,6 @@ namespace nk {
         static constexpr const u32 invalid_id = UINT32_MAX;
     }
 
-    namespace mem {
-        template <typename T>
-        static void realocate_n(T* src, T* dst, size_t n) {
-            if constexpr (std::is_trivially_copyable_v<T>) {
-                std::memmove(dst, src, n * sizeof(T));
-            } else {
-                for (size_t i = 0; i < n; i++) {
-                    std::construct_at(dst + i, std::move(src[i]));
-                    std::destroy_at(src + i);
-                }
-            }
-        }
-    }
 }
 
 #define TRUE                   1

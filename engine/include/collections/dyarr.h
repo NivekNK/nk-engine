@@ -763,7 +763,7 @@ namespace nk::cl {
         }
 
         if (m_length > 0)
-            mem::realocate_n(m_data, data, m_length);
+            mem::relocate_range(data, m_data, m_length);
 
         if (m_capacity > 0)
             m_allocator->free_lot_t(T, m_data, m_capacity);
@@ -786,7 +786,7 @@ namespace nk::cl {
         T* data = m_allocator->_allocate_lot_t<T>(file, line, capacity);
 
         if (m_length > 0)
-            mem::realocate_n(m_data, data, m_length);
+            mem::relocate_range(data, m_data, m_length);
 
         if (m_capacity > 0)
             m_allocator->_free_lot_t<T>(file, line, m_data, m_capacity);

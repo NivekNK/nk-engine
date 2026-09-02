@@ -368,11 +368,13 @@ No se añadirán todavía pool, frame, stack ni free-list allocators.
 
 ### Fase 4 — Primitivas de duración de objetos
 
-- [ ] Implementar helpers internos para construir, destruir, mover y relocalizar rangos.
-- [ ] Usar `memcpy`/`memmove` únicamente en tipos trivialmente relocables.
-- [ ] Usar placement construction y destrucción individual en tipos no triviales.
-- [ ] Sustituir la restricción global de tipo por requisitos específicos de cada operación.
-- [ ] Soportar tipos move-only y sobrealineados.
+- [x] Implementar helpers internos para construir, destruir, mover y relocalizar rangos.
+- [x] Usar `memcpy`/`memmove` únicamente en tipos trivialmente relocables.
+- [x] Usar placement construction y destrucción individual en tipos no triviales.
+- [x] Sustituir la restricción global de tipo por requisitos específicos de cada operación.
+- [x] Soportar tipos move-only y sobrealineados.
+
+Evidencia: [contratos, integración y verificación de las primitivas de duración de objetos](memory-containers-phase-4-object-lifetime.md).
 
 Criterio de salida: `arr` y `dyarr` pueden compartir un único conjunto revisado de primitivas sin duplicar lógica Debug/Release.
 

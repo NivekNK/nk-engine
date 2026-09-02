@@ -1,11 +1,10 @@
 #pragma once
 
+#include "memory/object_lifetime.h"
+
 namespace nk {
     template <typename T>
-    concept IArrT = !std::is_const_v<T> && ((std::is_class_v<T> && std::is_default_constructible_v<T>) ||
-                                            std::is_arithmetic_v<T> ||
-                                            std::is_pointer_v<T> ||
-                                            std::is_enum_v<T>);
+    concept IArrT = mem::ObjectStorageType<T>;
 
     template <typename A, typename T>
     concept HasDataLength = requires(A& arr) {

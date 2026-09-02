@@ -151,7 +151,7 @@ namespace nk::cl {
         }
 
         m_data = m_allocator->allocate_lot_t(T, m_length);
-        mem::realocate_n(other.m_data, m_data, m_length);
+        mem::relocate_range(m_data, other.m_data, m_length);
         m_allocator->free_lot_t(T, other.m_data, other.m_capacity);
 
         other.m_data = nullptr;
