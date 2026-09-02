@@ -3,24 +3,45 @@
 #include "memory/linear_allocator.h"
 
 namespace nk::mem {
+    namespace {
+        void linear_allocator_diagnostic(cstr message) noexcept {
+            os::write(message, std::char_traits<char>::length(message));
+            os::flush();
+        }
+    }
+
     LinearAllocator::LinearAllocator() noexcept
         : Allocator(),
+          m_backing_allocator{nullptr},
           m_owns_memory{false} {}
 
-    LinearAllocator::LinearAllocator(Untracked, u64 size_bytes, void* data)
+    LinearAllocator::LinearAllocator(
+        Untracked,
+        Allocator& backing_allocator,
+        u64 size_bytes)
         : LinearAllocator() {
-        _allocator_init_untracked<LinearAllocator>(size_bytes, data);
+        _allocator_init_untracked<LinearAllocator>(backing_allocator, size_bytes);
+    }
+
+    LinearAllocator::LinearAllocator(
+        Untracked,
+        u64 size_bytes,
+        void* external_data)
+        : LinearAllocator() {
+        _allocator_init_untracked<LinearAllocator>(size_bytes, external_data);
     }
 
     LinearAllocator::~LinearAllocator() {
-        if (m_owns_memory && m_data != nullptr) {
-            std::free(m_data);
-        }
+        if (!_release_backing())
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator could not release owned backing memory.\n");
     }
 
     LinearAllocator::LinearAllocator(LinearAllocator&& other) noexcept
         : Allocator(std::move(other)),
+          m_backing_allocator{other.m_backing_allocator},
           m_owns_memory{other.m_owns_memory} {
+        other.m_backing_allocator = nullptr;
         other.m_owns_memory = false;
     }
 
@@ -35,45 +56,109 @@ namespace nk::mem {
             return *this;
         }
 
-        if (m_owns_memory && m_data != nullptr)
-            std::free(m_data);
+        if (!_release_backing()) {
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator move assignment could not release destination backing memory.\n");
+            return *this;
+        }
 
         Allocator::operator=(std::move(other));
+        m_backing_allocator = other.m_backing_allocator;
         m_owns_memory = other.m_owns_memory;
+        other.m_backing_allocator = nullptr;
         other.m_owns_memory = false;
         return *this;
     }
 
-    void LinearAllocator::init(u64 size_bytes, void* data) {
-        Assert(size_bytes > 0, "Linear Allocator initialize size_bytes needs to be more than zero.");
-        m_reserved_bytes = size_bytes;
-        m_owns_memory = data == nullptr;
-        if (m_owns_memory) {
-            m_data = std::calloc(1, size_bytes);
-        } else {
-            m_data = data;
+    bool LinearAllocator::init(
+        Allocator& backing_allocator,
+        const u64 size_bytes) noexcept {
+        if (&backing_allocator == this || size_bytes == 0 ||
+            size_bytes > static_cast<u64>(std::numeric_limits<std::size_t>::max())) {
+            return false;
         }
+
+        void* data = backing_allocator._allocate_raw(
+            size_bytes,
+            alignof(std::max_align_t));
+        if (data == nullptr)
+            return false;
+
+        m_backing_allocator = &backing_allocator;
+        m_reserved_bytes = size_bytes;
+        m_data = data;
+        m_owns_memory = true;
+        return true;
+    }
+
+    bool LinearAllocator::init(
+        const u64 size_bytes,
+        void* external_data) noexcept {
+        if (size_bytes == 0 || external_data == nullptr ||
+            size_bytes > static_cast<u64>(std::numeric_limits<std::size_t>::max())) {
+            return false;
+        }
+
+        m_backing_allocator = nullptr;
+        m_reserved_bytes = size_bytes;
+        m_data = external_data;
+        m_owns_memory = false;
+        return true;
     }
 
     void* LinearAllocator::_do_allocate(
         const u64 size_bytes,
-        [[maybe_unused]] const u64 alignment) noexcept {
+        const u64 alignment) noexcept {
         if (m_data == nullptr) {
-            constexpr cstr message = "nk::mem::LinearAllocator has no backing storage.\n";
-            os::write(message, std::char_traits<char>::length(message));
-            os::flush();
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator has no backing storage.\n");
             return nullptr;
         }
 
-        const u64 used_bytes = m_used_bytes + size_bytes;
-        if (used_bytes < m_used_bytes || used_bytes > m_reserved_bytes) {
-            constexpr cstr message = "nk::mem::LinearAllocator capacity exceeded.\n";
-            os::write(message, std::char_traits<char>::length(message));
-            os::flush();
+        constexpr u64 maximum_address = static_cast<u64>(
+            std::numeric_limits<std::uintptr_t>::max());
+        const u64 base_address = static_cast<u64>(
+            reinterpret_cast<std::uintptr_t>(m_data));
+        if (alignment > maximum_address || m_used_bytes > maximum_address - base_address) {
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator cursor address overflow.\n");
             return nullptr;
         }
 
-        void* block = static_cast<u8*>(m_data) + m_used_bytes;
+        const u64 current_address = base_address + m_used_bytes;
+        const u64 misalignment = current_address & (alignment - 1);
+        const u64 padding = misalignment == 0 ? 0 : alignment - misalignment;
+
+        if (padding > maximum_address - current_address ||
+            padding > numeric::u64_max - m_used_bytes) {
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator padding overflow.\n");
+            return nullptr;
+        }
+
+        const u64 aligned_offset = m_used_bytes + padding;
+        if (size_bytes > numeric::u64_max - aligned_offset) {
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator allocation offset overflow.\n");
+            return nullptr;
+        }
+
+        const u64 aligned_address = current_address + padding;
+        if (size_bytes > maximum_address - aligned_address) {
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator allocation address overflow.\n");
+            return nullptr;
+        }
+
+        const u64 used_bytes = aligned_offset + size_bytes;
+        if (used_bytes > m_reserved_bytes ||
+            m_active_allocations == numeric::u64_max) {
+            linear_allocator_diagnostic(
+                "nk::mem::LinearAllocator capacity exceeded.\n");
+            return nullptr;
+        }
+
+        void* block = static_cast<u8*>(m_data) + aligned_offset;
         ++m_active_allocations;
         m_used_bytes = used_bytes;
         _update_peak();
@@ -90,25 +175,53 @@ namespace nk::mem {
         return false;
     }
 
-    bool LinearAllocator::_reset(SourceLocation source) noexcept {
+    bool LinearAllocator::_reset(
+        SourceLocation source,
+        LinearResetMode mode) noexcept {
         if (!is_initialized() || m_reserved_bytes == 0 || m_data == nullptr)
             return false;
 
+        if (mode == LinearResetMode::ZeroMemory) {
+            std::memset(
+                m_data,
+                0,
+                static_cast<std::size_t>(m_reserved_bytes));
+        }
+
         m_active_allocations = 0;
         m_used_bytes = 0;
-        std::memset(m_data, 0, m_reserved_bytes);
         _notify_reset(source);
 
         return true;
     }
 
-    bool LinearAllocator::_free_linear_allocator() {
-        return _reset({nullptr, 0});
+    bool LinearAllocator::reset(LinearResetMode mode) noexcept {
+        return _reset({nullptr, 0}, mode);
+    }
+
+    bool LinearAllocator::_free_linear_allocator() noexcept {
+        return reset();
     }
 
 #if NK_MEMORY_TRACKING_ENABLED
-    bool LinearAllocator::_free_linear_allocator(cstr file, u32 line) {
-        return _reset({file, line});
+    bool LinearAllocator::_free_linear_allocator(cstr file, u32 line) noexcept {
+        return _reset({file, line}, default_linear_reset_mode);
     }
 #endif
+
+    bool LinearAllocator::_release_backing() noexcept {
+        if (!m_owns_memory || m_data == nullptr)
+            return true;
+        if (m_backing_allocator == nullptr)
+            return false;
+
+        if (!m_backing_allocator->_free_raw(m_data, m_reserved_bytes))
+            return false;
+
+        m_backing_allocator = nullptr;
+        m_owns_memory = false;
+        m_reserved_bytes = 0;
+        m_data = nullptr;
+        return true;
+    }
 }

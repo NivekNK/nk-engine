@@ -66,6 +66,11 @@ namespace nk::mem {
         return false;
     }
 
+    void Allocator::_fail_initialization() noexcept {
+        m_lifecycle = AllocatorLifecycle::InitializationFailed;
+        allocator_diagnostic("nk::mem::Allocator backend initialization failed.");
+    }
+
     void Allocator::_complete_initialization(Untracked) noexcept {
         m_lifecycle = AllocatorLifecycle::Initialized;
     }

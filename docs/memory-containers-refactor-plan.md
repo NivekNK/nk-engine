@@ -1,8 +1,8 @@
 # Plan de refactorización de memoria y contenedores
 
-> Estado: plan final, implementación en curso; fases 0, 1 y 2 completas
+> Estado: plan final, implementación en curso; fases 0, 1, 2 y 3 completas
 >
-> Versión del plan: 5
+> Versión del plan: 6
 >
 > Última actualización: 2026-09-01
 
@@ -351,14 +351,16 @@ Criterio de salida: todas las alineaciones soportadas son correctas y no existen
 
 ### Fase 3 — `LinearAllocator`
 
-- [ ] Alinear el cursor antes de cada asignación.
-- [ ] Contabilizar padding dentro del espacio utilizado.
-- [ ] Validar capacidad sin overflow.
-- [ ] Soportar correctamente bloques externos y bloques poseídos.
-- [ ] Implementar reset total conservando `_free_linear_allocator` como compatibilidad.
-- [ ] Evitar limpieza completa de memoria en Release salvo petición explícita.
-- [ ] Corregir constructor y asignación por movimiento.
-- [ ] Mantener prohibida la liberación individual.
+- [x] Alinear el cursor antes de cada asignación.
+- [x] Contabilizar padding dentro del espacio utilizado.
+- [x] Validar capacidad sin overflow.
+- [x] Soportar correctamente bloques externos y bloques poseídos.
+- [x] Implementar reset total conservando `_free_linear_allocator` como compatibilidad.
+- [x] Evitar limpieza completa de memoria en Release salvo petición explícita.
+- [x] Corregir constructor y asignación por movimiento.
+- [x] Mantener prohibida la liberación individual.
+
+Evidencia: [implementación, contratos y verificación de `LinearAllocator`](memory-containers-phase-3-linear-allocator.md).
 
 Criterio de salida: secuencias de asignaciones con diferentes alineaciones nunca se solapan ni exceden el bloque.
 
@@ -587,7 +589,7 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P0 | Contratos y línea base | completa | — | [evidencia](memory-containers-phase-0-baseline.md) |
 | P1 | Base `Allocator` | completa | — | [evidencia](memory-containers-phase-1-allocator.md) |
 | P2 | `MallocAllocator` | completa | — | [evidencia](memory-containers-phase-2-malloc-allocator.md) |
-| P3 | `LinearAllocator` | pendiente | — | — |
+| P3 | `LinearAllocator` | completa | — | [evidencia](memory-containers-phase-3-linear-allocator.md) |
 | P4 | Duración de objetos | pendiente | — | — |
 | P5 | `arr<T>` | pendiente | — | — |
 | P6 | `dyarr<T>` | pendiente | — | — |
@@ -608,7 +610,6 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 
 ## Defectos conocidos que el refactor debe eliminar
 
-- `LinearAllocator` ignora actualmente la alineación y el padding.
 - Logging y assertions construyen `std::string` durante errores y pueden asignar mientras se reporta memoria.
 - El alias `str = std::string` evita que los dominios de memoria del engine controlen sus textos.
 - `ObjectShader` y sus estados todavía poseen storage mediante `std::vector`.

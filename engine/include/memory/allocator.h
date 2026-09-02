@@ -8,8 +8,15 @@ namespace nk::mem {
 
     template <typename A, typename... Args>
     concept IAllocator = std::derived_from<A, Allocator> &&
-                         requires(A allocator, Args... args) {
-                             { allocator.init(args...) } -> std::same_as<void>;
+                         requires(A& allocator, Args&&... args) {
+                             allocator.init(std::forward<Args>(args)...);
+                             requires(
+                                 std::same_as<
+                                     decltype(allocator.init(std::forward<Args>(args)...)),
+                                     void> ||
+                                 std::same_as<
+                                     decltype(allocator.init(std::forward<Args>(args)...)),
+                                     bool>);
                          };
 
     enum class AllocatorLifecycle : u8 {
@@ -34,7 +41,10 @@ namespace nk::mem {
                 return nullptr;
 
             A* allocator = static_cast<A*>(this);
-            allocator->init(std::forward<Args>(args)...);
+            if (!_initialize_backend(*allocator, std::forward<Args>(args)...)) {
+                _fail_initialization();
+                return nullptr;
+            }
             _complete_initialization(untracked);
             return allocator;
         }
@@ -60,7 +70,10 @@ namespace nk::mem {
                 return nullptr;
 
             A* allocator = static_cast<A*>(this);
-            allocator->init(std::forward<Args>(args)...);
+            if (!_initialize_backend(*allocator, std::forward<Args>(args)...)) {
+                _fail_initialization();
+                return nullptr;
+            }
             if (!_complete_initialization(tracker, {
                 .name = name,
                 .implementation = allocator->to_cstr(),
@@ -272,6 +285,18 @@ namespace nk::mem {
         void* m_data;
 
     private:
+        template <typename A, typename... Args>
+        static bool _initialize_backend(A& allocator, Args&&... args) {
+            if constexpr (std::same_as<
+                              decltype(allocator.init(std::forward<Args>(args)...)),
+                              bool>) {
+                return allocator.init(std::forward<Args>(args)...);
+            } else {
+                allocator.init(std::forward<Args>(args)...);
+                return true;
+            }
+        }
+
         template <typename T>
         static bool _checked_type_size(u64 count, u64& size_bytes) noexcept {
             constexpr u64 element_size = sizeof(T);
@@ -284,6 +309,7 @@ namespace nk::mem {
         }
 
         bool _begin_initialization() noexcept;
+        void _fail_initialization() noexcept;
         void _complete_initialization(Untracked) noexcept;
 #if NK_MEMORY_TRACKING_ENABLED
         bool _complete_initialization(
