@@ -126,6 +126,58 @@ They can also receive their first choices as arguments:
 .scripts/add-library.sh engine https://github.com/example/library.git
 ```
 
+## Error and container contracts
+
+Recoverable operations return `nk::result<T, E>` (or
+`nk::result<void, E>`). A result must always be inspected; ignoring one is a
+compile error. Predicates remain `bool`, normal lookup absence remains a null
+pointer, and removal from an empty `dyarr` remains `std::optional<T>`.
+
+```cpp
+auto opened = file.open("assets/config.bin", nk::FileMode::Read, true);
+if (!opened) {
+    handle_file_error(opened.error());
+    return;
+}
+
+auto bytes = file.read_all_bytes();
+if (!bytes) {
+    handle_file_error(bytes.error());
+    return;
+}
+
+consume(std::move(*bytes));
+```
+
+Allocator-aware text always receives its allocator first. The same allocator
+is supplied once when initializing a container; fallible growth then reports a
+small typed error without allocating error text.
+
+```cpp
+nk::str name{allocator, "Builtin.ObjectShader"};
+
+nk::cl::dyarr<nk::u32> indices;
+if (!indices.dyarr_init(&allocator, 64))
+    return;
+
+auto appended = indices.dyarr_append(nk::cl::slice<const nk::u32>{data, count});
+if (!appended)
+    handle_storage_error(appended.error());
+
+nk::cl::map<nk::u64, Resource> resources;
+auto initialized = resources.map_init(&allocator, 128, nk::hash_seed::deterministic);
+if (!initialized)
+    handle_map_error(initialized.error());
+
+auto inserted = resources.try_emplace(id, resource_args);
+if (!inserted)
+    handle_map_error(inserted.error());
+```
+
+`map` uses Robin Hood probing, backward-shift deletion and rapidhash V3.
+`find` returns a nullable pointer and supports heterogeneous text lookup, so a
+`map<str, V>` can be queried with `strview` without creating owned text.
+
 ## TODO:
 
 - [x] Memory System

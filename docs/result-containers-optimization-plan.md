@@ -1,6 +1,6 @@
 # Plan de `result` y optimización de contenedores
 
-> Estado: en progreso
+> Estado: completado
 >
 > Versión del plan: 1
 >
@@ -643,20 +643,20 @@ actual de 48 bytes y se documenta el motivo.
 
 ### Trabajo
 
-- [ ] Auditar que no se haya convertido mecánicamente predicados y ausencias
+- [x] Auditar que no se haya convertido mecánicamente predicados y ausencias
       normales a `result`.
-- [ ] Auditar todos los `result` ignorados y activar warnings adecuados.
-- [ ] Confirmar que ningún error contiene texto propietario o allocator.
-- [ ] Eliminar adapters y nombres temporales de APIs migradas.
-- [ ] Ejecutar la matriz completa Debug, Release y ASan/UBSan.
-- [ ] Ejecutar build aislada mediante Nix.
-- [ ] Ejecutar el motor en Wayland/Niri durante al menos tres frames.
-- [ ] Confirmar cero eventos de allocation tras el primer frame y cero fugas al
+- [x] Auditar todos los `result` ignorados y activar warnings adecuados.
+- [x] Confirmar que ningún error contiene texto propietario o allocator.
+- [x] Eliminar adapters y nombres temporales de APIs migradas.
+- [x] Ejecutar la matriz completa Debug, Release y ASan/UBSan.
+- [x] Ejecutar build aislada mediante Nix.
+- [x] Ejecutar el motor en Wayland/Niri durante al menos tres frames.
+- [x] Confirmar cero eventos de allocation tras el primer frame y cero fugas al
       cerrar.
-- [ ] Comparar todos los benchmarks con las baselines de este ciclo y con la
+- [x] Comparar todos los benchmarks con las baselines de este ciclo y con la
       referencia histórica.
-- [ ] Registrar resultados aceptados, rechazados y revertidos.
-- [ ] Actualizar ejemplos y contratos públicos.
+- [x] Registrar resultados aceptados, rechazados y revertidos.
+- [x] Actualizar ejemplos y contratos públicos.
 
 ### Criterio de salida
 
@@ -739,17 +739,17 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 
 | ID | Entrega | Estado | Commit | Evidencia/decisión |
 | --- | --- | --- | --- | --- |
-| R0 | Inventario y baseline ampliada | aceptada | `test(performance): capture error and container baselines` | [Evidencia](result-containers-phase-0-baseline.md) |
-| R1 | `result<T, E>` y `result<void, E>` | aceptada | `feat(core): add allocation-free result values` | [Evidencia](result-phase-1-evidence.md) |
-| R2 | File y shaders con errores tipados | aceptada | `refactor(io): propagate typed file failures` | [Evidencia](result-phase-2-io-evidence.md) |
-| R3 | Renderer/Vulkan con outcomes y errores | aceptada | `refactor(renderer): distinguish frame outcomes and failures` | [Evidencia](result-phase-3-renderer-evidence.md) |
-| O1 | Fast path de allocator raw | aceptada | `perf(memory): add a fast path for fundamental alignment` | [Evidencia](result-phase-4-allocator-fast-path.md) |
+| R0 | Inventario y baseline ampliada | aceptada | `35ad6df` | [Evidencia](result-containers-phase-0-baseline.md) |
+| R1 | `result<T, E>` y `result<void, E>` | aceptada | `863f61b` | [Evidencia](result-phase-1-evidence.md) |
+| R2 | File y shaders con errores tipados | aceptada | `67051b8` | [Evidencia](result-phase-2-io-evidence.md) |
+| R3 | Renderer/Vulkan con outcomes y errores | aceptada | `3c3c871` | [Evidencia](result-phase-3-renderer-evidence.md) |
+| O1 | Fast path de allocator raw | aceptada | `93aacbe` | [Evidencia](result-phase-4-allocator-fast-path.md) |
 | O2 | API tipada y heterogénea de `map` | aceptada | `10cfefb` | [Evidencia](result-map-api-evidence.md) |
 | O3 | Metadata compacta escalar de `map` | aceptada | `0ee19b5` | [Evidencia](result-map-compact-layout-evidence.md) |
 | O4 | Filtrado SIMD de `map` | rechazada | `4762866` | [Evidencia](result-map-vector-lookup-findings.md) |
 | O5 | Capacidad y construcción directa de `dyarr` | aceptada | `43437db` | [Evidencia](result-dyarr-growth-evidence.md) |
-| O6 | Layout compacto de `str` | rechazada | este commit | [Evidencia](result-compact-string-layout-findings.md) |
-| C1 | Integración y cierre | pendiente | — | — |
+| O6 | Layout compacto de `str` | rechazada | `01cc313` | [Evidencia](result-compact-string-layout-findings.md) |
+| C1 | Integración y cierre | aceptada | `test(runtime): validate result and container performance contracts` | [Evidencia](result-container-integration-evidence.md) |
 
 ## Fuera de alcance
 
