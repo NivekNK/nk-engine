@@ -63,6 +63,7 @@ set(SOURCES
     src/systems/logging_system.cpp
     src/systems/event_system.cpp
     src/systems/input_system.cpp
+    src/systems/texture_system.cpp
     src/platform/platform.cpp
     src/platform/file.cpp
     src/resources/image_loader.cpp
@@ -82,7 +83,7 @@ set(SOURCES
 
     # Shaders
     src/renderer/vulkan/shaders/utils.cpp
-    src/renderer/vulkan/shaders/object_shader.cpp
+    src/renderer/vulkan/shaders/material_shader.cpp
 
     # Temporal
     src/core/camera.cpp

@@ -4,7 +4,7 @@
 
 #include "core/result.h"
 #include "platform/file.h"
-#include "vulkan/shaders/object_shader.h"
+#include "vulkan/shaders/material_shader.h"
 
 namespace nk {
     class Device;

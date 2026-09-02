@@ -9,7 +9,7 @@
 #include "vulkan/command_buffer.h"
 #include "platform/file.h"
 
-#include "vulkan/shaders/object_shader_object_state.h"
+#include "vulkan/shaders/material_shader_instance_state.h"
 
 #include "collections/dyarr.h"
 #include "collections/arr.h"
@@ -39,18 +39,18 @@ namespace nk {
         VkPipelineShaderStageCreateInfo pipeline_create_info;
     };
 
-    class ObjectShader {
+    class MaterialShader {
     public:
         static constexpr u32 shader_stage_count = 2;
         static constexpr u32 object_max_object_count = 1024;
 
-        ObjectShader() = default;
-        ~ObjectShader() { shutdown(); }
+        MaterialShader() = default;
+        ~MaterialShader() { shutdown(); }
 
-        ObjectShader(const ObjectShader&) = delete;
-        ObjectShader& operator=(const ObjectShader&) = delete;
-        ObjectShader(ObjectShader&&) = delete;
-        ObjectShader& operator=(ObjectShader&&) = delete;
+        MaterialShader(const MaterialShader&) = delete;
+        MaterialShader& operator=(const MaterialShader&) = delete;
+        MaterialShader(MaterialShader&&) = delete;
+        MaterialShader& operator=(MaterialShader&&) = delete;
 
         [[nodiscard]] result<void, renderer_error> init(
             u32 width,
@@ -73,6 +73,9 @@ namespace nk {
         void release_resources(u32 object_id);
 
         void set_global_ubo(const GlobalUniformObject& global_ubo) { m_global_ubo = global_ubo; }
+        void set_default_texture(Texture* texture) noexcept {
+            m_default_texture = texture;
+        }
 
     private:
         Device* m_device = nullptr;
@@ -103,6 +106,6 @@ namespace nk {
         u32 m_object_uniform_buffer_index = 0;
 
         // TODO: make dynamic
-        ObjectShaderObjectState m_object_states[object_max_object_count]{};
+        MaterialShaderInstanceState m_object_states[object_max_object_count]{};
     };
 }

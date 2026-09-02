@@ -9,7 +9,7 @@ namespace nk {
         cl::arr<u32> generations;
     };
 
-    struct ObjectShaderObjectState {
+    struct MaterialShaderInstanceState {
         static constexpr u32 descriptor_count = 2;
 
         // Per frame

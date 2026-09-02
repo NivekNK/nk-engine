@@ -8,6 +8,7 @@
 #include "platform/platform.h"
 #include "renderer/renderer.h"
 #include "systems/input_system.h"
+#include "systems/texture_system.h"
 
 // TODO: Temporal include
 #include "core/camera.h"
@@ -47,17 +48,7 @@ namespace nk {
                     DebugLog("'Left Ctrl' key pressed in window.");
                     break;
                 case KeyCode::T: {
-                    Engine& engine = Engine::get();
-                    if (engine.m_renderer == nullptr)
-                        break;
-                    auto cycled = engine.m_renderer->cycle_debug_texture();
-                    if (!cycled) {
-                        const renderer_error& error = cycled.error();
-                        ErrorLog(
-                            "Texture cycle failed: renderer_error={}, native_code={}",
-                            static_cast<u32>(error.code),
-                            error.native_code);
-                    }
+                    Engine::get().cycle_debug_texture();
                     return true;
                 }
                 default:
@@ -152,6 +143,21 @@ namespace nk {
         }
         m_renderer = *renderer;
 
+        auto texture_system = TextureSystem::create(
+            *m_allocator,
+            *m_renderer);
+        if (!texture_system) {
+            const texture_error error = texture_system.error();
+            ErrorLog(
+                "Texture system initialization failed: texture_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_texture_system = *texture_system;
+        m_renderer->set_debug_texture(&m_texture_system->default_texture());
+
         Camera::init(m_renderer);
 
         m_clock.init(m_platform);
@@ -173,6 +179,12 @@ namespace nk {
             EventSystem::unregister_event(SystemEventCode::Resized, nullptr, on_resized);
         }
 
+        if (m_texture_system != nullptr) {
+            if (m_renderer != nullptr)
+                m_renderer->set_debug_texture(nullptr);
+            TextureSystem::destroy(*m_allocator, m_texture_system);
+            m_texture_system = nullptr;
+        }
         if (m_renderer != nullptr) {
             Renderer::destroy(m_allocator, m_renderer);
             m_renderer = nullptr;
@@ -190,6 +202,37 @@ namespace nk {
             m_allocator = nullptr;
         }
         m_initialized = false;
+    }
+
+    void Engine::cycle_debug_texture() {
+        if (m_texture_system == nullptr || m_renderer == nullptr)
+            return;
+
+        constexpr strview texture_names[]{
+            {"cobblestone", 11},
+            {"paving", 6},
+            {"paving2", 7},
+        };
+        constexpr u8 texture_count =
+            sizeof(texture_names) / sizeof(texture_names[0]);
+        const strview next_name = texture_names[m_debug_texture_index];
+
+        auto texture = m_texture_system->acquire(next_name, true);
+        if (!texture) {
+            const texture_error error = texture.error();
+            ErrorLog(
+                "Texture cycle failed: texture_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            return;
+        }
+
+        m_renderer->set_debug_texture(*texture);
+        if (!m_debug_texture_name.empty())
+            m_texture_system->release(m_debug_texture_name);
+        m_debug_texture_name = next_name;
+        m_debug_texture_index =
+            static_cast<u8>((m_debug_texture_index + 1) % texture_count);
     }
 
     void Engine::run_impl() {

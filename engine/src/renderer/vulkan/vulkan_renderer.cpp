@@ -112,7 +112,7 @@ namespace nk {
             return err(sync_created.error());
         InfoLog("Vulkan Sync Objects created.");
 
-        auto shader_initialized = m_object_shader.init(
+        auto shader_initialized = m_material_shader.init(
             m_framebuffer_width,
             m_framebuffer_height,
             image_count,
@@ -120,10 +120,10 @@ namespace nk {
             &m_device,
             m_allocator,
             m_vulkan_allocator,
-            &m_default_texture);
+            m_default_texture);
         if (!shader_initialized)
             return err(shader_initialized.error());
-        InfoLog("Vulkan Object Shader created.");
+        InfoLog("Vulkan Material Shader created.");
 
         auto buffers_created = create_buffers();
         if (!buffers_created)
@@ -182,7 +182,7 @@ namespace nk {
             return err(indices_uploaded.error());
 
         u32 object_id = 0;
-        if(!m_object_shader.acquire_resources(&object_id)) {
+        if(!m_material_shader.acquire_resources(&object_id)) {
             return err(renderer_error{
                 .code = renderer_error_code::object_resource_failed,
                 .native_code = 0,
@@ -201,8 +201,8 @@ namespace nk {
         m_object_index_buffer.shutdown();
         InfoLog("Vulkan Object Buffers shutdown.");
 
-        m_object_shader.shutdown();
-        InfoLog("Vulkan Object Shader shutdown.");
+        m_material_shader.shutdown();
+        InfoLog("Vulkan Material Shader shutdown.");
 
         // Clean up per-frame semaphores
         const u64 max_frames_in_flight = m_image_available_semaphores.length();
@@ -408,25 +408,25 @@ namespace nk {
 
     void VulkanRenderer::update_global_state(glm::mat4 projection, glm::mat4 view, glm::vec3 view_position, glm::vec4 ambient_color, i32 mode) {
         CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
-        m_object_shader.use(command_buffer);
+        m_material_shader.use(command_buffer);
 
-        m_object_shader.set_global_ubo({
+        m_material_shader.set_global_ubo({
             .projection = projection,
             .view = view,
         });
 
         // TODO: Other ubo properties
 
-        m_object_shader.update_global_state(m_graphics_command_buffers, m_image_index, m_frame_delta_time);
+        m_material_shader.update_global_state(m_graphics_command_buffers, m_image_index, m_frame_delta_time);
     }
 
     void VulkanRenderer::update_object(GeometryRenderData data) {
         CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
         
-        m_object_shader.update_object(m_graphics_command_buffers, m_image_index, data, m_frame_delta_time);
+        m_material_shader.update_object(m_graphics_command_buffers, m_image_index, data, m_frame_delta_time);
 
         // TODO: temporary test code START
-        m_object_shader.use(command_buffer);
+        m_material_shader.use(command_buffer);
 
         // Bind the vertex buffer at offset.
         VkDeviceSize offsets[1] = {0};
@@ -443,7 +443,6 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::create_texture(
         strview name,
-        bool auto_release,
         u32 width,
         u32 height,
         u32 channel_count,

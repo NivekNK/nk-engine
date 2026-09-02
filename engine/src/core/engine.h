@@ -8,6 +8,7 @@ namespace nk {
     class App;
     class Platform;
     class Renderer;
+    class TextureSystem;
 
     class Engine {
     public:
@@ -37,11 +38,15 @@ namespace nk {
         bool update(f64 delta_time);
         bool render(f64 delta_time);
         bool resize(u32 width, u32 height);
+        void cycle_debug_texture();
 
         mem::Allocator* m_allocator = nullptr;
         App* m_app = nullptr;
         Platform* m_platform = nullptr;
         Renderer* m_renderer = nullptr;
+        TextureSystem* m_texture_system = nullptr;
+        strview m_debug_texture_name{};
+        u8 m_debug_texture_index = 0;
         bool m_initialized = false;
 
         Clock m_clock;

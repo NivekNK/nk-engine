@@ -6,6 +6,7 @@
 #include "renderer/renderer.h"
 #include "renderer/vulkan/swapchain.h"
 #include "renderer/vulkan/vulkan_renderer.h"
+#include "systems/texture_system.h"
 
 namespace {
     class TestRenderer final : public nk::Renderer {
@@ -28,11 +29,8 @@ namespace {
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
-        const nk::Texture& diffuse_texture() const { return m_diffuse_texture; }
-
         nk::result<void, nk::renderer_error> create_texture(
             nk::strview,
-            bool,
             nk::u32 width,
             nk::u32 height,
             nk::u32 channel_count,
@@ -248,7 +246,7 @@ TEST(RendererResult, TextureAllocationFailureDoesNotPublishPartialState) {
     const nk::u8 pixel[4]{};
 
     auto created = renderer.create_texture(
-        "test", false, 1, 1, 4, pixel, false, &output);
+        "test", 1, 1, 4, pixel, false, &output);
 
     ASSERT_FALSE(created);
     EXPECT_EQ(created.error().code, nk::renderer_error_code::out_of_memory);
@@ -261,78 +259,80 @@ TEST(RendererResult, TextureAllocationFailureDoesNotPublishPartialState) {
     EXPECT_EQ(output.m_internal_data, before.m_internal_data);
 }
 
-TEST(RendererResult, LoadsAndReplacesTexturesTransactionally) {
+TEST(TextureSystem, LoadsCachesAndAutoReleasesTextures) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    nk::Texture texture{
-        .width = 1,
-        .height = 1,
-        .channel_count = 4,
-        .generation = 7,
-        .m_internal_data = reinterpret_cast<void*>(0x1),
-    };
+    auto created = nk::TextureSystem::create(allocator, renderer, 4);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
 
-    renderer.fail_texture_create(true);
-    auto failed = renderer.load_texture("cobblestone", texture);
-    ASSERT_FALSE(failed);
-    EXPECT_EQ(
-        failed.error().code,
-        nk::renderer_error_code::texture_sampler_creation_failed);
-    EXPECT_EQ(texture.generation, 7u);
-    EXPECT_EQ(texture.m_internal_data, reinterpret_cast<void*>(0x1));
-    EXPECT_EQ(renderer.destroyed_textures(), 0u);
+    auto first = textures->acquire("cobblestone", true);
+    ASSERT_TRUE(first);
+    EXPECT_EQ((*first)->width, 512u);
+    EXPECT_EQ((*first)->height, 512u);
+    EXPECT_EQ((*first)->generation, 0u);
 
-    renderer.fail_texture_create(false);
-    auto loaded = renderer.load_texture("cobblestone", texture);
-    ASSERT_TRUE(loaded);
-    EXPECT_EQ(texture.width, 512u);
-    EXPECT_EQ(texture.height, 512u);
-    EXPECT_EQ(texture.channel_count, 4u);
-    EXPECT_EQ(texture.generation, 8u);
-    EXPECT_EQ(texture.m_internal_data, reinterpret_cast<void*>(0x2));
+    auto second = textures->acquire("cobblestone", false);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(*first, *second);
+    EXPECT_EQ(textures->reference_count("cobblestone"), 2u);
+    EXPECT_EQ(textures->loaded_count(), 1u);
+
+    textures->release("cobblestone");
+    EXPECT_EQ(textures->reference_count("cobblestone"), 1u);
+    textures->release("cobblestone");
+    EXPECT_EQ(textures->reference_count("cobblestone"), 0u);
+    EXPECT_EQ(textures->loaded_count(), 0u);
     EXPECT_EQ(renderer.destroyed_textures(), 1u);
+
+    nk::TextureSystem::destroy(allocator, textures);
+    EXPECT_EQ(renderer.destroyed_textures(), 2u);
 }
 
-TEST(RendererResult, KeepsTextureStateWhenImageLoadingFails) {
+TEST(TextureSystem, DoesNotPublishFailedLoads) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    nk::Texture texture{
-        .generation = 3,
-        .m_internal_data = reinterpret_cast<void*>(0x1),
-    };
+    auto created = nk::TextureSystem::create(allocator, renderer, 2);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
 
-    auto missing = renderer.load_texture("missing", texture);
+    auto missing = textures->acquire("missing", true);
     ASSERT_FALSE(missing);
     EXPECT_EQ(
         missing.error().code,
-        nk::renderer_error_code::texture_file_failed);
-    EXPECT_EQ(texture.generation, 3u);
-    EXPECT_EQ(texture.m_internal_data, reinterpret_cast<void*>(0x1));
+        nk::texture_error_code::file_failed);
+    EXPECT_EQ(textures->loaded_count(), 0u);
     EXPECT_EQ(renderer.destroyed_textures(), 0u);
+
+    renderer.fail_texture_create(true);
+    auto upload_failed = textures->acquire("cobblestone", true);
+    ASSERT_FALSE(upload_failed);
+    EXPECT_EQ(
+        upload_failed.error().code,
+        nk::texture_error_code::renderer_failed);
+    EXPECT_EQ(textures->loaded_count(), 0u);
+
+    nk::TextureSystem::destroy(allocator, textures);
+    EXPECT_EQ(renderer.destroyed_textures(), 1u);
 }
 
-TEST(RendererResult, CyclesChapterTexturesAndAdvancesGeneration) {
+TEST(TextureSystem, EnforcesCapacityAndReusesReleasedSlots) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto created = nk::TextureSystem::create(allocator, renderer, 1);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
 
-    ASSERT_TRUE(renderer.cycle_debug_texture());
-    EXPECT_EQ(renderer.diffuse_texture().width, 512u);
-    EXPECT_EQ(renderer.diffuse_texture().height, 512u);
-    EXPECT_EQ(renderer.diffuse_texture().generation, 0u);
+    ASSERT_TRUE(textures->acquire("cobblestone", true));
+    auto full = textures->acquire("paving", true);
+    ASSERT_FALSE(full);
+    EXPECT_EQ(full.error().code, nk::texture_error_code::capacity_exceeded);
 
-    ASSERT_TRUE(renderer.cycle_debug_texture());
-    EXPECT_EQ(renderer.diffuse_texture().width, 480u);
-    EXPECT_EQ(renderer.diffuse_texture().height, 480u);
-    EXPECT_EQ(renderer.diffuse_texture().generation, 1u);
+    textures->release("cobblestone");
+    auto reused = textures->acquire("paving", true);
+    ASSERT_TRUE(reused);
+    EXPECT_EQ((*reused)->width, 480u);
+    EXPECT_EQ(textures->loaded_count(), 1u);
 
-    ASSERT_TRUE(renderer.cycle_debug_texture());
-    EXPECT_EQ(renderer.diffuse_texture().width, 480u);
-    EXPECT_EQ(renderer.diffuse_texture().height, 480u);
-    EXPECT_EQ(renderer.diffuse_texture().generation, 2u);
-    EXPECT_EQ(renderer.destroyed_textures(), 2u);
-
-    ASSERT_TRUE(renderer.cycle_debug_texture());
-    EXPECT_EQ(renderer.diffuse_texture().width, 512u);
-    EXPECT_EQ(renderer.diffuse_texture().generation, 3u);
-    EXPECT_EQ(renderer.destroyed_textures(), 3u);
+    nk::TextureSystem::destroy(allocator, textures);
 }

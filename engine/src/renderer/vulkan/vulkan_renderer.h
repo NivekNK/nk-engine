@@ -13,7 +13,7 @@
 #include "vulkan/buffer.h"
 
 // Shaders
-#include "vulkan/shaders/object_shader.h"
+#include "vulkan/shaders/material_shader.h"
 
 namespace nk {
     class VulkanRenderer : public Renderer {
@@ -40,7 +40,6 @@ namespace nk {
     
         virtual result<void, renderer_error> create_texture(
             strview name,
-            bool auto_release,
             u32 width,
             u32 height,
             u32 channel_count,
@@ -50,6 +49,9 @@ namespace nk {
         virtual void destroy_texture(Texture* texture) override;
 
     private:
+        void on_default_texture_changed(Texture* texture) override {
+            m_material_shader.set_default_texture(texture);
+        }
         [[nodiscard]] result<void, renderer_error> recreate_framebuffers();
         [[nodiscard]] result<void, renderer_error> recreate_command_buffers();
         [[nodiscard]] result<void, renderer_error> recreate_sync_objects();
@@ -97,7 +99,7 @@ namespace nk {
         u32 m_current_frame = 0;
 
         // Shaders
-        ObjectShader m_object_shader;
+        MaterialShader m_material_shader;
 
         // Buffers
         Buffer m_object_vertex_buffer;
