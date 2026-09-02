@@ -533,15 +533,16 @@ Esta fase sólo comienza si la metadata separada y escalar fue aceptada.
 
 ### Trabajo
 
-- [ ] Conservar siempre un lookup escalar correcto.
-- [ ] Implementar comparación agrupada de fingerprints con SSE2 en x86-64 y
-      NEON en AArch64 sólo donde ambas sean baseline de la plataforma.
-- [ ] Integrar la condición de distancia Robin Hood en la máscara o conservar
+- [x] Conservar siempre un lookup escalar correcto.
+- [x] Evaluar comparación agrupada de fingerprints con SSE2 en x86-64; al
+      fallar la puerta en la primera plataforma baseline, no extender el
+      candidato rechazado a NEON en AArch64.
+- [x] Integrar la condición de distancia Robin Hood en la máscara o conservar
       una terminación escalar demostrablemente correcta.
-- [ ] Probar inicios no alineados, wrap-around, grupos parciales y capacidad
+- [x] Probar inicios no alineados, wrap-around, grupos parciales y capacidad
       mínima.
-- [ ] Medir por separado tablas de 0-16, 17-128 y más de 128 entradas.
-- [ ] Medir code size y tiempo de compilación de las instanciaciones reales.
+- [x] Medir por separado tablas de 0-16, 17-128 y más de 128 entradas.
+- [x] Medir code size y tiempo de compilación de las instanciaciones reales.
 
 ### Puerta específica
 
