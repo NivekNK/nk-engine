@@ -567,17 +567,18 @@ flag experimental: es la implementación portátil obligatoria.
 
 ### Trabajo
 
-- [ ] Exponer `reserve` público con el mismo tracking de source location.
-- [ ] Implementar `emplace_back` construyendo directamente en el slot final.
-- [ ] Resolver y probar argumentos que aliasen elementos del propio `dyarr`
+- [x] Exponer `reserve` público con el mismo tracking de source location.
+- [x] Implementar `emplace_back` construyendo directamente en el slot final.
+- [x] Resolver y probar argumentos que aliasen elementos del propio `dyarr`
       durante crecimiento.
-- [ ] Implementar `append(slice<const T>)` con una única reserva y operación por
+- [x] Implementar `append(slice<const T>)` con una única reserva y operación por
       rango.
-- [ ] Evaluar inserción por rango sólo si existe consumidor.
-- [ ] Mantener crecimiento por factor 2 como default; medir 1,5 sólo como
+- [x] Evaluar inserción por rango sólo si existe consumidor; no se encontró uno
+      y no se amplió la API sin demanda.
+- [x] Mantener crecimiento por factor 2 como default; medir 1,5 sólo como
       experimento, sin añadir una policy pública.
-- [ ] Conservar `optional<T>` para `pop/remove`, donde vacío es normal.
-- [ ] Evaluar `result<void, storage_error>` para reserve/emplace/append. El mapa
+- [x] Conservar `optional<T>` para `pop/remove`, donde vacío es normal.
+- [x] Adoptar `result<void, storage_error>` para reserve/emplace/append. El `dyarr`
       no inicializado o un índice inválido siguen siendo contratos, no errores
       de storage.
 
@@ -743,10 +744,10 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 | R2 | File y shaders con errores tipados | aceptada | `refactor(io): propagate typed file failures` | [Evidencia](result-phase-2-io-evidence.md) |
 | R3 | Renderer/Vulkan con outcomes y errores | aceptada | `refactor(renderer): distinguish frame outcomes and failures` | [Evidencia](result-phase-3-renderer-evidence.md) |
 | O1 | Fast path de allocator raw | aceptada | `perf(memory): add a fast path for fundamental alignment` | [Evidencia](result-phase-4-allocator-fast-path.md) |
-| O2 | API tipada y heterogénea de `map` | pendiente | — | — |
-| O3 | Metadata compacta escalar de `map` | pendiente | — | — |
-| O4 | Filtrado SIMD de `map` | pendiente | — | — |
-| O5 | Capacidad y construcción directa de `dyarr` | pendiente | — | — |
+| O2 | API tipada y heterogénea de `map` | aceptada | `10cfefb` | [Evidencia](result-map-api-evidence.md) |
+| O3 | Metadata compacta escalar de `map` | aceptada | `0ee19b5` | [Evidencia](result-map-compact-layout-evidence.md) |
+| O4 | Filtrado SIMD de `map` | rechazada | `4762866` | [Evidencia](result-map-vector-lookup-findings.md) |
+| O5 | Capacidad y construcción directa de `dyarr` | aceptada | `43437db` | [Evidencia](result-dyarr-growth-evidence.md) |
 | O6 | Layout compacto de `str` | pendiente | — | — |
 | C1 | Integración y cierre | pendiente | — | — |
 
