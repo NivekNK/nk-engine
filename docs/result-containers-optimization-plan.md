@@ -607,16 +607,16 @@ crecimiento se revierte por separado y nunca comparte commit con `reserve` o
 
 ### Trabajo
 
-- [ ] Registrar histograma de longitudes de strings propietarios en
+- [x] Registrar histograma de longitudes de strings propietarios en
       inicialización y carga de recursos.
-- [ ] Diseñar una representación de 32 bytes que conserve `Allocator*`, al
+- [x] Diseñar una representación de 32 bytes que conserve `Allocator*`, al
       menos 23 caracteres inline, terminador nulo y heap con length/capacity.
-- [ ] Rechazar cualquier diseño basado en punteros etiquetados o lectura de un
+- [x] Rechazar cualquier diseño basado en punteros etiquetados o lectura de un
       miembro inactivo de unión.
-- [ ] Mantener intacta la API y la sintaxis `str{allocator, texto}`.
-- [ ] Probar transición SSO/heap, copy/move entre allocators, reserve, clear,
+- [x] Mantener intacta la API y la sintaxis `str{allocator, texto}`.
+- [x] Probar transición SSO/heap, copy/move entre allocators, reserve, clear,
       asignación fallida y strings en cada frontera de capacidad.
-- [ ] Medir comparación, append, move, iteración y densidad dentro de `arr` y
+- [x] Medir comparación, append, move, iteración y densidad dentro de `arr` y
       `dyarr`.
 
 ### Puerta específica
@@ -748,7 +748,7 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 | O3 | Metadata compacta escalar de `map` | aceptada | `0ee19b5` | [Evidencia](result-map-compact-layout-evidence.md) |
 | O4 | Filtrado SIMD de `map` | rechazada | `4762866` | [Evidencia](result-map-vector-lookup-findings.md) |
 | O5 | Capacidad y construcción directa de `dyarr` | aceptada | `43437db` | [Evidencia](result-dyarr-growth-evidence.md) |
-| O6 | Layout compacto de `str` | pendiente | — | — |
+| O6 | Layout compacto de `str` | rechazada | este commit | [Evidencia](result-compact-string-layout-findings.md) |
 | C1 | Integración y cierre | pendiente | — | — |
 
 ## Fuera de alcance
