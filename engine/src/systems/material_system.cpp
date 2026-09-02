@@ -248,10 +248,11 @@ namespace nk {
         if (reference->reference_count != 0 || !reference->auto_release)
             return;
 
+        const strbuf<material_name_capacity> released_name{name};
         destroy_material(m_materials[reference->slot]);
-        m_references.remove(name);
+        m_references.remove(released_name.view());
         --m_loaded_count;
-        TraceLog("Material '{}' unloaded.", name);
+        TraceLog("Material '{}' unloaded.", released_name.view());
     }
 
     result<void, material_error> MaterialSystem::set_diffuse_texture(

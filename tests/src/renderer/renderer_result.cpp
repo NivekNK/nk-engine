@@ -551,6 +551,13 @@ TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     EXPECT_EQ(materials->loaded_count(), 0u);
     EXPECT_EQ(renderer.destroyed_geometries(), 1u);
 
+    auto reacquired_material = materials->acquire("test_material");
+    ASSERT_TRUE(reacquired_material);
+    EXPECT_TRUE((*reacquired_material)->valid());
+    EXPECT_EQ(materials->reference_count("test_material"), 1u);
+    materials->release((*reacquired_material)->name.view());
+    EXPECT_EQ(materials->loaded_count(), 0u);
+
     nk::GeometrySystem::destroy(allocator, geometries);
     nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
