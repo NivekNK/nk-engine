@@ -121,11 +121,20 @@ namespace nk {
             return false;
         }
 
-        m_renderer = Renderer::create(m_allocator, m_platform, m_app->initial_config.name);
-        if (m_renderer == nullptr) {
+        auto renderer = Renderer::create(
+            m_allocator,
+            m_platform,
+            m_app->initial_config.name);
+        if (!renderer) {
+            const renderer_error& error = renderer.error();
+            ErrorLog(
+                "Renderer initialization failed: renderer_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
             shutdown_impl();
             return false;
         }
+        m_renderer = *renderer;
 
         Camera::init(m_renderer);
 
@@ -215,9 +224,18 @@ namespace nk {
                 }
 
                 // TODO: refactor packet creation
-                m_renderer->draw_frame({
+                auto frame = m_renderer->draw_frame({
                     .delta_time = delta,
                 });
+                if (!frame) {
+                    const renderer_error& error = frame.error();
+                    ErrorLog(
+                        "Rendering failed: renderer_error={}, native_code={}",
+                        static_cast<u32>(error.code),
+                        error.native_code);
+                    m_platform->close();
+                    break;
+                }
 
                 // Figure out how long the frame took
                 f64 frame_end_time = m_platform->get_absolute_time();

@@ -34,7 +34,11 @@ namespace nk {
         return *this;
     }
 
-    void CommandBuffer::init(VkCommandPool command_pool, Device* device, bool is_primary, bool is_single_use) {
+    result<void, renderer_error> CommandBuffer::init(
+        VkCommandPool command_pool,
+        Device* device,
+        bool is_primary,
+        bool is_single_use) {
         m_command_pool = command_pool;
         m_device = device;
         m_is_single_use = is_single_use;
@@ -47,12 +51,23 @@ namespace nk {
         allocate_info.pNext = nullptr;
 
         m_state = CommandBufferState::NotAllocated;
-        VulkanCheck(vkAllocateCommandBuffers(m_device->get(), &allocate_info, &m_command_buffer));
+        VkResult result = vkAllocateCommandBuffers(
+            m_device->get(), &allocate_info, &m_command_buffer);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::command_buffer_failed,
+                .native_code = static_cast<i32>(result),
+            });
         m_state = CommandBufferState::Ready;
 
         if (m_is_single_use) {
-            begin(false, false);
+            auto begun = begin(false, false);
+            if (!begun) {
+                shutdown();
+                return err(begun.error());
+            }
         }
+        return ok();
     }
 
     void CommandBuffer::shutdown() {
@@ -64,12 +79,18 @@ namespace nk {
         m_state = CommandBufferState::NotAllocated;
     }
 
-    void CommandBuffer::renew(VkCommandPool command_pool, Device* device, bool is_primary, bool is_single_use) {
+    result<void, renderer_error> CommandBuffer::renew(
+        VkCommandPool command_pool,
+        Device* device,
+        bool is_primary,
+        bool is_single_use) {
         shutdown();
-        init(command_pool, device, is_primary, is_single_use);
+        return init(command_pool, device, is_primary, is_single_use);
     }
 
-    void CommandBuffer::begin(bool is_renderpass_continue, bool is_simultaneous_use) {
+    result<void, renderer_error> CommandBuffer::begin(
+        bool is_renderpass_continue,
+        bool is_simultaneous_use) {
         VkCommandBufferBeginInfo begin_info = {};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.flags = 0;
@@ -83,20 +104,33 @@ namespace nk {
             begin_info.flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
         }
 
-        VulkanCheck(vkBeginCommandBuffer(m_command_buffer, &begin_info));
+        const VkResult result = vkBeginCommandBuffer(m_command_buffer, &begin_info);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::command_buffer_failed,
+                .native_code = static_cast<i32>(result),
+            });
         m_state = CommandBufferState::Recording;
+        return ok();
     }
 
-    void CommandBuffer::end() {
-        VulkanCheck(vkEndCommandBuffer(m_command_buffer));
+    result<void, renderer_error> CommandBuffer::end() {
+        const VkResult result = vkEndCommandBuffer(m_command_buffer);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::command_buffer_failed,
+                .native_code = static_cast<i32>(result),
+            });
         m_state = CommandBufferState::RecordingEnded;
+        return ok();
     }
 
-    void CommandBuffer::end_single_use(VkQueue queue) {
-        end();
+    result<void, renderer_error> CommandBuffer::end_single_use(VkQueue queue) {
+        auto ended = end();
+        if (!ended)
+            return err(ended.error());
         if (!m_is_single_use) {
-            WarnLog("nk::CommandBuffer::end_single_use trying to end non single use Vulkan Command Buffer!");
-            return;
+            std::abort();
         }
 
         // Submit the queue
@@ -104,11 +138,22 @@ namespace nk {
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &m_command_buffer;
-        VulkanCheck(vkQueueSubmit(queue, 1, &submit_info, nullptr));
+        VkResult result = vkQueueSubmit(queue, 1, &submit_info, nullptr);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::queue_submit_failed,
+                .native_code = static_cast<i32>(result),
+            });
 
         // Wait for it to finish
-        VulkanCheck(vkQueueWaitIdle(queue));
+        result = vkQueueWaitIdle(queue);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::device_wait_failed,
+                .native_code = static_cast<i32>(result),
+            });
 
         shutdown();
+        return ok();
     }
 }

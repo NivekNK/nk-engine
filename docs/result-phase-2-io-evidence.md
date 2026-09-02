@@ -45,10 +45,11 @@ conserva:
 - el `VkResult` nativo de `vkCreateShaderModule`.
 
 La función inferior ya no registra el mismo error ni usa `VulkanCheck` para
-convertir una creación fallida en fatal. `ObjectShader`, que sí conoce nombre y
-stage, genera un único log contextual. El bytecode se valida como no vacío,
-múltiplo de cuatro y alineado para `u32`; su storage se libera por RAII y el
-`pCode` temporal se limpia después de la llamada Vulkan.
+convertir una creación fallida en fatal. El error cruza `ObjectShader` y el
+renderer sin duplicar logs; `Engine`, el límite que decide cerrar la aplicación,
+genera el único log contextual. El bytecode se valida como no vacío, múltiplo
+de cuatro y alineado para `u32`; su storage se libera por RAII y el `pCode`
+temporal se limpia después de la llamada Vulkan.
 
 ## Fallos cubiertos
 

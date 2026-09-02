@@ -30,7 +30,10 @@ namespace nk {
         return *this;
     }
 
-    void Fence::init(bool is_signaled, Device* device, VkAllocationCallbacks* vulkan_allocator) {
+    result<void, renderer_error> Fence::init(
+        bool is_signaled,
+        Device* device,
+        VkAllocationCallbacks* vulkan_allocator) {
         m_is_signaled = is_signaled;
         m_device = device;
         m_vulkan_allocator = vulkan_allocator;
@@ -40,7 +43,17 @@ namespace nk {
         if (m_is_signaled) {
             fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         }
-        VulkanCheck(vkCreateFence(m_device->get(), &fence_create_info, m_vulkan_allocator, &m_fence));
+        const VkResult result = vkCreateFence(
+            m_device->get(),
+            &fence_create_info,
+            m_vulkan_allocator,
+            &m_fence);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = static_cast<i32>(result),
+            });
+        return ok();
     }
 
     void Fence::shutdown() {
@@ -53,39 +66,33 @@ namespace nk {
         m_fence = nullptr;
     }
 
-    bool Fence::wait(u64 timeout_ns) {
+    result<void, renderer_error> Fence::wait(u64 timeout_ns) {
         if (m_is_signaled)
-            return true;
+            return ok();
 
         VkResult result = vkWaitForFences(m_device->get(), 1, &m_fence, true, timeout_ns);
         switch (result) {
             case VK_SUCCESS:
                 m_is_signaled = true;
-                return true;
-            case VK_TIMEOUT:
-                WarnLog("Fence::wait - Timed out");
-                break;
-            case VK_ERROR_DEVICE_LOST:
-                WarnLog("Fence::wait - VK_ERROR_DEVICE_LOST.");
-                break;
-            case VK_ERROR_OUT_OF_HOST_MEMORY:
-                WarnLog("Fence::wait - VK_ERROR_OUT_OF_HOST_MEMORY.");
-                break;
-            case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-                WarnLog("Fence::wait - VK_ERROR_OUT_OF_DEVICE_MEMORY.");
-                break;
+                return ok();
             default:
-                WarnLog("Fence::wait - An unknown error has occurred.");
-                break;
+                return err(renderer_error{
+                    .code = renderer_error_code::fence_wait_failed,
+                    .native_code = static_cast<i32>(result),
+                });
         }
-
-        return false;
     }
 
-    void Fence::reset() {
+    result<void, renderer_error> Fence::reset() {
         if (m_is_signaled) {
-            VulkanCheck(vkResetFences(m_device->get(), 1, &m_fence));
+            const VkResult result = vkResetFences(m_device->get(), 1, &m_fence);
+            if (result != VK_SUCCESS)
+                return err(renderer_error{
+                    .code = renderer_error_code::fence_reset_failed,
+                    .native_code = static_cast<i32>(result),
+                });
             m_is_signaled = false;
         }
+        return ok();
     }
 }

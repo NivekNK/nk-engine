@@ -364,21 +364,21 @@ y se usa `result<void, file_error>` con salida explícita; no se elimina
 
 ### Trabajo
 
-- [ ] Definir `renderer_error_code`, `renderer_error` y outcomes normales de
+- [x] Definir `renderer_error_code`, `renderer_error` y outcomes normales de
       frame/swapchain.
-- [ ] Tratar argumentos inválidos de `Renderer::create` como contrato y
+- [x] Tratar argumentos inválidos de `Renderer::create` como contrato y
       distinguir OOM de fallo de inicialización en su resultado.
-- [ ] Hacer fallible `init` sin dejar un renderer parcialmente publicable.
-- [ ] Convertir creación de textura a un resultado con ownership claro.
-- [ ] Separar `frame_outcome::rendered` y
+- [x] Hacer fallible `init` sin dejar un renderer parcialmente publicable.
+- [x] Convertir creación de textura a un resultado con ownership claro.
+- [x] Separar `frame_outcome::rendered` y
       `frame_outcome::skipped_swapchain_recreation` de fallos reales.
-- [ ] Preservar `VkResult` relevante sin filtrar detalles Vulkan por toda la API
+- [x] Preservar `VkResult` relevante sin filtrar detalles Vulkan por toda la API
       pública.
-- [ ] Eliminar logs internos que provoquen duplicación al propagar el mismo
+- [x] Eliminar logs internos que provoquen duplicación al propagar el mismo
       error.
-- [ ] Probar device lost, out-of-date/suboptimal, fallo de fence, submit,
+- [x] Probar device lost, out-of-date/suboptimal, fallo de fence, submit,
       allocation de textura e inicialización parcial.
-- [ ] Repetir smoke test Wayland/Niri y validar shutdown después de cada punto
+- [x] Repetir smoke test Wayland/Niri y validar shutdown después de cada punto
       de fallo inyectado.
 
 ### Criterio de salida
@@ -740,7 +740,7 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 | R0 | Inventario y baseline ampliada | aceptada | `test(performance): capture error and container baselines` | [Evidencia](result-containers-phase-0-baseline.md) |
 | R1 | `result<T, E>` y `result<void, E>` | aceptada | `feat(core): add allocation-free result values` | [Evidencia](result-phase-1-evidence.md) |
 | R2 | File y shaders con errores tipados | aceptada | `refactor(io): propagate typed file failures` | [Evidencia](result-phase-2-io-evidence.md) |
-| R3 | Renderer/Vulkan con outcomes y errores | pendiente | — | — |
+| R3 | Renderer/Vulkan con outcomes y errores | aceptada | `refactor(renderer): distinguish frame outcomes and failures` | [Evidencia](result-phase-3-renderer-evidence.md) |
 | O1 | Fast path de allocator raw | pendiente | — | — |
 | O2 | API tipada y heterogénea de `map` | pendiente | — | — |
 | O3 | Metadata compacta escalar de `map` | pendiente | — | — |

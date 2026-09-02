@@ -41,12 +41,13 @@ namespace nk {
         return *this;
     }
 
-    void Framebuffer::init(const u32 width,
-                           const u32 height,
-                           cl::arr<VkImageView>& attachments,
-                           Device* device,
-                           RenderPass& render_pass,
-                           VkAllocationCallbacks* vulkan_allocator) {
+    result<void, renderer_error> Framebuffer::init(
+        const u32 width,
+        const u32 height,
+        cl::arr<VkImageView>& attachments,
+        Device* device,
+        RenderPass& render_pass,
+        VkAllocationCallbacks* vulkan_allocator) {
         m_width = width;
         m_height = height;
         m_attachments = std::move(attachments);
@@ -63,7 +64,17 @@ namespace nk {
         framebuffer_create_info.height = height;
         framebuffer_create_info.layers = 1;
 
-        VulkanCheck(vkCreateFramebuffer(m_device->get(), &framebuffer_create_info, m_vulkan_allocator, &m_framebuffer));
+        const VkResult result = vkCreateFramebuffer(
+            m_device->get(),
+            &framebuffer_create_info,
+            m_vulkan_allocator,
+            &m_framebuffer);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::framebuffer_creation_failed,
+                .native_code = static_cast<i32>(result),
+            });
+        return ok();
     }
 
     void Framebuffer::shutdown() {
@@ -74,13 +85,20 @@ namespace nk {
         m_attachments.arr_shutdown();
     }
 
-    void Framebuffer::renew(const u32 width,
-                            const u32 height,
-                            cl::arr<VkImageView>& attachments,
-                            Device* device,
-                            RenderPass& render_pass,
-                            VkAllocationCallbacks* vulkan_allocator) {
+    result<void, renderer_error> Framebuffer::renew(
+        const u32 width,
+        const u32 height,
+        cl::arr<VkImageView>& attachments,
+        Device* device,
+        RenderPass& render_pass,
+        VkAllocationCallbacks* vulkan_allocator) {
         shutdown();
-        init(width, height, attachments, device, render_pass, vulkan_allocator);
+        return init(
+            width,
+            height,
+            attachments,
+            device,
+            render_pass,
+            vulkan_allocator);
     }
 }

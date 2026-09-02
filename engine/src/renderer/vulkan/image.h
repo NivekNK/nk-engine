@@ -1,6 +1,8 @@
 #pragma once
 
 #include "vulkan/vk.h"
+#include "core/result.h"
+#include "renderer/renderer_result.h"
 
 namespace nk {
     class Device;
@@ -27,15 +29,22 @@ namespace nk {
         Image(Image&& other) = delete;
         Image& operator=(Image&& other) = delete;
 
-        void init(const VulkanImageCreateInfo& create_info, Device* device, VkAllocationCallbacks* allocator);
+        [[nodiscard]] result<void, renderer_error> init(
+            const VulkanImageCreateInfo& create_info,
+            Device* device,
+            VkAllocationCallbacks* allocator);
         void shutdown();
 
-        void renew(const VulkanImageCreateInfo& create_info, Device* device, VkAllocationCallbacks* allocator) {
+        [[nodiscard]] result<void, renderer_error> renew(
+            const VulkanImageCreateInfo& create_info,
+            Device* device,
+            VkAllocationCallbacks* allocator) {
             shutdown();
-            init(create_info, device, allocator);
+            return init(create_info, device, allocator);
         }
 
-        void create_view(VkImageAspectFlags aspect_flags);
+        [[nodiscard]] result<void, renderer_error> create_view(
+            VkImageAspectFlags aspect_flags);
 
         void transition_layout(CommandBuffer* command_buffer, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout);
 
@@ -44,13 +53,13 @@ namespace nk {
         VkImageView get_view() const { return m_view; }
 
     private:
-        Device* m_device;
-        VkAllocationCallbacks* m_vulkan_allocator;
+        Device* m_device = nullptr;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
 
-        VkImage m_image;
-        VkDeviceMemory m_memory;
-        VkImageView m_view;
-        VkExtent2D m_extent;
-        VkFormat m_format;
+        VkImage m_image = nullptr;
+        VkDeviceMemory m_memory = nullptr;
+        VkImageView m_view = nullptr;
+        VkExtent2D m_extent{};
+        VkFormat m_format = VK_FORMAT_UNDEFINED;
     };
 }

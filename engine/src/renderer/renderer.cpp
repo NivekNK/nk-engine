@@ -14,26 +14,32 @@
 #include <glm/gtx/quaternion.hpp>
 
 namespace nk {
-    Renderer* Renderer::create(
+    result<Renderer*, renderer_error> Renderer::create(
         mem::Allocator* allocator,
         Platform* platform,
         const strview application_name) {
         if (allocator == nullptr || platform == nullptr)
-            return nullptr;
+            std::abort();
 
         auto renderer = allocator->construct_t(
             VulkanRenderer,
             *allocator,
             application_name);
         if (renderer == nullptr)
-            return nullptr;
+            return err(renderer_error{
+                .code = renderer_error_code::out_of_memory,
+                .native_code = 0,
+            });
 
         renderer->m_platform = platform;
 
         renderer->m_allocator = native_construct(mem::MallocAllocator);
         if (renderer->m_allocator == nullptr) {
             allocator->deconstruct_t(VulkanRenderer, renderer);
-            return nullptr;
+            return err(renderer_error{
+                .code = renderer_error_code::out_of_memory,
+                .native_code = 0,
+            });
         }
         if (renderer->m_allocator->allocator_init(
                 mem::MallocAllocator,
@@ -41,7 +47,10 @@ namespace nk {
                 MemoryType::Renderer) == nullptr) {
             native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
             allocator->deconstruct_t(VulkanRenderer, renderer);
-            return nullptr;
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = 0,
+            });
         }
 
         renderer->m_frame_number = 0;
@@ -83,9 +92,16 @@ namespace nk {
             }
         }
             
-        renderer->init();
+        auto initialized = renderer->init();
+        if (!initialized) {
+            const renderer_error error = initialized.error();
+            renderer->shutdown();
+            native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            allocator->deconstruct_t(VulkanRenderer, renderer);
+            return err(error);
+        }
 
-        renderer->create_texture(
+        auto texture_created = renderer->create_texture(
             "default",
             false,
             tex_dimension,
@@ -94,55 +110,63 @@ namespace nk {
             pixels,
             false,
             &renderer->m_default_texture);
+        if (!texture_created) {
+            const renderer_error error = texture_created.error();
+            renderer->shutdown();
+            native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            allocator->deconstruct_t(VulkanRenderer, renderer);
+            return err(error);
+        }
 
-        return static_cast<Renderer*>(renderer);
+        return ok(static_cast<Renderer*>(renderer));
     }
 
     void Renderer::destroy(mem::Allocator* allocator, Renderer* renderer) {
         if (allocator == nullptr || renderer == nullptr)
             return;
-        renderer->destroy_texture(&renderer->m_default_texture);
+        if (renderer->m_default_texture.m_internal_data != nullptr)
+            renderer->destroy_texture(&renderer->m_default_texture);
         renderer->shutdown();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
         allocator->deconstruct_t(VulkanRenderer, renderer);
     }
 
-    bool Renderer::draw_frame(const RenderPacket& packet) {
-        if (begin_frame(packet.delta_time)) {
-            update_global_state(
-                m_projection,
-                m_view,
-                glm::vec3(0.0f),
-                glm::vec4(1.0f),
-                0);
+    result<frame_outcome, renderer_error> Renderer::draw_frame(
+        const RenderPacket& packet) {
+        auto begun = begin_frame(packet.delta_time);
+        if (!begun)
+            return err(begun.error());
+        if (*begun == frame_outcome::skipped_swapchain_recreation)
+            return ok(frame_outcome::skipped_swapchain_recreation);
 
-            static f32 angle = 0.01f;
-            glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        update_global_state(
+            m_projection,
+            m_view,
+            glm::vec3(0.0f),
+            glm::vec4(1.0f),
+            0);
 
-            if (Input::is_key_down(KeyCode::F)) {
-                m_temp_active_rotation = !m_temp_active_rotation;
-            }
+        static f32 angle = 0.01f;
+        glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
-            if (m_temp_active_rotation) {
-                angle += 0.001f;
-                glm::vec3 forward = glm::vec3(0.0f, 0.0f, -1.0f);
-                rotation = glm::angleAxis(angle, forward);
-            }
-
-            glm::mat4 model = glm::toMat4(rotation);
-            GeometryRenderData data = {};
-            data.object_id = 0; // TODO: actual object_id
-            data.model = model;
-            data.textures[0] = &m_default_texture;
-            update_object(data);
-
-            bool result = end_frame_impl(packet.delta_time);
-            if (!result) {
-                ErrorLog("nk::Renderer::end_frame failed. Application shutting down.");
-                return false;
-            }
+        if (Input::is_key_down(KeyCode::F)) {
+            m_temp_active_rotation = !m_temp_active_rotation;
         }
-        return true;
+
+        if (m_temp_active_rotation) {
+            angle += 0.001f;
+            glm::vec3 forward = glm::vec3(0.0f, 0.0f, -1.0f);
+            rotation = glm::angleAxis(angle, forward);
+        }
+
+        glm::mat4 model = glm::toMat4(rotation);
+        GeometryRenderData data = {};
+        data.object_id = 0; // TODO: actual object_id
+        data.model = model;
+        data.textures[0] = &m_default_texture;
+        update_object(data);
+
+        return end_frame_impl(packet.delta_time);
     }
 
     void Renderer::resize(u32 width, u32 height) {
@@ -151,9 +175,13 @@ namespace nk {
         on_resized(width, height);
     }
 
-    bool Renderer::end_frame_impl(f64 delta_time) {
-        bool result = end_frame(delta_time);
-        m_frame_number++;
-        return result;
+    result<frame_outcome, renderer_error> Renderer::end_frame_impl(
+        const f64 delta_time) {
+        auto ended = end_frame(delta_time);
+        if (!ended)
+            return err(ended.error());
+        if (*ended == frame_outcome::rendered)
+            ++m_frame_number;
+        return ended;
     }
 }

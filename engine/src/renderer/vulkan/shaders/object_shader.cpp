@@ -16,7 +16,38 @@
 #define BUILTIN_SHADER_NAME_OBJECT "Builtin.ObjectShader"
 
 namespace nk {
-    void ObjectShader::init(
+    namespace {
+        renderer_error translate_shader_error(const shader_error& error) {
+            switch (error.code) {
+                case shader_error_code::path_format_failed:
+                    return {renderer_error_code::shader_path_failed, 0};
+                case shader_error_code::file_failed:
+                    return {
+                        renderer_error_code::shader_file_failed,
+                        static_cast<i32>(error.file),
+                    };
+                case shader_error_code::invalid_binary:
+                    return {renderer_error_code::shader_binary_invalid, 0};
+                case shader_error_code::module_creation_failed:
+                    return {
+                        renderer_error_code::shader_module_creation_failed,
+                        static_cast<i32>(error.native_code),
+                    };
+                case shader_error_code::out_of_memory:
+                    return {renderer_error_code::out_of_memory, 0};
+            }
+            return {renderer_error_code::initialization_failed, 0};
+        }
+
+        renderer_error descriptor_error(const VkResult result) {
+            return {
+                renderer_error_code::descriptor_creation_failed,
+                static_cast<i32>(result),
+            };
+        }
+    }
+
+    result<void, renderer_error> ObjectShader::init(
         u32 width,
         u32 height,
         u32 image_count,
@@ -42,15 +73,7 @@ namespace nk {
                 stage_types[i],
                 &m_stages[i]);
             if (!created) {
-                const shader_error& error = created.error();
-                ErrorLog(
-                    "Unable to create {} shader module for '{}': shader_error={}, file_error={}, native_code={}",
-                    stage_type_strings[i],
-                    BUILTIN_SHADER_NAME_OBJECT,
-                    static_cast<u32>(error.code),
-                    static_cast<u32>(error.file),
-                    static_cast<i32>(error.native_code));
-                return;
+                return err(translate_shader_error(created.error()));
             }
         }
 
@@ -69,7 +92,13 @@ namespace nk {
         global_layout_create_info.bindingCount = 1;
         global_layout_create_info.pBindings = &global_ubo_set_layout_binding;
 
-        VulkanCheck(vkCreateDescriptorSetLayout(m_device->get(), &global_layout_create_info, m_vulkan_allocator, &m_global_descriptor_set_layout));
+        VkResult result = vkCreateDescriptorSetLayout(
+            m_device->get(),
+            &global_layout_create_info,
+            m_vulkan_allocator,
+            &m_global_descriptor_set_layout);
+        if (result != VK_SUCCESS)
+            return err(descriptor_error(result));
 
         // Global descriptor pool: Used for global items such as view/projection matrices
         VkDescriptorPoolSize global_descriptor_pool_size;
@@ -83,7 +112,13 @@ namespace nk {
         global_descriptor_pool_create_info.pPoolSizes = &global_descriptor_pool_size;
         global_descriptor_pool_create_info.maxSets = m_image_count;
 
-        VulkanCheck(vkCreateDescriptorPool(m_device->get(), &global_descriptor_pool_create_info, m_vulkan_allocator, &m_global_descriptor_pool));
+        result = vkCreateDescriptorPool(
+            m_device->get(),
+            &global_descriptor_pool_create_info,
+            m_vulkan_allocator,
+            &m_global_descriptor_pool);
+        if (result != VK_SUCCESS)
+            return err(descriptor_error(result));
 
         // Local/Object descriptors
         constexpr u32 local_sampler_count = 1;
@@ -106,7 +141,13 @@ namespace nk {
         layout_info.bindingCount = ObjectShaderObjectState::descriptor_count;
         layout_info.pBindings = bindings;
 
-        VulkanCheck(vkCreateDescriptorSetLayout(m_device->get(), &layout_info, m_vulkan_allocator, &m_object_descriptor_set_layout));
+        result = vkCreateDescriptorSetLayout(
+            m_device->get(),
+            &layout_info,
+            m_vulkan_allocator,
+            &m_object_descriptor_set_layout);
+        if (result != VK_SUCCESS)
+            return err(descriptor_error(result));
 
         // Local/Object descriptor pool: Used for object-specific items like diffuse color
         constexpr u32 object_pool_sizes_count = 2;
@@ -126,7 +167,13 @@ namespace nk {
         object_pool_create_info.pPoolSizes = object_pool_sizes;
         object_pool_create_info.maxSets = object_max_object_count * m_image_count;
 
-        VulkanCheck(vkCreateDescriptorPool(m_device->get(), &object_pool_create_info, m_vulkan_allocator, &m_object_descriptor_pool));
+        result = vkCreateDescriptorPool(
+            m_device->get(),
+            &object_pool_create_info,
+            m_vulkan_allocator,
+            &m_object_descriptor_pool);
+        if (result != VK_SUCCESS)
+            return err(descriptor_error(result));
 
         // Pipeline creation START
         // Viewport
@@ -181,7 +228,7 @@ namespace nk {
         }
 
         // Pipeline
-        m_pipeline.init({
+        auto pipeline_initialized = m_pipeline.init({
             .device = device,
             .vulkan_allocator = vulkan_allocator,
             .render_pass = render_pass,
@@ -195,23 +242,29 @@ namespace nk {
             .scissor = scissor,
             .is_wireframe = false
         });
+        if (!pipeline_initialized)
+            return err(pipeline_initialized.error());
         // Pipeline creation END
 
         // Initialize the global uniform buffer
-        m_global_uniform_buffer.init(
+        auto global_buffer_initialized = m_global_uniform_buffer.init(
             m_device,
             m_vulkan_allocator,
             sizeof(GlobalUniformObject),
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             true);
+        if (!global_buffer_initialized)
+            return err(global_buffer_initialized.error());
 
         cl::arr<VkDescriptorSetLayout> global_layouts;
         if (!global_layouts.arr_init(m_allocator, m_image_count) ||
             !m_global_descriptor_sets.arr_init(m_allocator, m_image_count)) {
-            ErrorLog("Unable to allocate global object shader descriptor storage.");
             global_layouts.arr_shutdown();
-            return;
+            return err(renderer_error{
+                .code = renderer_error_code::out_of_memory,
+                .native_code = 0,
+            });
         }
         for (VkDescriptorSetLayout& layout : global_layouts)
             layout = m_global_descriptor_set_layout;
@@ -222,25 +275,32 @@ namespace nk {
         global_descriptor_set_allocate_info.descriptorPool = m_global_descriptor_pool;
         global_descriptor_set_allocate_info.descriptorSetCount = m_image_count;
         global_descriptor_set_allocate_info.pSetLayouts = global_layouts.data();
-        VulkanCheck(vkAllocateDescriptorSets(m_device->get(), &global_descriptor_set_allocate_info, m_global_descriptor_sets.data()));
+        result = vkAllocateDescriptorSets(
+            m_device->get(),
+            &global_descriptor_set_allocate_info,
+            m_global_descriptor_sets.data());
         global_layouts.arr_shutdown();
+        if (result != VK_SUCCESS)
+            return err(descriptor_error(result));
 
         // Initialize the object uniform buffer
-        m_object_uniform_buffer.init(
+        auto object_buffer_initialized = m_object_uniform_buffer.init(
             m_device,
             m_vulkan_allocator,
             sizeof(ObjectUniformObject) * object_max_object_count,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             true);
+        if (!object_buffer_initialized)
+            return err(object_buffer_initialized.error());
+
+        return ok();
     }
 
     void ObjectShader::shutdown() {
         // Guard against double shutdown
-        if (m_device == nullptr) {
-            DebugLog("ObjectShader::shutdown() - Already shutdown, skipping");
+        if (m_device == nullptr)
             return;
-        }
 
         // Destroy object uniform buffer
         m_object_uniform_buffer.shutdown();
@@ -250,17 +310,29 @@ namespace nk {
 
         m_pipeline.shutdown();
 
-        // Destroy object descriptor pool
-        vkDestroyDescriptorPool(m_device->get(), m_object_descriptor_pool, m_vulkan_allocator);
+        if (m_object_descriptor_pool != nullptr) {
+            vkDestroyDescriptorPool(
+                m_device->get(), m_object_descriptor_pool, m_vulkan_allocator);
+            m_object_descriptor_pool = nullptr;
+        }
 
-        // Destroy object descriptor set layout
-        vkDestroyDescriptorSetLayout(m_device->get(), m_object_descriptor_set_layout, m_vulkan_allocator);
+        if (m_object_descriptor_set_layout != nullptr) {
+            vkDestroyDescriptorSetLayout(
+                m_device->get(), m_object_descriptor_set_layout, m_vulkan_allocator);
+            m_object_descriptor_set_layout = nullptr;
+        }
 
-        // Destroy global descriptor pool
-        vkDestroyDescriptorPool(m_device->get(), m_global_descriptor_pool, m_vulkan_allocator);
+        if (m_global_descriptor_pool != nullptr) {
+            vkDestroyDescriptorPool(
+                m_device->get(), m_global_descriptor_pool, m_vulkan_allocator);
+            m_global_descriptor_pool = nullptr;
+        }
 
-        // Destroy global descriptor set layout
-        vkDestroyDescriptorSetLayout(m_device->get(), m_global_descriptor_set_layout, m_vulkan_allocator);
+        if (m_global_descriptor_set_layout != nullptr) {
+            vkDestroyDescriptorSetLayout(
+                m_device->get(), m_global_descriptor_set_layout, m_vulkan_allocator);
+            m_global_descriptor_set_layout = nullptr;
+        }
 
         m_global_descriptor_sets.arr_shutdown();
         for (u32 i = 0; i < m_object_uniform_buffer_index; ++i) {

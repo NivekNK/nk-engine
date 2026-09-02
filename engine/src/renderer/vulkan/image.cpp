@@ -6,7 +6,10 @@
 #include "vulkan/command_buffer.h"
 
 namespace nk {
-    void Image::init(const VulkanImageCreateInfo& create_info, Device* device, VkAllocationCallbacks* vulkan_allocator) {
+    result<void, renderer_error> Image::init(
+        const VulkanImageCreateInfo& create_info,
+        Device* device,
+        VkAllocationCallbacks* vulkan_allocator) {
         m_device = device;
         m_vulkan_allocator = vulkan_allocator;
         m_extent = create_info.extent;
@@ -28,7 +31,13 @@ namespace nk {
         image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;         // TODO: Configurable sample count.
         image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // TODO: Configurable sharing mode.
 
-        VulkanCheck(vkCreateImage(m_device->get(), &image_create_info, m_vulkan_allocator, &m_image));
+        VkResult result = vkCreateImage(
+            m_device->get(), &image_create_info, m_vulkan_allocator, &m_image);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::image_creation_failed,
+                .native_code = static_cast<i32>(result),
+            });
 
         // Query memory requirements.
         VkMemoryRequirements memory_requirements;
@@ -36,7 +45,11 @@ namespace nk {
 
         u32 memory_type;
         if (!m_device->find_memory_index(memory_requirements.memoryTypeBits, create_info.memory_flags, &memory_type)) {
-            ErrorLog("Required memory type not found. Image not valid.");
+            shutdown();
+            return err(renderer_error{
+                .code = renderer_error_code::image_memory_failed,
+                .native_code = 0,
+            });
         }
 
         // Allocate memory
@@ -44,16 +57,36 @@ namespace nk {
         memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         memory_allocate_info.allocationSize = memory_requirements.size;
         memory_allocate_info.memoryTypeIndex = memory_type;
-        VulkanCheck(vkAllocateMemory(m_device->get(), &memory_allocate_info, m_vulkan_allocator, &m_memory));
+        result = vkAllocateMemory(
+            m_device->get(), &memory_allocate_info, m_vulkan_allocator, &m_memory);
+        if (result != VK_SUCCESS) {
+            shutdown();
+            return err(renderer_error{
+                .code = renderer_error_code::image_memory_failed,
+                .native_code = static_cast<i32>(result),
+            });
+        }
 
         // Bind the memory
-        VulkanCheck(vkBindImageMemory(m_device->get(), m_image, m_memory, 0)); // TODO: configurable memory offset.
+        result = vkBindImageMemory(m_device->get(), m_image, m_memory, 0);
+        if (result != VK_SUCCESS) {
+            shutdown();
+            return err(renderer_error{
+                .code = renderer_error_code::image_memory_failed,
+                .native_code = static_cast<i32>(result),
+            });
+        }
 
         // Create view
         if (create_info.create_view) {
             m_view = nullptr;
-            create_view(create_info.view_aspect_flags);
+            auto view_created = create_view(create_info.view_aspect_flags);
+            if (!view_created) {
+                shutdown();
+                return err(view_created.error());
+            }
         }
+        return ok();
     }
 
     void Image::shutdown() {
@@ -71,7 +104,8 @@ namespace nk {
         }
     }
 
-    void Image::create_view(VkImageAspectFlags aspect_flags) {
+    result<void, renderer_error> Image::create_view(
+        VkImageAspectFlags aspect_flags) {
         VkImageViewCreateInfo view_create_info = {};
         view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view_create_info.image = m_image;
@@ -85,7 +119,14 @@ namespace nk {
         view_create_info.subresourceRange.baseArrayLayer = 0;
         view_create_info.subresourceRange.layerCount = 1;
 
-        VulkanCheck(vkCreateImageView(m_device->get(), &view_create_info, m_vulkan_allocator, &m_view));
+        const VkResult result = vkCreateImageView(
+            m_device->get(), &view_create_info, m_vulkan_allocator, &m_view);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::image_view_creation_failed,
+                .native_code = static_cast<i32>(result),
+            });
+        return ok();
     }
 
     void Image::transition_layout(

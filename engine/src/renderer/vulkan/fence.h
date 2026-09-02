@@ -1,6 +1,8 @@
 #pragma once
 
 #include "vulkan/vk.h"
+#include "core/result.h"
+#include "renderer/renderer_result.h"
 
 namespace nk {
     class Device;
@@ -16,26 +18,32 @@ namespace nk {
         Fence(Fence&& other);
         Fence& operator=(Fence&& other);
 
-        void init(bool is_signaled, Device* device, VkAllocationCallbacks* vulkan_allocator);
+        [[nodiscard]] result<void, renderer_error> init(
+            bool is_signaled,
+            Device* device,
+            VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
-        void renew(bool is_signaled, Device* device, VkAllocationCallbacks* vulkan_allocator) {
+        [[nodiscard]] result<void, renderer_error> renew(
+            bool is_signaled,
+            Device* device,
+            VkAllocationCallbacks* vulkan_allocator) {
             shutdown();
-            init(is_signaled, device, vulkan_allocator);
+            return init(is_signaled, device, vulkan_allocator);
         }
 
-        bool wait(u64 timeout_ns);
-        void reset();
+        [[nodiscard]] result<void, renderer_error> wait(u64 timeout_ns);
+        [[nodiscard]] result<void, renderer_error> reset();
 
         VkFence get() { return m_fence; }
         VkFence operator()() { return m_fence; }
         operator VkFence() { return m_fence; }
 
     private:
-        VkAllocationCallbacks* m_vulkan_allocator;
-        Device* m_device;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
+        Device* m_device = nullptr;
 
-        VkFence m_fence;
-        bool m_is_signaled;
+        VkFence m_fence = nullptr;
+        bool m_is_signaled = false;
     };
 }

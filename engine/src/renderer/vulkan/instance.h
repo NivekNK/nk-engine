@@ -33,12 +33,12 @@ namespace nk {
         void create_debug_messenger();
 #endif
 
-        VkAllocationCallbacks* m_vulkan_allocator;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
 
         cl::dyarr<cstr> m_extensions;
-        VkInstance m_instance;
+        VkInstance m_instance = nullptr;
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
-        VkDebugUtilsMessengerEXT m_debug_messenger;
+        VkDebugUtilsMessengerEXT m_debug_messenger = nullptr;
 #endif
     };
 }

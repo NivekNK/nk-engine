@@ -9,10 +9,11 @@
 #include "glm/vec4.hpp"
 
 namespace nk {
-    void RenderPass::init(const RenderPassCreateInfo& create_info,
-                          Swapchain& swapchain,
-                          Device* device,
-                          VkAllocationCallbacks* vulkan_allocator) {
+    result<void, renderer_error> RenderPass::init(
+        const RenderPassCreateInfo& create_info,
+        Swapchain& swapchain,
+        Device* device,
+        VkAllocationCallbacks* vulkan_allocator) {
         m_device = device;
         m_vulkan_allocator = vulkan_allocator;
 
@@ -107,8 +108,18 @@ namespace nk {
         render_pass_create_info.pNext = nullptr;
         render_pass_create_info.flags = 0;
 
-        VulkanCheck(vkCreateRenderPass(m_device->get(), &render_pass_create_info, m_vulkan_allocator, &m_render_pass));
+        const VkResult result = vkCreateRenderPass(
+            m_device->get(),
+            &render_pass_create_info,
+            m_vulkan_allocator,
+            &m_render_pass);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::render_pass_creation_failed,
+                .native_code = static_cast<i32>(result),
+            });
         TraceLog("nk::RenderPass initialized.");
+        return ok();
     }
 
     void RenderPass::shutdown() {

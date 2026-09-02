@@ -10,13 +10,22 @@ namespace nk {
     VkSurfaceFormatKHR choose_swap_surface_format(const cl::dyarr<VkSurfaceFormatKHR>& available_formats);
     VkPresentModeKHR choose_swap_present_mode(const cl::dyarr<VkPresentModeKHR>& available_present_modes);
 
-    void Swapchain::init(u32& width, u32& height, u32* current_frame, Device* device, mem::Allocator* allocator, VkAllocationCallbacks* vulkan_allocator) {
+    result<void, renderer_error> Swapchain::init(
+        u32& width,
+        u32& height,
+        u32* current_frame,
+        Device* device,
+        mem::Allocator* allocator,
+        VkAllocationCallbacks* vulkan_allocator) {
         m_current_frame = current_frame;
         m_device = device;
         m_allocator = allocator;
         m_vulkan_allocator = vulkan_allocator;
-        create_swapchain(width, height);
+        auto created = create_swapchain(width, height);
+        if (!created)
+            return err(created.error());
         TraceLog("nk::Swapchain initialized ({}, {}).", width, height);
+        return ok();
     }
 
     void Swapchain::shutdown() {
@@ -24,12 +33,12 @@ namespace nk {
         TraceLog("nk::Swapchain shutdown.");
     }
 
-    void Swapchain::recreate(u32& width, u32& height) {
+    result<void, renderer_error> Swapchain::recreate(u32& width, u32& height) {
         destroy_swapchain();
-        create_swapchain(width, height);
+        return create_swapchain(width, height);
     }
 
-    bool Swapchain::acquire_next_image_index(
+    result<swapchain_outcome, renderer_error> Swapchain::acquire_next_image_index(
         u32* out_image_index,
         u64 timeout_ns,
         VkSemaphore image_available_semaphore,
@@ -42,17 +51,12 @@ namespace nk {
             fence,
             out_image_index);
 
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            return false;
-        } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            FatalLog("Failed to acquire Swapchain image! Result: {}", vk::result_to_cstr(result, true));
-            return false;
-        }
-
-        return true;
+        return vk::classify_swapchain_result(
+            result,
+            renderer_error_code::swapchain_acquire_failed);
     }
 
-    bool Swapchain::present(
+    result<swapchain_outcome, renderer_error> Swapchain::present(
         VkQueue present_queue,
         VkSemaphore render_complete_semaphore,
         u32 present_image_index) {
@@ -66,20 +70,40 @@ namespace nk {
         present_info.pResults = nullptr;
 
         VkResult result = vkQueuePresentKHR(present_queue, &present_info);
-        if (result != VK_SUCCESS &&
-            result != VK_ERROR_OUT_OF_DATE_KHR &&
-            result != VK_SUBOPTIMAL_KHR) {
-            FatalLog("Failed to Present Swapchain image! {}",
-                     vk::result_to_cstr(result, true));
-            return false;
-        }
+        auto outcome = vk::classify_swapchain_result(
+            result,
+            renderer_error_code::swapchain_present_failed);
+        if (!outcome)
+            return err(outcome.error());
 
         // Increment (and loop) the index.
         *m_current_frame = (*m_current_frame + 1) % m_max_frames_in_flight;
-        return true;
+        return outcome;
     }
 
-    void Swapchain::create_swapchain(u32& width, u32& height) {
+    namespace vk {
+        result<swapchain_outcome, renderer_error> classify_swapchain_result(
+            const VkResult result,
+            const renderer_error_code failure_code) {
+            switch (result) {
+                case VK_SUCCESS:
+                    return ok(swapchain_outcome::ready);
+                case VK_ERROR_OUT_OF_DATE_KHR:
+                    return ok(swapchain_outcome::out_of_date);
+                case VK_SUBOPTIMAL_KHR:
+                    return ok(swapchain_outcome::suboptimal);
+                default:
+                    return err(renderer_error{
+                        .code = failure_code,
+                        .native_code = static_cast<i32>(result),
+                    });
+            }
+        }
+    }
+
+    result<void, renderer_error> Swapchain::create_swapchain(
+        u32& width,
+        u32& height) {
         VkExtent2D swapchain_extent = {width, height};
         const SwapchainSupportInfo& swapchain_support_info = m_device->query_swapchain_support_info();
         m_image_format = choose_swap_surface_format(swapchain_support_info.formats);
@@ -133,20 +157,48 @@ namespace nk {
         swapchain_create_info.clipped = VK_TRUE;
         swapchain_create_info.oldSwapchain = nullptr;
 
-        VulkanCheck(vkCreateSwapchainKHR(m_device->get(), &swapchain_create_info, m_vulkan_allocator, &m_swapchain));
+        VkResult result = vkCreateSwapchainKHR(
+            m_device->get(),
+            &swapchain_create_info,
+            m_vulkan_allocator,
+            &m_swapchain);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = static_cast<i32>(result),
+            });
 
         *m_current_frame = 0;
 
         m_image_count = 0;
-        VulkanCheck(vkGetSwapchainImagesKHR(m_device->get(), m_swapchain, &m_image_count, nullptr));
+        result = vkGetSwapchainImagesKHR(
+            m_device->get(), m_swapchain, &m_image_count, nullptr);
+        if (result != VK_SUCCESS) {
+            destroy_swapchain();
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = static_cast<i32>(result),
+            });
+        }
         if (!m_images.arr_init(m_allocator, m_image_count) ||
             !m_views.arr_init(m_allocator, m_image_count)) {
             m_views.arr_shutdown();
             m_images.arr_shutdown();
-            FatalLog("Unable to allocate swapchain image storage.");
-            return;
+            destroy_swapchain();
+            return err(renderer_error{
+                .code = renderer_error_code::out_of_memory,
+                .native_code = 0,
+            });
         }
-        VulkanCheck(vkGetSwapchainImagesKHR(m_device->get(), m_swapchain, &m_image_count, m_images.data()));
+        result = vkGetSwapchainImagesKHR(
+            m_device->get(), m_swapchain, &m_image_count, m_images.data());
+        if (result != VK_SUCCESS) {
+            destroy_swapchain();
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = static_cast<i32>(result),
+            });
+        }
 
         for (u32 i = 0; i < m_image_count; i++) {
             VkImageViewCreateInfo view_info = {};
@@ -159,7 +211,18 @@ namespace nk {
             view_info.subresourceRange.levelCount = 1;
             view_info.subresourceRange.baseArrayLayer = 0;
             view_info.subresourceRange.layerCount = 1;
-            VulkanCheck(vkCreateImageView(m_device->get(), &view_info, m_vulkan_allocator, &m_views[i]));
+            result = vkCreateImageView(
+                m_device->get(),
+                &view_info,
+                m_vulkan_allocator,
+                &m_views[i]);
+            if (result != VK_SUCCESS) {
+                destroy_swapchain();
+                return err(renderer_error{
+                    .code = renderer_error_code::image_view_creation_failed,
+                    .native_code = static_cast<i32>(result),
+                });
+            }
         }
 
         // Create depth image and its view.
@@ -173,26 +236,40 @@ namespace nk {
             .create_view = true,
             .view_aspect_flags = VK_IMAGE_ASPECT_DEPTH_BIT,
         };
-        m_depth_attachment.init(depth_create_info, m_device, m_vulkan_allocator);
+        auto depth_created = m_depth_attachment.init(
+            depth_create_info, m_device, m_vulkan_allocator);
+        if (!depth_created) {
+            destroy_swapchain();
+            return err(depth_created.error());
+        }
 
         width = swapchain_extent.width;
         height = swapchain_extent.height;
+        return ok();
     }
 
     void Swapchain::destroy_swapchain() {
+        if (m_device == nullptr || m_device->get() == nullptr)
+            return;
+
         vkDeviceWaitIdle(m_device->get());
         m_depth_attachment.shutdown();
 
         // Only destroy the views, not the images, since those are owned by the swapchain and are thus
         // destroyed when it is.
         for (u32 i = 0; i < m_image_count; i++) {
-            vkDestroyImageView(m_device->get(), m_views[i], m_vulkan_allocator);
+            if (!m_views.empty() && m_views[i] != nullptr)
+                vkDestroyImageView(m_device->get(), m_views[i], m_vulkan_allocator);
         }
 
         m_views.arr_shutdown();
         m_images.arr_shutdown();
 
-        vkDestroySwapchainKHR(m_device->get(), m_swapchain, m_vulkan_allocator);
+        if (m_swapchain != nullptr) {
+            vkDestroySwapchainKHR(m_device->get(), m_swapchain, m_vulkan_allocator);
+            m_swapchain = nullptr;
+        }
+        m_image_count = 0;
     }
 
     VkSurfaceFormatKHR choose_swap_surface_format(const cl::dyarr<VkSurfaceFormatKHR>& available_formats) {

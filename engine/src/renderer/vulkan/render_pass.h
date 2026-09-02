@@ -2,6 +2,8 @@
 
 #include "vulkan/vk.h"
 #include "glm/fwd.hpp"
+#include "core/result.h"
+#include "renderer/renderer_result.h"
 
 namespace nk {
     class Device;
@@ -26,10 +28,11 @@ namespace nk {
         RenderPass(RenderPass&&) = delete;
         RenderPass& operator=(RenderPass&&) = delete;
     
-        void init(const RenderPassCreateInfo& create_info,
-                  Swapchain& swapchain,
-                  Device* device,
-                  VkAllocationCallbacks* vulkan_allocator);
+        [[nodiscard]] result<void, renderer_error> init(
+            const RenderPassCreateInfo& create_info,
+            Swapchain& swapchain,
+            Device* device,
+            VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
         
         void begin(CommandBuffer& command_buffer, Framebuffer& frame_buffer);
@@ -42,14 +45,14 @@ namespace nk {
         operator VkRenderPass() { return m_render_pass; }
 
     private:
-        VkAllocationCallbacks* m_vulkan_allocator;
-        Device* m_device;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
+        Device* m_device = nullptr;
 
-        VkRenderPass m_render_pass;
+        VkRenderPass m_render_pass = nullptr;
 
-        VkRect2D m_render_area;
-        glm::vec4 m_clear_color;
-        f32 m_depth;
-        u32 m_stencil;
+        VkRect2D m_render_area{};
+        glm::vec4 m_clear_color{};
+        f32 m_depth = 0.0f;
+        u32 m_stencil = 0;
     };
 }

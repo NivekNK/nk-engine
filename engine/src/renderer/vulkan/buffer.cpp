@@ -6,7 +6,7 @@
 #include "vulkan/command_buffer.h"
 
 namespace nk {
-    void Buffer::init(
+    result<void, renderer_error> Buffer::init(
         Device* device,
         VkAllocationCallbacks* vulkan_allocator,
         u64 size,
@@ -28,14 +28,26 @@ namespace nk {
         buffer_create_info.usage = usage;
         buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // NOTE: Only used in one queue.
 
-        VulkanCheck(vkCreateBuffer(m_device->get(), &buffer_create_info, m_vulkan_allocator, &m_buffer));
+        VkResult result = vkCreateBuffer(
+            m_device->get(),
+            &buffer_create_info,
+            m_vulkan_allocator,
+            &m_buffer);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::buffer_creation_failed,
+                .native_code = static_cast<i32>(result),
+            });
 
         // Gather memory requirements.
         VkMemoryRequirements memory_requirements;
         vkGetBufferMemoryRequirements(m_device->get(), m_buffer, &memory_requirements);
         if (!m_device->find_memory_index(memory_requirements.memoryTypeBits, memory_property_flags, &m_memory_index)) {
-            ErrorLog("Unable to create vulkan Buffer because the required memory type index was not found.");
-            return;
+            shutdown();
+            return err(renderer_error{
+                .code = renderer_error_code::buffer_memory_failed,
+                .native_code = 0,
+            });
         }
 
         VkMemoryAllocateInfo memory_allocate_info;
@@ -45,18 +57,31 @@ namespace nk {
         memory_allocate_info.memoryTypeIndex = m_memory_index;
 
         // Allocate memory.
-        VkResult result = vkAllocateMemory(
+        result = vkAllocateMemory(
             m_device->get(),
             &memory_allocate_info,
             m_vulkan_allocator,
             &m_memory);
         if (result != VK_SUCCESS) {
-            ErrorLog("Unable to create vulkan Buffer because the memory allocation failed.");
-            return;
+            shutdown();
+            return err(renderer_error{
+                .code = renderer_error_code::buffer_memory_failed,
+                .native_code = static_cast<i32>(result),
+            });
         }
 
-        if (bind_on_create)
-            bind(0);
+        if (bind_on_create) {
+            result = vkBindBufferMemory(m_device->get(), m_buffer, m_memory, 0);
+            if (result != VK_SUCCESS) {
+                shutdown();
+                return err(renderer_error{
+                    .code = renderer_error_code::buffer_memory_failed,
+                    .native_code = static_cast<i32>(result),
+                });
+            }
+        }
+
+        return ok();
     }
 
     void Buffer::shutdown() {
@@ -111,7 +136,7 @@ namespace nk {
         VulkanCheck(vkBindBufferMemory(m_device->get(), new_buffer, new_memory, 0));
 
         // Copy over the data
-        copy_to({
+        auto copied = copy_to({
             .pool = pool,
             .fence = nullptr,
             .queue = queue,
@@ -121,6 +146,11 @@ namespace nk {
             .destination_offset = 0,
             .size = m_total_size,
         });
+        if (!copied) {
+            vkFreeMemory(m_device->get(), new_memory, m_vulkan_allocator);
+            vkDestroyBuffer(m_device->get(), new_buffer, m_vulkan_allocator);
+            return;
+        }
 
         // Make sure anything potentially using these is finished.
         vkDeviceWaitIdle(m_device->get());
@@ -162,12 +192,20 @@ namespace nk {
         vkUnmapMemory(m_device->get(), m_memory);
     }
 
-    void Buffer::copy_to(const BufferCopyInfo& copy_info) {
-        vkQueueWaitIdle(copy_info.queue);
+    result<void, renderer_error> Buffer::copy_to(const BufferCopyInfo& copy_info) {
+        VkResult result = vkQueueWaitIdle(copy_info.queue);
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::device_wait_failed,
+                .native_code = static_cast<i32>(result),
+            });
 
         // Create a one time use command buffer.
         CommandBuffer command_buffer;
-        command_buffer.init(copy_info.pool, m_device, true, true);
+        auto initialized = command_buffer.init(
+            copy_info.pool, m_device, true, true);
+        if (!initialized)
+            return err(initialized.error());
 
         // Prepare the copy command and add it to the command buffer.
         VkBufferCopy copy_region;
@@ -178,6 +216,6 @@ namespace nk {
         vkCmdCopyBuffer(command_buffer, copy_info.source, copy_info.destination, 1, &copy_region);
 
         // Submit the buffer for execution and wait for it to complete.
-        command_buffer.end_single_use(copy_info.queue);
+        return command_buffer.end_single_use(copy_info.queue);
     }
 }

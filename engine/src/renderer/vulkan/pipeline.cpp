@@ -11,7 +11,7 @@
 #include <glm/ext/matrix_float4x4.hpp>
 
 namespace nk {
-    void Pipeline::init(const PipelineCreateInfo& create_info) {
+    result<void, renderer_error> Pipeline::init(const PipelineCreateInfo& create_info) {
         m_device = create_info.device;
         m_vulkan_allocator = create_info.vulkan_allocator;
 
@@ -140,12 +140,17 @@ namespace nk {
 
         DebugLog("Creating pipeline layout with {} descriptor set layouts.", create_info.descriptor_set_layout_count);
 
-        VulkanCheck(vkCreatePipelineLayout(
+        VkResult result = vkCreatePipelineLayout(
             create_info.device->get(),
             &pipeline_layout_create_info,
             create_info.vulkan_allocator,
             &m_layout
-        ));
+        );
+        if (result != VK_SUCCESS)
+            return err(renderer_error{
+                .code = renderer_error_code::pipeline_creation_failed,
+                .native_code = static_cast<i32>(result),
+            });
 
         DebugLog("Pipeline layout created.");
 
@@ -170,7 +175,7 @@ namespace nk {
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = -1;
 
-        VkResult result = vkCreateGraphicsPipelines(
+        result = vkCreateGraphicsPipelines(
             create_info.device->get(),
             VK_NULL_HANDLE,
             1,
@@ -179,21 +184,29 @@ namespace nk {
             &m_pipeline
         );
         if (!vk::is_success(result)) {
-            ErrorLog("vkCreateGraphicsPipelines failed with {}.", vk::result_to_cstr(result, true));
-            return;
+            return err(renderer_error{
+                .code = renderer_error_code::pipeline_creation_failed,
+                .native_code = static_cast<i32>(result),
+            });
         }
 
         InfoLog("Vulkan Graphics Pipeline created.");
+        return ok();
     }
 
     void Pipeline::shutdown() {
-        if (m_pipeline == nullptr)
+        if (m_device == nullptr)
             return;
 
-        vkDestroyPipeline(m_device->get(), m_pipeline, m_vulkan_allocator);
-        m_pipeline = nullptr;
-        vkDestroyPipelineLayout(m_device->get(), m_layout, m_vulkan_allocator);
-        m_layout = nullptr;
+        if (m_pipeline != nullptr) {
+            vkDestroyPipeline(m_device->get(), m_pipeline, m_vulkan_allocator);
+            m_pipeline = nullptr;
+        }
+        if (m_layout != nullptr) {
+            vkDestroyPipelineLayout(m_device->get(), m_layout, m_vulkan_allocator);
+            m_layout = nullptr;
+        }
+        m_device = nullptr;
 
         InfoLog("Vulkan Graphics Pipeline destroyed.");
     }

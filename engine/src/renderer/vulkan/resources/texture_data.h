@@ -7,6 +7,6 @@
 namespace nk {
     struct TextureData {
         Image image;
-        VkSampler sampler;
+        VkSampler sampler = nullptr;
     };
 }

@@ -5,6 +5,8 @@
 
 #include "resources/texture.h"
 #include "renderer/geometry_render_data.h"
+#include "renderer/renderer_result.h"
+#include "core/result.h"
 #include "core/str.h"
 
 namespace nk {
@@ -19,17 +21,18 @@ namespace nk {
     public:
         virtual ~Renderer() = default;
 
-        static Renderer* create(
+        [[nodiscard]] static result<Renderer*, renderer_error> create(
             mem::Allocator* allocator,
             Platform* platform,
             strview application_name);
         static void destroy(mem::Allocator* allocator, Renderer* renderer);
 
-        virtual bool draw_frame(const RenderPacket& packet);
+        [[nodiscard]] virtual result<frame_outcome, renderer_error> draw_frame(
+            const RenderPacket& packet);
 
         void resize(u32 width, u32 height);
         
-        virtual void create_texture(
+        [[nodiscard]] virtual result<void, renderer_error> create_texture(
             cstr name,
             bool auto_release,
             u32 width,
@@ -46,10 +49,11 @@ namespace nk {
         Renderer(mem::Allocator& allocator, strview application_name)
             : m_application_name{allocator, application_name} {}
 
-        virtual void init() = 0;
+        [[nodiscard]] virtual result<void, renderer_error> init() = 0;
         virtual void shutdown() = 0;
         virtual void on_resized(u32 width, u32 height) = 0;
-        virtual bool begin_frame(f64 delta_time) = 0;
+        [[nodiscard]] virtual result<frame_outcome, renderer_error> begin_frame(
+            f64 delta_time) = 0;
         virtual void update_global_state(
             glm::mat4 projection,
             glm::mat4 view,
@@ -57,24 +61,26 @@ namespace nk {
             glm::vec4 ambient_color,
             i32 mode) = 0;
         virtual void update_object(GeometryRenderData data) = 0;
-        virtual bool end_frame(f64 delta_time) = 0;
+        [[nodiscard]] virtual result<frame_outcome, renderer_error> end_frame(
+            f64 delta_time) = 0;
 
         str m_application_name;
-        Platform* m_platform;
+        Platform* m_platform = nullptr;
 
-        mem::Allocator* m_allocator;
+        mem::Allocator* m_allocator = nullptr;
 
-        u64 m_frame_number;
+        u64 m_frame_number = 0;
 
         glm::mat4 m_projection;
         glm::mat4 m_view;
-        f32 m_near_clip;
-        f32 m_far_clip;
+        f32 m_near_clip = 0.0f;
+        f32 m_far_clip = 0.0f;
 
-        Texture m_default_texture;
+        Texture m_default_texture{};
 
     private:
-        bool end_frame_impl(f64 delta_time);
+        [[nodiscard]] result<frame_outcome, renderer_error> end_frame_impl(
+            f64 delta_time);
 
         bool m_temp_active_rotation = false;
     };

@@ -36,8 +36,11 @@ namespace nk {
         mem::Allocator* allocator,
         VkAllocationCallbacks* vulkan_allocator) {
         m_vulkan_allocator = vulkan_allocator;
-        m_extensions.dyarr_init(allocator, 12);
+        if (!m_extensions.dyarr_init(allocator, 12))
+            return;
         create_instance(application_name, platform, allocator);
+        if (m_instance == nullptr)
+            return;
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
         create_debug_messenger();
 #endif
@@ -54,8 +57,11 @@ namespace nk {
         DebugLog("Vulkan Debug Messenger destroyed.");
 #endif
 
-        vkDestroyInstance(m_instance, m_vulkan_allocator);
-        InfoLog("Vulkan Instance destroyed.");
+        if (m_instance != nullptr) {
+            vkDestroyInstance(m_instance, m_vulkan_allocator);
+            m_instance = nullptr;
+            InfoLog("Vulkan Instance destroyed.");
+        }
 
         m_extensions.dyarr_shutdown();
         InfoLog("Vulkan extensions freed.");

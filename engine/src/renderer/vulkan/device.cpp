@@ -32,8 +32,10 @@ namespace nk {
             return;
         InfoLog("Vulkan surface created.");
 
-        m_swapchain_support_info.formats.dyarr_init(m_allocator, 12);
-        m_swapchain_support_info.present_modes.dyarr_init(m_allocator, 12);
+        if (!m_swapchain_support_info.formats.dyarr_init(m_allocator, 12) ||
+            !m_swapchain_support_info.present_modes.dyarr_init(m_allocator, 12)) {
+            return;
+        }
 
         if (!select_physical_device())
             return;
@@ -49,15 +51,22 @@ namespace nk {
     }
 
     void Device::shutdown() {
-        vkDestroyCommandPool(m_logical_device, m_graphics_command_pool, m_vulkan_allocator);
-        InfoLog("Vulkan Graphics Command Pool destroyed.");
+        if (m_graphics_command_pool != nullptr && m_logical_device != nullptr) {
+            vkDestroyCommandPool(
+                m_logical_device, m_graphics_command_pool, m_vulkan_allocator);
+            m_graphics_command_pool = nullptr;
+            InfoLog("Vulkan Graphics Command Pool destroyed.");
+        }
 
         m_graphics_queue = nullptr;
         m_present_queue = nullptr;
         m_transfer_queue = nullptr;
 
-        vkDestroyDevice(m_logical_device, m_vulkan_allocator);
-        InfoLog("Vulkan Logical Device destroyed.");
+        if (m_logical_device != nullptr) {
+            vkDestroyDevice(m_logical_device, m_vulkan_allocator);
+            m_logical_device = nullptr;
+            InfoLog("Vulkan Logical Device destroyed.");
+        }
 
         m_physical_device = nullptr;
 
@@ -67,6 +76,7 @@ namespace nk {
 
         if (m_surface != nullptr) {
             vkDestroySurfaceKHR(m_instance->get(), m_surface, m_vulkan_allocator);
+            m_surface = nullptr;
             InfoLog("Vulkan Surface destroyed.");
         }
 
@@ -97,7 +107,6 @@ namespace nk {
             }
         }
 
-        WarnLog("nk::Device::find_memory_index Unable to find suitable memory type!");
         *out_memory_index = numeric::u32_max;
         return false;
     }

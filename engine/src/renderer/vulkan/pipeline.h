@@ -1,6 +1,8 @@
 #pragma once
 
 #include "vulkan/vk.h"
+#include "core/result.h"
+#include "renderer/renderer_result.h"
 
 namespace nk {
     class Device;
@@ -32,7 +34,8 @@ namespace nk {
         Pipeline(Pipeline&&) = delete;
         Pipeline& operator=(Pipeline&&) = delete;
 
-        void init(const PipelineCreateInfo& create_info);
+        [[nodiscard]] result<void, renderer_error> init(
+            const PipelineCreateInfo& create_info);
         void shutdown();
 
         void bind(CommandBuffer* command_buffer, VkPipelineBindPoint bind_point);
@@ -40,10 +43,10 @@ namespace nk {
         VkPipelineLayout get_layout() const { return m_layout; }
 
     private:
-        Device* m_device;
-        VkAllocationCallbacks* m_vulkan_allocator;
+        Device* m_device = nullptr;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
 
-        VkPipeline m_pipeline;
-        VkPipelineLayout m_layout;
+        VkPipeline m_pipeline = nullptr;
+        VkPipelineLayout m_layout = nullptr;
     };
 }

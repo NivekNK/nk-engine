@@ -2,6 +2,8 @@
 
 #include "vulkan/vk.h"
 #include "collections/arr.h"
+#include "core/result.h"
+#include "renderer/renderer_result.h"
 
 namespace nk {
     namespace mem {
@@ -22,20 +24,22 @@ namespace nk {
         Framebuffer(Framebuffer&& other);
         Framebuffer& operator=(Framebuffer&& other);
 
-        void init(const u32 width,
-                  const u32 height,
-                  cl::arr<VkImageView>& attachments,
-                  Device* device,
-                  RenderPass& render_pass,
-                  VkAllocationCallbacks* vulkan_allocator);
+        [[nodiscard]] result<void, renderer_error> init(
+            u32 width,
+            u32 height,
+            cl::arr<VkImageView>& attachments,
+            Device* device,
+            RenderPass& render_pass,
+            VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
 
-        void renew(const u32 width,
-                   const u32 height,
-                   cl::arr<VkImageView>& attachments,
-                   Device* device,
-                   RenderPass& render_pass,
-                   VkAllocationCallbacks* vulkan_allocator);
+        [[nodiscard]] result<void, renderer_error> renew(
+            u32 width,
+            u32 height,
+            cl::arr<VkImageView>& attachments,
+            Device* device,
+            RenderPass& render_pass,
+            VkAllocationCallbacks* vulkan_allocator);
 
         VkFramebuffer get() { return m_framebuffer; }
         VkFramebuffer operator()() { return m_framebuffer; }
@@ -45,13 +49,13 @@ namespace nk {
         u32 get_height() const { return m_height; }
 
     private:
-        Device* m_device;
-        mem::Allocator* m_allocator;
-        VkAllocationCallbacks* m_vulkan_allocator;
+        Device* m_device = nullptr;
+        mem::Allocator* m_allocator = nullptr;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
 
-        VkFramebuffer m_framebuffer;
-        u32 m_width;
-        u32 m_height;
+        VkFramebuffer m_framebuffer = nullptr;
+        u32 m_width = 0;
+        u32 m_height = 0;
         cl::arr<VkImageView> m_attachments;
     };
 }

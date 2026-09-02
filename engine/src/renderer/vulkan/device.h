@@ -71,33 +71,33 @@ namespace nk {
         void obtain_queues();
         void create_command_pool();
 
-        Instance* m_instance;
-        mem::Allocator* m_allocator;
-        VkAllocationCallbacks* m_vulkan_allocator;
+        Instance* m_instance = nullptr;
+        mem::Allocator* m_allocator = nullptr;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
 
         // Surface
-        VkSurfaceKHR m_surface;
+        VkSurfaceKHR m_surface = nullptr;
 
         // Physical Device
-        VkPhysicalDevice m_physical_device;
-        PhysicalDeviceQueueFamilyInfo m_queue_family_info;
-        VkPhysicalDeviceProperties m_properties;
-        VkPhysicalDeviceFeatures m_features;
-        VkPhysicalDeviceMemoryProperties m_memory;
-        SwapchainSupportInfo m_swapchain_support_info;
+        VkPhysicalDevice m_physical_device = nullptr;
+        PhysicalDeviceQueueFamilyInfo m_queue_family_info{};
+        VkPhysicalDeviceProperties m_properties{};
+        VkPhysicalDeviceFeatures m_features{};
+        VkPhysicalDeviceMemoryProperties m_memory{};
+        SwapchainSupportInfo m_swapchain_support_info{};
 
         // Depth format
-        VkFormat m_depth_format;
+        VkFormat m_depth_format = VK_FORMAT_UNDEFINED;
 
         // Logical Device
-        VkDevice m_logical_device;
+        VkDevice m_logical_device = nullptr;
 
         // Queues
-        VkQueue m_graphics_queue;
-        VkQueue m_present_queue;
-        VkQueue m_transfer_queue;
+        VkQueue m_graphics_queue = nullptr;
+        VkQueue m_present_queue = nullptr;
+        VkQueue m_transfer_queue = nullptr;
 
         // Command pool
-        VkCommandPool m_graphics_command_pool;
+        VkCommandPool m_graphics_command_pool = nullptr;
     };
 }

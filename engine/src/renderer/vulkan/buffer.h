@@ -1,6 +1,8 @@
 #pragma once
 
 #include "vulkan/vk.h"
+#include "core/result.h"
+#include "renderer/renderer_result.h"
 
 namespace nk {
     class Device;
@@ -26,7 +28,7 @@ namespace nk {
         Buffer(Buffer&&) = delete;
         Buffer& operator=(Buffer&&) = delete;
 
-        void init(
+        [[nodiscard]] result<void, renderer_error> init(
             Device* device,
             VkAllocationCallbacks* vulkan_allocator,
             u64 size,
@@ -45,22 +47,23 @@ namespace nk {
 
         void load_data(u64 offset, u64 size, u32 flags, const void* data);
 
-        void copy_to(const BufferCopyInfo& copy_info);
+        [[nodiscard]] result<void, renderer_error> copy_to(
+            const BufferCopyInfo& copy_info);
 
         VkBuffer get() const { return m_buffer; }
         VkBuffer operator()() { return m_buffer; }
         operator VkBuffer() { return m_buffer; }
 
     private:
-        Device* m_device;
-        VkAllocationCallbacks* m_vulkan_allocator;
+        Device* m_device = nullptr;
+        VkAllocationCallbacks* m_vulkan_allocator = nullptr;
 
-        u64 m_total_size;
-        VkBuffer m_buffer;
-        VkBufferUsageFlags m_usage;
-        bool m_is_locked;
-        VkDeviceMemory m_memory;
-        u32 m_memory_index;
-        u32 m_memory_property_flags;
+        u64 m_total_size = 0;
+        VkBuffer m_buffer = nullptr;
+        VkBufferUsageFlags m_usage = 0;
+        bool m_is_locked = false;
+        VkDeviceMemory m_memory = nullptr;
+        u32 m_memory_index = 0;
+        u32 m_memory_property_flags = 0;
     };
 }

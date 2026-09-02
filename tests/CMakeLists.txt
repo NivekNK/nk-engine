@@ -23,6 +23,7 @@ endif()
 #============== Vendor Subdirectory ================
 
 add_subdirectory(vendor/googletest)
+find_package(Vulkan REQUIRED)
 
 #================== Source files ===================
 file(GLOB_RECURSE SRC_FILES "${CMAKE_SOURCE_DIR}/tests/src/*.cpp")
@@ -32,11 +33,13 @@ target_sources(${PROJECT_NAME} PRIVATE ${SRC_FILES})
 target_include_directories(${PROJECT_NAME}
 PRIVATE
     ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/engine/src/renderer
 )
 
 target_link_libraries(${PROJECT_NAME}
 PRIVATE
     engine
+    Vulkan::Vulkan
     GTest::gtest_main
 )
 
