@@ -56,3 +56,4 @@ add_compile_definitions(
 add_subdirectory(engine)
 add_subdirectory(editor)
 add_subdirectory(tests)
+add_subdirectory(benchmarks)
