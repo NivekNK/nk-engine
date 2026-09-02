@@ -34,6 +34,23 @@
         "type": "github"
       }
     },
+    "libspng-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1683553520,
+        "narHash": "sha256-BiRuPQEKVJYYgfUsglIuxrBoJBFiQ0ygQmAFrVvCz4Q=",
+        "owner": "randy408",
+        "repo": "libspng",
+        "rev": "fb768002d4288590083a476af628e51c3f1d47cd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "randy408",
+        "repo": "libspng",
+        "rev": "fb768002d4288590083a476af628e51c3f1d47cd",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1788179007,
@@ -71,8 +88,27 @@
       "inputs": {
         "glm-src": "glm-src",
         "googletest-src": "googletest-src",
+        "libspng-src": "libspng-src",
         "nixpkgs": "nixpkgs",
-        "rapidhash-src": "rapidhash-src"
+        "rapidhash-src": "rapidhash-src",
+        "zlib-src": "zlib-src"
+      }
+    },
+    "zlib-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771333279,
+        "narHash": "sha256-Sthd9RsydSLaITNlBp6g1X35WKZdS4h7gr0QhRqdGoI=",
+        "owner": "madler",
+        "repo": "zlib",
+        "rev": "da607da739fa6047df13e66a2af6b8bec7c2a498",
+        "type": "github"
+      },
+      "original": {
+        "owner": "madler",
+        "repo": "zlib",
+        "rev": "da607da739fa6047df13e66a2af6b8bec7c2a498",
+        "type": "github"
       }
     }
   },

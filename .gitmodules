@@ -10,3 +10,9 @@
 [submodule "engine/vendor/rapidhash"]
 	path = engine/vendor/rapidhash
 	url = https://github.com/Nicoshev/rapidhash
+[submodule "engine/vendor/libspng"]
+	path = engine/vendor/libspng
+	url = https://github.com/randy408/libspng.git
+[submodule "engine/vendor/zlib"]
+	path = engine/vendor/zlib
+	url = https://github.com/madler/zlib.git

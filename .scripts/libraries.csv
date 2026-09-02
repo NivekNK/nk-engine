@@ -3,3 +3,5 @@
 "glm","1.0.1","https://github.com/g-truc/glm","engine"
 "tinyobjloader","v2.0.0rc13","https://github.com/tinyobjloader/tinyobjloader","engine"
 "rapidhash","rapidhash_v3","https://github.com/Nicoshev/rapidhash","engine"
+"libspng","v0.7.4","https://github.com/randy408/libspng.git","engine"
+"zlib","v1.3.2","https://github.com/madler/zlib.git","engine"

@@ -19,6 +19,16 @@
       url = "github:Nicoshev/rapidhash/bc4b4baa48a15ff52ff4725e1ccdcda62815221c";
       flake = false;
     };
+    libspng-src = {
+      # Tag: v0.7.4
+      url = "github:randy408/libspng/fb768002d4288590083a476af628e51c3f1d47cd";
+      flake = false;
+    };
+    zlib-src = {
+      # Tag: v1.3.2
+      url = "github:madler/zlib/da607da739fa6047df13e66a2af6b8bec7c2a498";
+      flake = false;
+    };
   };
 
   outputs =
@@ -70,14 +80,23 @@
             # Populate the exact revisions in the isolated build tree.
             postPatch = ''
               rm -rf engine/vendor/glm
+              rm -rf engine/vendor/libspng
               rm -rf engine/vendor/rapidhash
+              rm -rf engine/vendor/zlib
               rm -rf tests/vendor/googletest
 
               mkdir -p engine/vendor tests/vendor
               cp -R ${inputs."glm-src"} engine/vendor/glm
+              cp -R ${inputs."libspng-src"} engine/vendor/libspng
               cp -R ${inputs."rapidhash-src"} engine/vendor/rapidhash
+              cp -R ${inputs."zlib-src"} engine/vendor/zlib
               cp -R ${inputs."googletest-src"} tests/vendor/googletest
-              chmod -R u+w engine/vendor/glm engine/vendor/rapidhash tests/vendor/googletest
+              chmod -R u+w \
+                engine/vendor/glm \
+                engine/vendor/libspng \
+                engine/vendor/rapidhash \
+                engine/vendor/zlib \
+                tests/vendor/googletest
             '';
 
             preConfigure = ''

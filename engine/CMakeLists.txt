@@ -15,6 +15,33 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 #============== Vendor Subdirectory ================
 
 add_subdirectory(vendor/glm)
+
+# Keep image decoding self-contained and reproducible across platforms. Only
+# the static variants are needed because these libraries are implementation
+# details of the engine.
+set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/zlib EXCLUDE_FROM_ALL)
+
+add_library(nk_spng STATIC vendor/libspng/spng/spng.c)
+target_compile_definitions(nk_spng PUBLIC SPNG_STATIC)
+target_include_directories(nk_spng PUBLIC vendor/libspng/spng)
+target_link_libraries(nk_spng PRIVATE ZLIB::ZLIBSTATIC)
+set_source_files_properties(
+    vendor/libspng/spng/spng.c
+    PROPERTIES SKIP_PRECOMPILE_HEADERS TRUE
+)
+
+if (MSVC)
+    target_compile_options(nk_spng PRIVATE /W0)
+    target_compile_options(zlibstatic PRIVATE /W0)
+else()
+    target_compile_options(nk_spng PRIVATE -w)
+    target_compile_options(zlibstatic PRIVATE -w)
+endif()
+
 find_package(Vulkan REQUIRED)
 
 set(PLATFORM_LIBRARIES)
@@ -137,6 +164,7 @@ target_sources(${PROJECT_NAME} PRIVATE ${SOURCES})
 target_link_libraries(${PROJECT_NAME}
 PRIVATE
     glm
+    nk_spng
     Vulkan::Vulkan
     ${PLATFORM_LIBRARIES}
 )
