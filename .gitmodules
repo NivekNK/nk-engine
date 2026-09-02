@@ -7,3 +7,6 @@
 [submodule "engine/vendor/tinyobjloader"]
 	path = engine/vendor/tinyobjloader
 	url = https://github.com/tinyobjloader/tinyobjloader
+[submodule "engine/vendor/rapidhash"]
+	path = engine/vendor/rapidhash
+	url = https://github.com/Nicoshev/rapidhash

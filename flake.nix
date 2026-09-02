@@ -14,6 +14,11 @@
       url = "github:google/googletest/b514bdc898e2951020cbdca1304b75f5950d1f59";
       flake = false;
     };
+    rapidhash-src = {
+      # Tag: rapidhash_v3
+      url = "github:Nicoshev/rapidhash/bc4b4baa48a15ff52ff4725e1ccdcda62815221c";
+      flake = false;
+    };
   };
 
   outputs =
@@ -65,11 +70,14 @@
             # Populate the exact revisions in the isolated build tree.
             postPatch = ''
               rm -rf engine/vendor/glm
+              rm -rf engine/vendor/rapidhash
               rm -rf tests/vendor/googletest
 
+              mkdir -p engine/vendor tests/vendor
               cp -R ${inputs."glm-src"} engine/vendor/glm
+              cp -R ${inputs."rapidhash-src"} engine/vendor/rapidhash
               cp -R ${inputs."googletest-src"} tests/vendor/googletest
-              chmod -R u+w engine/vendor/glm tests/vendor/googletest
+              chmod -R u+w engine/vendor/glm engine/vendor/rapidhash tests/vendor/googletest
             '';
 
             preConfigure = ''

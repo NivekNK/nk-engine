@@ -449,31 +449,33 @@ Criterio de salida: existen reemplazos propios listos para probar para `std::str
 
 #### 8.1 `slice<T>`
 
-- [ ] Implementar puntero y longitud sin ownership.
-- [ ] Permitir conversión segura de mutable a const.
-- [ ] Crear slices desde `arr`, `dyarr`, puntero+longitud y arrays C.
-- [ ] Implementar acceso, iteración y subslices.
-- [ ] No almacenar allocator ni liberar memoria.
+- [x] Implementar puntero y longitud sin ownership.
+- [x] Permitir conversión segura de mutable a const.
+- [x] Crear slices desde `arr`, `dyarr`, puntero+longitud y arrays C.
+- [x] Implementar acceso, iteración y subslices.
+- [x] No almacenar allocator ni liberar memoria.
 
 #### 8.2 Hash interno
 
-- [ ] Vendorizar rapidhash V3 con commit y licencia registrados.
-- [ ] Encapsularlo detrás de `hash64` sin filtrar macros o nombres externos.
-- [ ] Implementar adaptadores de claves primitivas y del motor.
-- [ ] Añadir vectores de prueba para detectar cambios accidentales de versión.
-- [ ] Definir seeds deterministas de motor y seeds explícitos por tabla.
+- [x] Incorporar rapidhash V3 como submódulo fijado a tag, con commit y licencia registrados.
+- [x] Encapsularlo detrás de `hash64` sin filtrar macros o nombres externos.
+- [x] Implementar adaptadores de claves primitivas y del motor.
+- [x] Añadir vectores de prueba para detectar cambios accidentales de versión.
+- [x] Definir seeds deterministas de motor y seeds explícitos por tabla.
 
 #### 8.3 `map<K, V>`
 
-- [ ] Implementar buckets planos mediante el allocator indicado.
-- [ ] Implementar búsqueda Robin Hood con terminación por distancia.
-- [ ] Implementar inserción y reemplazo.
-- [ ] Implementar borrado por backward shift, sin tombstones.
-- [ ] Implementar reserve y rehash.
-- [ ] Implementar find, contains, at, insert, insert_or_assign y remove.
-- [ ] Soportar claves y valores no triviales.
-- [ ] Documentar invalidación de referencias e iteradores.
-- [ ] No exponer selección de hashes alternativos: `map` siempre usa `hash64`.
+- [x] Implementar buckets planos mediante el allocator indicado.
+- [x] Implementar búsqueda Robin Hood con terminación por distancia.
+- [x] Implementar inserción y reemplazo.
+- [x] Implementar borrado por backward shift, sin tombstones.
+- [x] Implementar reserve y rehash.
+- [x] Implementar find, contains, at, insert, insert_or_assign y remove.
+- [x] Soportar claves y valores no triviales.
+- [x] Documentar invalidación de referencias e iteradores.
+- [x] No exponer selección de hashes alternativos: `map` siempre usa `hash64`.
+
+Evidencia: [slices, hash V3 y tabla Robin Hood](memory-containers-phase-8-structures.md).
 
 Criterio de salida: existe una única tabla asociativa propia, plana y sin asignaciones por nodo.
 
@@ -604,9 +606,9 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P7.1 | `strview` | completa | — | [evidencia](memory-containers-phase-7-text.md) |
 | P7.2 | `str` | completa | — | [evidencia](memory-containers-phase-7-text.md) |
 | P7.3 | `strbuf<N>` y formatting | completa | — | [evidencia](memory-containers-phase-7-text.md) |
-| P8.1 | `slice<T>` | pendiente | — | — |
-| P8.2 | `hash64`/rapidhash | pendiente | — | — |
-| P8.3 | `map<K, V>` | pendiente | — | — |
+| P8.1 | `slice<T>` | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
+| P8.2 | `hash64`/rapidhash | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
+| P8.3 | `map<K, V>` | completa | — | [evidencia](memory-containers-phase-8-structures.md) |
 | P9 | Tests y benchmarks | pendiente | — | — |
 | P10.1 | Logging y assertions | pendiente | — | — |
 | P10.2 | Core, texto y archivos | pendiente | — | — |

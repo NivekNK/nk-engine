@@ -50,11 +50,29 @@
         "type": "github"
       }
     },
+    "rapidhash-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1753320874,
+        "narHash": "sha256-3J5/R3TcIqMkhst6sAxS3X/ZC7C5Jl60nPPMVyaugzc=",
+        "owner": "Nicoshev",
+        "repo": "rapidhash",
+        "rev": "bc4b4baa48a15ff52ff4725e1ccdcda62815221c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Nicoshev",
+        "repo": "rapidhash",
+        "rev": "bc4b4baa48a15ff52ff4725e1ccdcda62815221c",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "glm-src": "glm-src",
         "googletest-src": "googletest-src",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "rapidhash-src": "rapidhash-src"
       }
     }
   },
