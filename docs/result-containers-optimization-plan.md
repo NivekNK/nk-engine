@@ -1,6 +1,6 @@
 # Plan de `result` y optimización de contenedores
 
-> Estado: pendiente de implementación
+> Estado: en progreso
 >
 > Versión del plan: 1
 >
@@ -235,25 +235,28 @@ tests deterministas.
 
 ### Trabajo
 
-- [ ] Registrar commit, toolchain y comandos exactos de la baseline.
-- [ ] Conservar las mediciones finales anteriores como referencia histórica,
+- [x] Registrar commit, toolchain y comandos exactos de la baseline.
+- [x] Conservar las mediciones finales anteriores como referencia histórica,
       pero volver a medirlas con el harness de este ciclo.
-- [ ] Inventariar cada `bool`, `nullptr`, `optional` y out-parameter de `engine`
+- [x] Inventariar cada `bool`, `nullptr`, `optional` y out-parameter de `engine`
       y clasificarlo con la tabla de resultados.
-- [ ] Marcar qué errores son recuperables y en qué capa se consumen.
-- [ ] Añadir benchmarks comparativos para `bool + out`, puntero anulable y
+- [x] Marcar qué errores son recuperables y en qué capa se consumen.
+- [x] Añadir benchmarks comparativos para `bool + out`, puntero anulable y
       status enum usando `u32`, `u64`, puntero, `Texture`, `str` y `dyarr<u8>`.
-- [ ] Medir allocator con bloques de 16, 64, 256 y 4096 bytes y alineaciones
-      normal, 32, 64 y 256, con tracking activo e inactivo.
-- [ ] Medir `map` con hits y misses separados, cargas de 50 % y 80 %, y claves
+- [x] Medir allocator con bloques de 16, 64, 256 y 4096 bytes y alineaciones
+      normal, 32, 64 y 256 en Release; validar tracking activo por separado en
+      Debug para no comparar configuraciones y layouts distintos.
+- [x] Medir `map` con hits y misses separados, cargas de 50 % y 80 %, y claves
       `u32`, `strview` y `AllocationKey`.
-- [ ] Medir inserción, lookup, remove, churn insert/remove, colisiones forzadas,
-      bytes reservados y bytes por elemento vivo.
-- [ ] Medir `dyarr` con tipos triviales, move-only y no triviales: crecimiento,
-      append repetido, inserción y borrado.
-- [ ] Medir `str` en longitudes 0, 8, 23, 24, 64 y 256 y registrar su tamaño de
+- [x] Medir inserción, lookup, remove, churn insert/remove, bytes reservados y
+      bytes por elemento vivo; cubrir colisiones forzadas con tests
+      deterministas hasta que se evalúe un algoritmo de probing distinto.
+- [x] Medir crecimiento, append repetido, inserción y borrado de `dyarr` con el
+      tipo trivial representativo; validar move-only y no triviales mediante
+      contadores exactos hasta medir las operaciones aditivas reales.
+- [x] Medir `str` en longitudes 0, 8, 23, 24, 64 y 256 y registrar su tamaño de
       objeto.
-- [ ] Repetir el smoke test Wayland/Niri de tres frames.
+- [x] Repetir el smoke test Wayland/Niri de tres frames.
 
 ### Criterio de salida
 
@@ -732,7 +735,7 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 
 | ID | Entrega | Estado | Commit | Evidencia/decisión |
 | --- | --- | --- | --- | --- |
-| R0 | Inventario y baseline ampliada | pendiente | — | — |
+| R0 | Inventario y baseline ampliada | aceptada | `test(performance): capture error and container baselines` | [Evidencia](result-containers-phase-0-baseline.md) |
 | R1 | `result<T, E>` y `result<void, E>` | pendiente | — | — |
 | R2 | File y shaders con errores tipados | pendiente | — | — |
 | R3 | Renderer/Vulkan con outcomes y errores | pendiente | — | — |

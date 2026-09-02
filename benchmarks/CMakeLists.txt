@@ -27,3 +27,17 @@ target_compile_definitions(collections_benchmark PRIVATE
 )
 
 target_link_libraries(collections_benchmark PRIVATE engine)
+
+add_executable(optimization_baseline EXCLUDE_FROM_ALL
+    optimization_baseline.cpp
+)
+
+set_target_properties(optimization_baseline PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin/${OPERATIVE_SYSTEM}-${CMAKE_BUILD_TYPE}/benchmarks"
+)
+
+target_compile_definitions(optimization_baseline PRIVATE
+    NK_OPTIMIZATION_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+)
+
+target_link_libraries(optimization_baseline PRIVATE engine)
