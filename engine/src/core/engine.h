@@ -48,5 +48,6 @@ namespace nk {
         f64 m_last_time = 0.0;
 
         friend bool on_resized(SystemEventCode, void*, void*, EventContext);
+        friend bool on_key(SystemEventCode, void*, void*, EventContext);
     };
 }

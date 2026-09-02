@@ -28,6 +28,7 @@ namespace {
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
+        const nk::Texture& diffuse_texture() const { return m_diffuse_texture; }
 
         nk::result<void, nk::renderer_error> create_texture(
             nk::strview,
@@ -308,4 +309,30 @@ TEST(RendererResult, KeepsTextureStateWhenImageLoadingFails) {
     EXPECT_EQ(texture.generation, 3u);
     EXPECT_EQ(texture.m_internal_data, reinterpret_cast<void*>(0x1));
     EXPECT_EQ(renderer.destroyed_textures(), 0u);
+}
+
+TEST(RendererResult, CyclesChapterTexturesAndAdvancesGeneration) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+
+    ASSERT_TRUE(renderer.cycle_debug_texture());
+    EXPECT_EQ(renderer.diffuse_texture().width, 512u);
+    EXPECT_EQ(renderer.diffuse_texture().height, 512u);
+    EXPECT_EQ(renderer.diffuse_texture().generation, 0u);
+
+    ASSERT_TRUE(renderer.cycle_debug_texture());
+    EXPECT_EQ(renderer.diffuse_texture().width, 480u);
+    EXPECT_EQ(renderer.diffuse_texture().height, 480u);
+    EXPECT_EQ(renderer.diffuse_texture().generation, 1u);
+
+    ASSERT_TRUE(renderer.cycle_debug_texture());
+    EXPECT_EQ(renderer.diffuse_texture().width, 480u);
+    EXPECT_EQ(renderer.diffuse_texture().height, 480u);
+    EXPECT_EQ(renderer.diffuse_texture().generation, 2u);
+    EXPECT_EQ(renderer.destroyed_textures(), 2u);
+
+    ASSERT_TRUE(renderer.cycle_debug_texture());
+    EXPECT_EQ(renderer.diffuse_texture().width, 512u);
+    EXPECT_EQ(renderer.diffuse_texture().generation, 3u);
+    EXPECT_EQ(renderer.destroyed_textures(), 3u);
 }

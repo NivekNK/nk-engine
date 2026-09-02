@@ -252,6 +252,25 @@ namespace nk {
         return ok();
     }
 
+    result<void, renderer_error> Renderer::cycle_debug_texture() {
+        constexpr strview texture_names[]{
+            strview{"cobblestone", 11},
+            strview{"paving", 6},
+            strview{"paving2", 7},
+        };
+        constexpr u8 texture_count =
+            sizeof(texture_names) / sizeof(texture_names[0]);
+
+        const strview name = texture_names[m_debug_texture_index];
+        auto loaded = load_texture(name, m_diffuse_texture);
+        if (!loaded)
+            return err(loaded.error());
+
+        m_debug_texture_index =
+            static_cast<u8>((m_debug_texture_index + 1) % texture_count);
+        return ok();
+    }
+
     result<frame_outcome, renderer_error> Renderer::end_frame_impl(
         const f64 delta_time) {
         auto ended = end_frame(delta_time);

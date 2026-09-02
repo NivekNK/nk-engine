@@ -46,6 +46,20 @@ namespace nk {
                 case KeyCode::LCtrl:
                     DebugLog("'Left Ctrl' key pressed in window.");
                     break;
+                case KeyCode::T: {
+                    Engine& engine = Engine::get();
+                    if (engine.m_renderer == nullptr)
+                        break;
+                    auto cycled = engine.m_renderer->cycle_debug_texture();
+                    if (!cycled) {
+                        const renderer_error& error = cycled.error();
+                        ErrorLog(
+                            "Texture cycle failed: renderer_error={}, native_code={}",
+                            static_cast<u32>(error.code),
+                            error.native_code);
+                    }
+                    return true;
+                }
                 default:
                     DebugLog("'{}' key pressed in window.", static_cast<char>(keycode));
                     break;
@@ -72,6 +86,8 @@ namespace nk {
                 case KeyCode::LCtrl:
                     DebugLog("'Left Ctrl' key released in window.");
                     break;
+                case KeyCode::T:
+                    return true;
                 default:
                     DebugLog("'{}' key released in window.", static_cast<char>(keycode));
                     break;

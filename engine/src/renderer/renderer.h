@@ -35,6 +35,7 @@ namespace nk {
         [[nodiscard]] result<void, renderer_error> load_texture(
             strview name,
             Texture& texture);
+        [[nodiscard]] result<void, renderer_error> cycle_debug_texture();
         
         [[nodiscard]] virtual result<void, renderer_error> create_texture(
             strview name,
@@ -88,5 +89,6 @@ namespace nk {
             f64 delta_time);
 
         bool m_temp_active_rotation = false;
+        u8 m_debug_texture_index = 0;
     };
 }
