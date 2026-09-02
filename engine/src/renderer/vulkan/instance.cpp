@@ -111,8 +111,17 @@ namespace nk {
         // Obtain a list of available validation layers
         u32 available_layer_count = 0;
         VulkanCheck(vkEnumerateInstanceLayerProperties(&available_layer_count, 0));
-        VkLayerProperties* available_layers = allocator->allocate_lot_t(VkLayerProperties, available_layer_count);
-        VulkanCheck(vkEnumerateInstanceLayerProperties(&available_layer_count, available_layers));
+        cl::dyarr<VkLayerProperties> available_layers;
+        if (!available_layers.dyarr_init_len(
+                allocator,
+                available_layer_count,
+                available_layer_count)) {
+            FatalLog("Could not allocate validation layer properties.");
+            return;
+        }
+        VulkanCheck(vkEnumerateInstanceLayerProperties(
+            &available_layer_count,
+            available_layers.data()));
 
         for (cstr layer_name : required_validation_layers) {
             bool layer_found = false;
@@ -130,8 +139,6 @@ namespace nk {
                 return;
             }
         }
-
-        allocator->free_lot_t(VkLayerProperties, available_layers, available_layer_count);
 
         DebugLog("All required validation layers are present.");
 
