@@ -1249,6 +1249,8 @@ namespace nk::cl {
         const mem::SourceLocation source,
         const u64 minimum_capacity)
         requires mem::RelocatableObject<T> {
+        if (minimum_capacity <= m_capacity)
+            return true;
         return static_cast<bool>(_reserve_result(source, minimum_capacity));
     }
 
