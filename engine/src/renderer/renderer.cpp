@@ -14,7 +14,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 namespace nk {
-    Renderer* Renderer::create(mem::Allocator* allocator, Platform* platform, str application_name) {
+    Renderer* Renderer::create(mem::Allocator* allocator, Platform* platform, legacy_str application_name) {
         auto renderer = allocator->construct_t(VulkanRenderer);
 
         renderer->m_application_name = application_name;

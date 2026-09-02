@@ -37,6 +37,7 @@ set(SOURCES
     src/core/engine.cpp
     src/core/input.cpp
     src/core/clock.cpp
+    src/core/str.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
     src/memory/linear_allocator.cpp

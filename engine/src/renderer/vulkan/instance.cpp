@@ -80,7 +80,7 @@ namespace nk {
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
         m_extensions.dyarr_push_ptr(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-        str debug_extensions = "Required extensions:\n";
+        legacy_str debug_extensions = "Required extensions:\n";
         for (u64 i = 0; i < m_extensions.length(); i++) {
             debug_extensions += "                        ";
             debug_extensions += m_extensions[i];

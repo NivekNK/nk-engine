@@ -18,7 +18,7 @@ namespace nk {
     public:
         virtual ~Renderer() = default;
 
-        static Renderer* create(mem::Allocator* allocator, Platform* platform, str application_name);
+        static Renderer* create(mem::Allocator* allocator, Platform* platform, legacy_str application_name);
         static void destroy(mem::Allocator* allocator, Renderer* renderer);
 
         virtual bool draw_frame(const RenderPacket& packet);
@@ -52,7 +52,7 @@ namespace nk {
         virtual void update_object(GeometryRenderData data) = 0;
         virtual bool end_frame(f64 delta_time) = 0;
 
-        str m_application_name;
+        legacy_str m_application_name;
         Platform* m_platform;
 
         mem::Allocator* m_allocator;

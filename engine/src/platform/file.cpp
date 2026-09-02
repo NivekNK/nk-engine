@@ -50,7 +50,7 @@ namespace nk {
         m_path.clear();
     }
 
-    bool File::read_line(str* out_line) {
+    bool File::read_line(legacy_str* out_line) {
         if (!m_open) return false;
         
         constexpr u64 buffer_size = 32000;

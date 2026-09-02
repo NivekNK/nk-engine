@@ -409,10 +409,10 @@ namespace nk {
         allocator->free_lot_t(VkQueueFamilyProperties, queue_families, queue_family_count);
 
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
-        str graphics_family_index_str = out_queue_family->graphics_family_index != numeric::u32_max ? "true" : "false";
-        str present_family_index_str = out_queue_family->present_family_index != numeric::u32_max ? "true" : "false";
-        str compute_family_index_str = out_queue_family->compute_family_index != numeric::u32_max ? "true" : "false";
-        str transfer_family_index_str = out_queue_family->transfer_family_index != numeric::u32_max ? "true" : "false";
+        legacy_str graphics_family_index_str = out_queue_family->graphics_family_index != numeric::u32_max ? "true" : "false";
+        legacy_str present_family_index_str = out_queue_family->present_family_index != numeric::u32_max ? "true" : "false";
+        legacy_str compute_family_index_str = out_queue_family->compute_family_index != numeric::u32_max ? "true" : "false";
+        legacy_str transfer_family_index_str = out_queue_family->transfer_family_index != numeric::u32_max ? "true" : "false";
         DebugLog("Device selected:\n{:>12} | {:>12} | {:>12} | {:>12} | {:>12}\n{:>12} | {:>12} | {:>12} | {:>12} | {:>12}",
                  "Graphics", "Present", "Compute", "Transfer", "Name",
                  graphics_family_index_str,

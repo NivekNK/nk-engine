@@ -27,7 +27,7 @@ namespace nk {
         bool open(cstr path, FileMode::Value mode, bool binary);
         void close();
 
-        bool read_line(str* out_line);
+        bool read_line(legacy_str* out_line);
         bool write_line(cstr line);
 
         bool read(u64 data_size, void* out_data, u64* out_bytes_read);
@@ -40,6 +40,6 @@ namespace nk {
         bool m_open;
         bool m_binary;
         FileMode::Value m_mode;
-        str m_path;
+        legacy_str m_path;
     };
 }

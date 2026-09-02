@@ -416,32 +416,34 @@ Esta fase reemplaza la infraestructura que actualmente se oculta tras `using str
 
 #### 7.1 `strview`
 
-- [ ] Implementar vista de caracteres y longitud sin ownership.
-- [ ] Permitir construcción desde literales, `cstr`, `str`, `strbuf` y puntero+longitud.
-- [ ] Implementar comparación, búsqueda, prefijos, sufijos y subslices de texto.
-- [ ] Diferenciar explícitamente una vista de una cadena terminada en nulo.
+- [x] Implementar vista de caracteres y longitud sin ownership.
+- [x] Permitir construcción desde literales, `cstr`, `str`, `strbuf` y puntero+longitud.
+- [x] Implementar comparación, búsqueda, prefijos, sufijos y subslices de texto.
+- [x] Diferenciar explícitamente una vista de una cadena terminada en nulo.
 
 #### 7.2 `str`
 
-- [ ] Reemplazar el alias por un tipo propietario allocator-aware.
-- [ ] Mantener terminación nula y longitud separada de capacidad.
-- [ ] Implementar capacidad inline pequeña y crecimiento mediante allocator explícito.
-- [ ] Implementar como sintaxis canónica `str{allocator}` y `str{allocator, texto}`, siempre con el allocator como primer argumento.
-- [ ] Omitir constructores propietarios desde texto sin allocator y cualquier consulta a estado global o ambiental.
-- [ ] Implementar assign, append, clear, reserve, move y copy con ownership definido.
-- [ ] Hacer que copy assignment preserve el allocator del destino y definir el movimiento entre allocators distintos.
-- [ ] Implementar acceso mediante `data`, `cstr`, `length`, `capacity` y `empty`.
-- [ ] Proteger contra overflow y asignación fallida.
+- [x] Reemplazar el alias por un tipo propietario allocator-aware.
+- [x] Mantener terminación nula y longitud separada de capacidad.
+- [x] Implementar capacidad inline pequeña y crecimiento mediante allocator explícito.
+- [x] Implementar como sintaxis canónica `str{allocator}` y `str{allocator, texto}`, siempre con el allocator como primer argumento.
+- [x] Omitir constructores propietarios desde texto sin allocator y cualquier consulta a estado global o ambiental.
+- [x] Implementar assign, append, clear, reserve, move y copy con ownership definido.
+- [x] Hacer que copy assignment preserve el allocator del destino y definir el movimiento entre allocators distintos.
+- [x] Implementar acceso mediante `data`, `cstr`, `length`, `capacity` y `empty`.
+- [x] Proteger contra overflow y asignación fallida.
 
 #### 7.3 `strbuf<N>` y formatting
 
-- [ ] Implementar buffer inline terminado en nulo y sin allocator.
-- [ ] Implementar append y truncación detectable.
-- [ ] Implementar `format_to` sin asignaciones para strings, chars, bools, enteros, floats y punteros.
-- [ ] Soportar inicialmente los formatos usados por el repositorio: `{}`, ancho/alineación, zero-padding y precisión decimal.
-- [ ] Rechazar formatos no soportados en compile time cuando sea posible y mediante assertion en desarrollo en los demás casos.
+- [x] Implementar buffer inline terminado en nulo y sin allocator.
+- [x] Implementar append y truncación detectable.
+- [x] Implementar `format_to` sin asignaciones para strings, chars, bools, enteros, floats y punteros.
+- [x] Soportar inicialmente los formatos usados por el repositorio: `{}`, ancho/alineación, zero-padding y precisión decimal.
+- [x] Rechazar formatos no soportados en compile time cuando sea posible y mediante assertion en desarrollo en los demás casos.
 
-Criterio de salida: existen reemplazos propios listos para probar para `std::string`, `std::string_view` y la salida dinámica de `std::format`, pero aún no se han cambiado los call sites.
+Evidencia: [contratos, formatting y verificación de la infraestructura de texto](memory-containers-phase-7-text.md).
+
+Criterio de salida: existen reemplazos propios listos para probar para `std::string`, `std::string_view` y la salida dinámica de `std::format`; los call sites antiguos conservan su semántica mediante el puente explícito `legacy_str` y aún no se han migrado a los tipos nuevos.
 
 ### Fase 8 — Estructuras adicionales
 
@@ -517,7 +519,7 @@ La migración se realizará después de aprobar la fase de pruebas. `MemorySyste
 
 #### 10.2 Core, texto y archivos
 
-- [ ] Cambiar `using str = std::string` por el tipo `str` propio.
+- [ ] Eliminar el puente `legacy_str = std::string` al migrar sus consumidores al tipo `str` propio.
 - [ ] Migrar `ApplicationConfig`, `Renderer` y nombres de aplicación a `str`/`strview` según ownership.
 - [ ] Migrar `File`, paths, `read_line` y rutas de shaders con allocator explícito.
 - [ ] Usar `str{allocator, texto}` en todo call site propietario; usar `strview` para literales y entradas no propietarias.
@@ -599,9 +601,9 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P4 | Duración de objetos | completa | — | [evidencia](memory-containers-phase-4-object-lifetime.md) |
 | P5 | `arr<T>` | completa | — | [evidencia](memory-containers-phase-5-arr.md) |
 | P6 | `dyarr<T>` | completa | — | [evidencia](memory-containers-phase-6-dyarr.md) |
-| P7.1 | `strview` | pendiente | — | — |
-| P7.2 | `str` | pendiente | — | — |
-| P7.3 | `strbuf<N>` y formatting | pendiente | — | — |
+| P7.1 | `strview` | completa | — | [evidencia](memory-containers-phase-7-text.md) |
+| P7.2 | `str` | completa | — | [evidencia](memory-containers-phase-7-text.md) |
+| P7.3 | `strbuf<N>` y formatting | completa | — | [evidencia](memory-containers-phase-7-text.md) |
 | P8.1 | `slice<T>` | pendiente | — | — |
 | P8.2 | `hash64`/rapidhash | pendiente | — | — |
 | P8.3 | `map<K, V>` | pendiente | — | — |
@@ -617,7 +619,7 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 ## Defectos conocidos que el refactor debe eliminar
 
 - Logging y assertions construyen `std::string` durante errores y pueden asignar mientras se reporta memoria.
-- El alias `str = std::string` evita que los dominios de memoria del engine controlen sus textos.
+- El puente temporal `legacy_str = std::string` mantiene consumidores cuyo dominio de memoria aún no controla el engine.
 - `ObjectShader` y sus estados todavía poseen storage mediante `std::vector`.
 - `MemoryType` almacena callbacks mediante `std::function`, que puede poseer memoria fuera de los allocators del engine.
 - `dyarr_insert` puede escribir fuera de capacidad al insertar en un índice lejano.

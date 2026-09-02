@@ -8,7 +8,7 @@ namespace nk {
     namespace mem { class Allocator; }
 
     struct ApplicationConfig {
-        str name;
+        legacy_str name;
         i16 start_pos_x;
         i16 start_pos_y;
         u32 start_width;

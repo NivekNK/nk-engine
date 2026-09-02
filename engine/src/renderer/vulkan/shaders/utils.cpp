@@ -7,7 +7,7 @@
 
 namespace nk {
     bool create_shader_module(cstr name, cstr type, Device* device, VkAllocationCallbacks* allocator, VkShaderStageFlagBits stage, ShaderStage* out_stage) {
-        str shader_path = std::format("assets/shaders/{}.{}.spv", name, type);
+        legacy_str shader_path = std::format("assets/shaders/{}.{}.spv", name, type);
         out_stage->module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 
         File file;
