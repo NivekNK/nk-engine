@@ -20,7 +20,6 @@ namespace nk {
         other.m_framebuffer = nullptr;
         other.m_width = 0;
         other.m_height = 0;
-        other.m_attachments.arr_reset();
     }
 
     Framebuffer& Framebuffer::operator=(Framebuffer&& other) {
@@ -38,7 +37,6 @@ namespace nk {
         other.m_framebuffer = nullptr;
         other.m_width = 0;
         other.m_height = 0;
-        other.m_attachments.arr_reset();
 
         return *this;
     }

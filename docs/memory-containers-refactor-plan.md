@@ -1,10 +1,10 @@
 # Plan de refactorización de memoria y contenedores
 
-> Estado: plan final, implementación en curso; fases 0, 1, 2 y 3 completas
+> Estado: plan final, implementación en curso; fases 0 a 5 completas
 >
-> Versión del plan: 6
+> Versión del plan: 7
 >
-> Última actualización: 2026-09-01
+> Última actualización: 2026-09-02
 
 ## Objetivo
 
@@ -380,14 +380,16 @@ Criterio de salida: `arr` y `dyarr` pueden compartir un único conjunto revisado
 
 ### Fase 5 — `arr<T>`
 
-- [ ] Reimplementar inicialización por longitud y lista.
-- [ ] Construir todos los elementos que pasan a estar vivos.
-- [ ] Corregir destructor, clear y shutdown.
-- [ ] Corregir move constructor y move assignment.
-- [ ] Eliminar la necesidad de `arr_reset` en transferencias.
-- [ ] Implementar ownership explícito para `arr_init_own`.
-- [ ] Añadir iteración `begin/end` sin coste adicional.
-- [ ] Preservar la API cómoda existente mediante wrappers de transición.
+- [x] Reimplementar inicialización por longitud y lista.
+- [x] Construir todos los elementos que pasan a estar vivos.
+- [x] Corregir destructor, clear y shutdown.
+- [x] Corregir move constructor y move assignment.
+- [x] Eliminar la necesidad de `arr_reset` en transferencias.
+- [x] Implementar ownership explícito para `arr_init_own`.
+- [x] Añadir iteración `begin/end` sin coste adicional.
+- [x] Preservar la API cómoda existente mediante wrappers de transición.
+
+Evidencia: [contratos, ownership y verificación de `arr<T>`](memory-containers-phase-5-arr.md).
 
 Criterio de salida: ningún elemento se usa antes de ser construido ni se destruye más de una vez.
 
@@ -592,8 +594,8 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | P1 | Base `Allocator` | completa | — | [evidencia](memory-containers-phase-1-allocator.md) |
 | P2 | `MallocAllocator` | completa | — | [evidencia](memory-containers-phase-2-malloc-allocator.md) |
 | P3 | `LinearAllocator` | completa | — | [evidencia](memory-containers-phase-3-linear-allocator.md) |
-| P4 | Duración de objetos | pendiente | — | — |
-| P5 | `arr<T>` | pendiente | — | — |
+| P4 | Duración de objetos | completa | — | [evidencia](memory-containers-phase-4-object-lifetime.md) |
+| P5 | `arr<T>` | completa | — | [evidencia](memory-containers-phase-5-arr.md) |
 | P6 | `dyarr<T>` | pendiente | — | — |
 | P7.1 | `strview` | pendiente | — | — |
 | P7.2 | `str` | pendiente | — | — |
