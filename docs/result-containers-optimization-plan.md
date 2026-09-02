@@ -402,18 +402,18 @@ cierre y nunca convertirse en una segunda API permanente.
 
 ### Trabajo
 
-- [ ] Perfilar qué parte del coste corresponde a `posix_memalign`, tracking y
+- [x] Perfilar qué parte del coste corresponde a `posix_memalign`, tracking y
       lifecycle.
-- [ ] En Linux, usar `malloc` para alineaciones satisfechas por
+- [x] En Linux, usar `malloc` para alineaciones satisfechas por
       `alignof(std::max_align_t)` y conservar `posix_memalign` para tipos
       sobrealineados.
-- [ ] Mantener `free` como par válido de ambas rutas Linux.
-- [ ] No mezclar `_aligned_malloc` con `free` en Windows. Conservar la ruta
+- [x] Mantener `free` como par válido de ambas rutas Linux.
+- [x] No mezclar `_aligned_malloc` con `free` en Windows. Conservar la ruta
       Windows actual salvo que el contrato de free reciba información suficiente
       para distinguir backends.
-- [ ] Probar tamaños cero, overflow, alineaciones inválidas y todos los tamaños
+- [x] Probar tamaños cero, overflow, alineaciones inválidas y todos los tamaños
       y alineaciones de la baseline.
-- [ ] Verificar que los eventos y estadísticas del tracker sean idénticos.
+- [x] Verificar que los eventos y estadísticas del tracker sean idénticos.
 
 ### Puerta específica
 
@@ -741,7 +741,7 @@ Si una optimización aceptada provoca una regresión descubierta más adelante:
 | R1 | `result<T, E>` y `result<void, E>` | aceptada | `feat(core): add allocation-free result values` | [Evidencia](result-phase-1-evidence.md) |
 | R2 | File y shaders con errores tipados | aceptada | `refactor(io): propagate typed file failures` | [Evidencia](result-phase-2-io-evidence.md) |
 | R3 | Renderer/Vulkan con outcomes y errores | aceptada | `refactor(renderer): distinguish frame outcomes and failures` | [Evidencia](result-phase-3-renderer-evidence.md) |
-| O1 | Fast path de allocator raw | pendiente | — | — |
+| O1 | Fast path de allocator raw | aceptada | `perf(memory): add a fast path for fundamental alignment` | [Evidencia](result-phase-4-allocator-fast-path.md) |
 | O2 | API tipada y heterogénea de `map` | pendiente | — | — |
 | O3 | Metadata compacta escalar de `map` | pendiente | — | — |
 | O4 | Filtrado SIMD de `map` | pendiente | — | — |

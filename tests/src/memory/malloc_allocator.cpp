@@ -27,6 +27,32 @@ TEST(MallocAllocator, HonorsSupportedAlignmentsAndTracksSuccessfulOperations) {
     EXPECT_EQ(allocator.get_peak_used_bytes(), allocation_size);
 }
 
+TEST(MallocAllocator, PairsFundamentalAndOveralignedLinuxStorageWithFree) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    constexpr nk::u64 sizes[] = {1, 16, 64, 256, 4096};
+    constexpr nk::u64 alignments[] = {
+        alignof(std::max_align_t),
+        alignof(std::max_align_t) * 2,
+        64,
+        256,
+    };
+
+    for (const nk::u64 size : sizes) {
+        for (const nk::u64 alignment : alignments) {
+            void* data = allocator._allocate_raw(size, alignment);
+            ASSERT_NE(data, nullptr)
+                << "size=" << size << ", alignment=" << alignment;
+            EXPECT_EQ(reinterpret_cast<std::uintptr_t>(data) % alignment, 0);
+            std::memset(data, 0x5a, size);
+            EXPECT_TRUE(allocator._free_raw(data, size));
+        }
+    }
+
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0);
+    EXPECT_EQ(allocator.get_used_bytes(), 0);
+    EXPECT_EQ(allocator.get_reserved_bytes(), 0);
+}
+
 TEST(MallocAllocator, KeepsRawAndZeroedAllocationExplicit) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
 

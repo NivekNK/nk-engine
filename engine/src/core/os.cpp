@@ -28,6 +28,9 @@ namespace nk::os {
 #if defined(NK_PLATFORM_WINDOWS)
         return ::_aligned_malloc(static_cast<std::size_t>(size_bytes), effective_alignment);
 #elif defined(NK_PLATFORM_LINUX)
+        if (effective_alignment <= alignof(std::max_align_t))
+            return std::malloc(static_cast<std::size_t>(size_bytes));
+
         void* data = nullptr;
         if (::posix_memalign(
                 &data,
