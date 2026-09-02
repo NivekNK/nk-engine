@@ -66,9 +66,11 @@ set(SOURCES
     src/systems/texture_system.cpp
     src/systems/material_system.cpp
     src/systems/geometry_system.cpp
+    src/systems/resource_system.cpp
     src/platform/platform.cpp
     src/platform/file.cpp
     src/resources/image_loader.cpp
+    src/resources/loaders.cpp
     src/renderer/renderer.cpp
     src/renderer/vulkan/vulkan_renderer.cpp
     src/renderer/vulkan/utils.cpp
