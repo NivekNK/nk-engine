@@ -39,7 +39,7 @@ namespace nk {
             f64 delta_time) override;
     
         virtual result<void, renderer_error> create_texture(
-            cstr name,
+            strview name,
             bool auto_release,
             u32 width,
             u32 height,

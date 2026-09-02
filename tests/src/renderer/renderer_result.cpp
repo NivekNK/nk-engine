@@ -17,27 +17,48 @@ namespace {
         };
 
         TestRenderer(nk::mem::Allocator& allocator, BeginMode begin_mode)
-            : Renderer{allocator, "test"}, m_begin_mode{begin_mode} {}
+            : Renderer{allocator, "test"}, m_begin_mode{begin_mode} {
+            m_allocator = &allocator;
+        }
 
         nk::u64 frame_number() const { return m_frame_number; }
         nk::u32 global_updates() const { return m_global_updates; }
         nk::u32 object_updates() const { return m_object_updates; }
         nk::u32 end_calls() const { return m_end_calls; }
         void fail_end(bool value) { m_fail_end = value; }
+        void fail_texture_create(bool value) { m_fail_texture_create = value; }
+        nk::u32 destroyed_textures() const { return m_destroyed_textures; }
 
         nk::result<void, nk::renderer_error> create_texture(
-            nk::cstr,
+            nk::strview,
             bool,
-            nk::u32,
-            nk::u32,
-            nk::u32,
+            nk::u32 width,
+            nk::u32 height,
+            nk::u32 channel_count,
             const nk::u8*,
-            bool,
-            nk::Texture*) override {
+            bool has_transparency,
+            nk::Texture* texture) override {
+            if (m_fail_texture_create) {
+                return nk::err(nk::renderer_error{
+                    .code = nk::renderer_error_code::texture_sampler_creation_failed,
+                    .native_code = VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                });
+            }
+            *texture = {
+                .width = width,
+                .height = height,
+                .channel_count = static_cast<nk::u8>(channel_count),
+                .has_transparency = has_transparency,
+                .generation = 0,
+                .m_internal_data = reinterpret_cast<void*>(0x2),
+            };
             return nk::ok();
         }
 
-        void destroy_texture(nk::Texture*) override {}
+        void destroy_texture(nk::Texture* texture) override {
+            ++m_destroyed_textures;
+            *texture = {};
+        }
 
     protected:
         nk::result<void, nk::renderer_error> init() override {
@@ -91,9 +112,11 @@ namespace {
     private:
         BeginMode m_begin_mode;
         bool m_fail_end = false;
+        bool m_fail_texture_create = false;
         nk::u32 m_global_updates = 0;
         nk::u32 m_object_updates = 0;
         nk::u32 m_end_calls = 0;
+        nk::u32 m_destroyed_textures = 0;
     };
 
     class FailingAllocator final : public nk::mem::MallocAllocator {
@@ -235,4 +258,54 @@ TEST(RendererResult, TextureAllocationFailureDoesNotPublishPartialState) {
     EXPECT_EQ(output.has_transparency, before.has_transparency);
     EXPECT_EQ(output.generation, before.generation);
     EXPECT_EQ(output.m_internal_data, before.m_internal_data);
+}
+
+TEST(RendererResult, LoadsAndReplacesTexturesTransactionally) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    nk::Texture texture{
+        .width = 1,
+        .height = 1,
+        .channel_count = 4,
+        .generation = 7,
+        .m_internal_data = reinterpret_cast<void*>(0x1),
+    };
+
+    renderer.fail_texture_create(true);
+    auto failed = renderer.load_texture("cobblestone", texture);
+    ASSERT_FALSE(failed);
+    EXPECT_EQ(
+        failed.error().code,
+        nk::renderer_error_code::texture_sampler_creation_failed);
+    EXPECT_EQ(texture.generation, 7u);
+    EXPECT_EQ(texture.m_internal_data, reinterpret_cast<void*>(0x1));
+    EXPECT_EQ(renderer.destroyed_textures(), 0u);
+
+    renderer.fail_texture_create(false);
+    auto loaded = renderer.load_texture("cobblestone", texture);
+    ASSERT_TRUE(loaded);
+    EXPECT_EQ(texture.width, 512u);
+    EXPECT_EQ(texture.height, 512u);
+    EXPECT_EQ(texture.channel_count, 4u);
+    EXPECT_EQ(texture.generation, 8u);
+    EXPECT_EQ(texture.m_internal_data, reinterpret_cast<void*>(0x2));
+    EXPECT_EQ(renderer.destroyed_textures(), 1u);
+}
+
+TEST(RendererResult, KeepsTextureStateWhenImageLoadingFails) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    nk::Texture texture{
+        .generation = 3,
+        .m_internal_data = reinterpret_cast<void*>(0x1),
+    };
+
+    auto missing = renderer.load_texture("missing", texture);
+    ASSERT_FALSE(missing);
+    EXPECT_EQ(
+        missing.error().code,
+        nk::renderer_error_code::texture_file_failed);
+    EXPECT_EQ(texture.generation, 3u);
+    EXPECT_EQ(texture.m_internal_data, reinterpret_cast<void*>(0x1));
+    EXPECT_EQ(renderer.destroyed_textures(), 0u);
 }

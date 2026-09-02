@@ -119,7 +119,8 @@ namespace nk {
             &m_main_render_pass,
             &m_device,
             m_allocator,
-            m_vulkan_allocator);
+            m_vulkan_allocator,
+            &m_default_texture);
         if (!shader_initialized)
             return err(shader_initialized.error());
         InfoLog("Vulkan Object Shader created.");
@@ -441,7 +442,7 @@ namespace nk {
     }
 
     result<void, renderer_error> VulkanRenderer::create_texture(
-        cstr name,
+        strview name,
         bool auto_release,
         u32 width,
         u32 height,
@@ -450,14 +451,14 @@ namespace nk {
         bool has_transparency,
         Texture* out_texture) {
         if (out_texture == nullptr || pixels == nullptr || width == 0 ||
-            height == 0 || channel_count == 0)
+            height == 0 || channel_count != 4)
             std::abort();
 
         Texture texture{};
         texture.width = width;
         texture.height = height;
         texture.channel_count = channel_count;
-        texture.generation = numeric::invalid_id;
+        texture.generation = 0;
 
         // TODO: Use an allocator for this.
         TextureData* texture_data = m_allocator->construct_t(TextureData);
@@ -576,7 +577,6 @@ namespace nk {
         }
 
         texture.has_transparency = has_transparency;
-        texture.generation++;
         *out_texture = texture;
         return ok();
     }
@@ -597,9 +597,7 @@ namespace nk {
         texture_data->sampler = nullptr;
 
         m_allocator->deconstruct_t(TextureData, texture_data);
-        texture->m_internal_data = nullptr;
-
-        memset(texture, 0, sizeof(Texture));
+        *texture = {};
     }
 
     result<void, renderer_error> VulkanRenderer::recreate_framebuffers() {

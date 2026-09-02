@@ -28,6 +28,10 @@ namespace nk {
         swapchain_acquire_failed,
         swapchain_present_failed,
         texture_sampler_creation_failed,
+        texture_path_failed,
+        texture_file_failed,
+        texture_decode_failed,
+        texture_limits_exceeded,
     };
 
     struct renderer_error {

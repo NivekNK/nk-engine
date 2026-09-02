@@ -49,4 +49,7 @@ set_target_properties(gtest PROPERTIES
 )
 
 include(GoogleTest)
-gtest_discover_tests(${PROJECT_NAME})
+gtest_discover_tests(
+    ${PROJECT_NAME}
+    WORKING_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin/${OPERATIVE_SYSTEM}-${CMAKE_BUILD_TYPE}"
+)

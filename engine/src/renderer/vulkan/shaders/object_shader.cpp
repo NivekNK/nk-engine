@@ -54,10 +54,12 @@ namespace nk {
         RenderPass* render_pass,
         Device* device,
         mem::Allocator* allocator,
-        VkAllocationCallbacks* vulkan_allocator) {
+        VkAllocationCallbacks* vulkan_allocator,
+        Texture* default_texture) {
         m_device = device;
         m_allocator = allocator;
         m_vulkan_allocator = vulkan_allocator;
+        m_default_texture = default_texture;
         m_image_count = image_count;
         m_object_uniform_buffer_index = 0;
 
@@ -351,6 +353,7 @@ namespace nk {
         m_device = nullptr;
         m_allocator = nullptr;
         m_vulkan_allocator = nullptr;
+        m_default_texture = nullptr;
         m_object_uniform_buffer_index = 0;
     }
 
@@ -469,8 +472,18 @@ namespace nk {
             Texture* texture = data.textures[sampler_index];
             u32* descriptor_generation = &object_state->descriptor_states[descriptor_index].generations[image_index];
 
+            const bool uses_default = texture == nullptr || !texture->valid();
+            if (uses_default)
+                texture = m_default_texture;
+            if (texture == nullptr || !texture->valid()) {
+                ErrorLog("ObjectShader has no valid fallback texture.");
+                ++descriptor_index;
+                continue;
+            }
+
             // Check if the descriptor needs updating first
-            if (texture && (*descriptor_generation != texture->generation || *descriptor_generation == numeric::invalid_id)) {
+            if (uses_default || *descriptor_generation != texture->generation ||
+                *descriptor_generation == numeric::invalid_id) {
                 TextureData* internal_data = static_cast<TextureData*>(texture->m_internal_data);
 
                 // Assign view and sampler
@@ -490,12 +503,14 @@ namespace nk {
                 descriptor_writes[descriptor_count] = descriptor;
                 descriptor_count++;
 
-                // Sync frame generation if not using a default texture
-                if (texture->generation != numeric::invalid_id) {
+                // Keep invalid while falling back so generation zero on the
+                // requested texture still forces an update after it loads.
+                if (uses_default)
+                    *descriptor_generation = numeric::invalid_id;
+                else
                     *descriptor_generation = texture->generation;
-                }
-                descriptor_index++;
             }
+            descriptor_index++;
         }
 
         if (descriptor_count > 0) {

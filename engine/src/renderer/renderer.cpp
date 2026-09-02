@@ -1,10 +1,12 @@
 #include "geometry_render_data.h"
 #include "nkpch.h"
 #include "core/input.h"
+#include "core/format.h"
 
 #include "renderer/renderer.h"
 
 #include "memory/malloc_allocator.h"
+#include "resources/image_loader.h"
 #include "vulkan/vulkan_renderer.h"
 #include "platform/platform.h"
 
@@ -124,6 +126,8 @@ namespace nk {
     void Renderer::destroy(mem::Allocator* allocator, Renderer* renderer) {
         if (allocator == nullptr || renderer == nullptr)
             return;
+        if (renderer->m_diffuse_texture.m_internal_data != nullptr)
+            renderer->destroy_texture(&renderer->m_diffuse_texture);
         if (renderer->m_default_texture.m_internal_data != nullptr)
             renderer->destroy_texture(&renderer->m_default_texture);
         renderer->shutdown();
@@ -163,7 +167,7 @@ namespace nk {
         GeometryRenderData data = {};
         data.object_id = 0; // TODO: actual object_id
         data.model = model;
-        data.textures[0] = &m_default_texture;
+        data.textures[0] = &m_diffuse_texture;
         update_object(data);
 
         return end_frame_impl(packet.delta_time);
@@ -173,6 +177,79 @@ namespace nk {
         m_projection = glm::perspective(
             glm::radians(45.0f), width / static_cast<f32>(height), m_near_clip, m_far_clip);
         on_resized(width, height);
+    }
+
+    result<void, renderer_error> Renderer::load_texture(
+        const strview name,
+        Texture& texture) {
+        if (m_allocator == nullptr || name.empty())
+            std::abort();
+
+        strbuf<256> path;
+        if (!format_to(path, "assets/textures/{}.png", name)) {
+            return err(renderer_error{
+                .code = renderer_error_code::texture_path_failed,
+                .native_code = 0,
+            });
+        }
+
+        auto image = ImageLoader::load_png(*m_allocator, path.view());
+        if (!image) {
+            const image_error error = image.error();
+            renderer_error_code code = renderer_error_code::texture_decode_failed;
+            i32 native_code = error.native_code;
+            switch (error.code) {
+                case image_error_code::file_failed:
+                    code = renderer_error_code::texture_file_failed;
+                    native_code = static_cast<i32>(error.file);
+                    break;
+                case image_error_code::decode_failed:
+                    break;
+                case image_error_code::limits_exceeded:
+                    code = renderer_error_code::texture_limits_exceeded;
+                    break;
+                case image_error_code::out_of_memory:
+                    code = renderer_error_code::out_of_memory;
+                    break;
+            }
+            return err(renderer_error{
+                .code = code,
+                .native_code = native_code,
+            });
+        }
+
+        Texture replacement{};
+        auto created = create_texture(
+            name,
+            false,
+            image->width,
+            image->height,
+            image->channel_count,
+            image->pixels.data(),
+            image->has_transparency,
+            &replacement);
+        if (!created)
+            return err(created.error());
+
+        replacement.generation = texture.valid()
+            ? texture.generation + 1
+            : 0;
+        if (replacement.generation == numeric::invalid_id)
+            replacement.generation = 0;
+
+        Texture previous = texture;
+        texture = replacement;
+        if (previous.m_internal_data != nullptr)
+            destroy_texture(&previous);
+
+        InfoLog(
+            "Texture '{}' loaded ({}x{}, {} channels, generation {}).",
+            name,
+            texture.width,
+            texture.height,
+            texture.channel_count,
+            texture.generation);
+        return ok();
     }
 
     result<frame_outcome, renderer_error> Renderer::end_frame_impl(

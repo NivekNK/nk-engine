@@ -59,7 +59,8 @@ namespace nk {
             RenderPass* render_pass,
             Device* device,
             mem::Allocator* allocator,
-            VkAllocationCallbacks* vulkan_allocator);
+            VkAllocationCallbacks* vulkan_allocator,
+            Texture* default_texture);
         void shutdown();
 
         // Bind to: m_graphics_command_buffers[image_index]
@@ -77,6 +78,7 @@ namespace nk {
         Device* m_device = nullptr;
         mem::Allocator* m_allocator = nullptr;
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
+        Texture* m_default_texture = nullptr;
 
         ShaderStage m_stages[shader_stage_count]{};
         Pipeline m_pipeline;

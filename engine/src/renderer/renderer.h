@@ -31,9 +31,13 @@ namespace nk {
             const RenderPacket& packet);
 
         void resize(u32 width, u32 height);
+
+        [[nodiscard]] result<void, renderer_error> load_texture(
+            strview name,
+            Texture& texture);
         
         [[nodiscard]] virtual result<void, renderer_error> create_texture(
-            cstr name,
+            strview name,
             bool auto_release,
             u32 width,
             u32 height,
@@ -77,6 +81,7 @@ namespace nk {
         f32 m_far_clip = 0.0f;
 
         Texture m_default_texture{};
+        Texture m_diffuse_texture{};
 
     private:
         [[nodiscard]] result<frame_outcome, renderer_error> end_frame_impl(
