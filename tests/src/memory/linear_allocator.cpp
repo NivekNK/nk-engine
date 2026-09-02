@@ -17,14 +17,15 @@ TEST(LinearAllocator, LinearAllocatorInit) {
 
         NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
 
-        auto _ = testing->allocate_raw(500.0f, 0.0f);
+        auto _ = testing->allocate_raw(500, alignof(nk::f32));
+        EXPECT_NE(_, nullptr);
 
         EXPECT_FLOAT_EQ(allocator.get_used_bytes(), 500);
         NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
 
         // Linear allocator frees all memory at once, individual allocations are not tracked as freed
         // This is expected behavior for linear allocators
-        allocator._free_linear_allocator(__FILE__, __LINE__);
+        allocator._free_linear_allocator();
         DebugLog("Finishing Linear Allocator Test");
     }
 

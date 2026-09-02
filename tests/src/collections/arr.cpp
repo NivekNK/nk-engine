@@ -6,7 +6,7 @@
 TEST(Arr, ArrInit) {
     auto array = nk::cl::arr<nk::u32>();
 
-    nk::mem::MallocAllocator allocator;
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
     array._arr_init(&allocator, 10);
 
     for (nk::u8 i = 0; i < 10; i++) {

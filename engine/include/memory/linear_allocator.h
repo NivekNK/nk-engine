@@ -5,33 +5,32 @@
 namespace nk::mem {
     class LinearAllocator : public Allocator {
     public:
-        LinearAllocator();
-        virtual ~LinearAllocator() override;
+        LinearAllocator() noexcept;
+        LinearAllocator(Untracked, u64 size_bytes, void* data = nullptr);
+        ~LinearAllocator() override;
 
-        LinearAllocator(LinearAllocator&& other);
-        LinearAllocator& operator=(LinearAllocator&& other);
+        LinearAllocator(LinearAllocator&& other) noexcept;
+        LinearAllocator& operator=(LinearAllocator&& other) noexcept;
 
         LinearAllocator(LinearAllocator&) = delete;
         LinearAllocator& operator=(LinearAllocator&) = delete;
 
         void init(u64 size_bytes, void* data);
 
-        virtual void* _allocate_raw(const u64 size_bytes, const u64 alignment) override;
-
-        virtual bool _free_raw([[maybe_unused]] void* const data, [[maybe_unused]] const u64 size_bytes) override {
-            ErrorLog("nk::mem::LinearAllocator does not support free, use free_linear_allocator.");
-            return false;
-        }
-
         bool _free_linear_allocator();
 
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+#if NK_MEMORY_TRACKING_ENABLED
         bool _free_linear_allocator(cstr file, u32 line);
 #endif
 
-        virtual cstr to_cstr() const override { return "LinearAllocator"; }
+        cstr to_cstr() const noexcept override { return "LinearAllocator"; }
+
+    protected:
+        void* _do_allocate(u64 size_bytes, u64 alignment) noexcept override;
+        bool _do_free(void* data, u64 size_bytes) noexcept override;
 
     private:
+        bool _reset(SourceLocation source) noexcept;
         bool m_owns_memory;
     };
 }

@@ -1,6 +1,6 @@
 # Plan de refactorización de memoria y contenedores
 
-> Estado: plan final, implementación en curso; fase 0 completa
+> Estado: plan final, implementación en curso; fases 0 y 1 completas
 >
 > Versión del plan: 4
 >
@@ -309,23 +309,25 @@ Criterio de salida: contratos escritos y resultados de referencia reproducibles.
 
 ### Fase 1 — Base `Allocator`
 
-- [ ] Separar `os::allocate_raw/free_raw` de los wrappers nativos instrumentados.
-- [ ] Unificar el camino Release y el camino instrumentado.
-- [ ] Validar potencia de dos y valor mínimo de la alineación.
-- [ ] Detectar overflow de `sizeof(T) * count`.
-- [ ] Corregir helpers de allocate/free/construct/deconstruct.
-- [ ] Definir estadísticas coherentes: reservado, usado, pico y asignaciones activas.
-- [ ] Definir `AllocationEvent`, `AllocatorDescriptor` y los IDs sin depender de contenedores.
-- [ ] Definir `AllocationTracker` como interfaz C++ con métodos virtuales `noexcept`.
-- [ ] Adaptar `MemorySystem` a la interfaz conservando temporalmente su almacenamiento actual.
-- [ ] Implementar inicialización explícita con tracker o tag interno `untracked`.
-- [ ] Permitir attach/detach controlado de un tracker sin cambiar el allocator concreto.
-- [ ] Hacer que el tracking sea opcional, seguro y completamente eliminado por compilación en Release.
-- [ ] Definir los registros POD, contador de IDs y capacidad fija de `EarlyAllocationJournal` sin depender de contenedores.
-- [ ] Añadir estados `Cold`, `Bootstrapping`, `Ready`, `ShuttingDown` y `Stopped`, junto con el guard de reentrada.
-- [ ] Rechazar asignaciones de un allocator que todavía no haya completado su `init`.
-- [ ] Corregir move assignment para no perder estado previo.
-- [ ] Mantener temporalmente la sintaxis pública y los macros de asignación actuales durante la transición.
+- [x] Separar `os::allocate_raw/free_raw` de los wrappers nativos instrumentados.
+- [x] Unificar el camino Release y el camino instrumentado.
+- [x] Validar potencia de dos y valor mínimo de la alineación.
+- [x] Detectar overflow de `sizeof(T) * count`.
+- [x] Corregir helpers de allocate/free/construct/deconstruct.
+- [x] Definir estadísticas coherentes: reservado, usado, pico y asignaciones activas.
+- [x] Definir `AllocationEvent`, `AllocatorDescriptor` y los IDs sin depender de contenedores.
+- [x] Definir `AllocationTracker` como interfaz C++ con métodos virtuales `noexcept`.
+- [x] Adaptar `MemorySystem` a la interfaz conservando temporalmente su almacenamiento actual.
+- [x] Implementar inicialización explícita con tracker o tag interno `untracked`.
+- [x] Permitir attach/detach controlado de un tracker sin cambiar el allocator concreto.
+- [x] Hacer que el tracking sea opcional, seguro y completamente eliminado por compilación en Release.
+- [x] Definir los registros POD, contador de IDs y capacidad fija de `EarlyAllocationJournal` sin depender de contenedores.
+- [x] Añadir estados `Cold`, `Bootstrapping`, `Ready`, `ShuttingDown` y `Stopped`, junto con el guard de reentrada.
+- [x] Rechazar asignaciones de un allocator que todavía no haya completado su `init`.
+- [x] Corregir move assignment para no perder estado previo.
+- [x] Mantener temporalmente la sintaxis pública y los macros de asignación actuales durante la transición.
+
+Evidencia: [implementación, contratos y verificación de fase 1](memory-containers-phase-1-allocator.md).
 
 Criterio de salida: el contrato base soporta correctamente allocators alineados, distingue tracking de modo `untracked`, conserva eventos durante bootstrap y no incluye `memory_system.h` desde la interfaz pública del allocator.
 
@@ -533,8 +535,8 @@ La migración se realizará después de aprobar la fase de pruebas. `MemorySyste
 
 #### 10.5 `MemorySystem`
 
-- [ ] Hacer que `MemorySystem` sea la implementación final de `AllocationTracker` conservando la interfaz desacoplada.
-- [ ] Incorporar el `EarlyAllocationJournal` inline y reproducirlo antes de entrar en `Ready`.
+- [x] Hacer que `MemorySystem` sea la implementación final de `AllocationTracker` conservando la interfaz desacoplada. (adelantado en fase 1)
+- [x] Incorporar el `EarlyAllocationJournal` inline y reproducirlo antes de entrar en `Ready`. (adelantado en fase 1)
 - [ ] Crear su `MallocAllocator` de metadata con el tag explícito `untracked`.
 - [ ] Sustituir `std::vector<AllocationStats>` por `dyarr<AllocatorRecord>`.
 - [ ] Sustituir `std::unordered_map` por un único `map<AllocationKey, AllocationRecord>`.
@@ -577,7 +579,7 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 | ID | Fase | Estado | Commit/PR | Notas |
 | --- | --- | --- | --- | --- |
 | P0 | Contratos y línea base | completa | — | [evidencia](memory-containers-phase-0-baseline.md) |
-| P1 | Base `Allocator` | pendiente | — | — |
+| P1 | Base `Allocator` | completa | — | [evidencia](memory-containers-phase-1-allocator.md) |
 | P2 | `MallocAllocator` | pendiente | — | — |
 | P3 | `LinearAllocator` | pendiente | — | — |
 | P4 | Duración de objetos | pendiente | — | — |
@@ -602,8 +604,6 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 
 - `MallocAllocator` ignora actualmente la alineación solicitada.
 - `LinearAllocator` ignora actualmente la alineación y el padding.
-- El tracking puede desreferenciar un `MemorySystem` no inicializado.
-- `Allocator` depende actualmente de métodos estáticos del `MemorySystem` concreto.
 - Logging y assertions construyen `std::string` durante errores y pueden asignar mientras se reporta memoria.
 - El alias `str = std::string` evita que los dominios de memoria del engine controlen sus textos.
 - `ObjectShader` y sus estados todavía poseen storage mediante `std::vector`.
@@ -611,7 +611,7 @@ Estados permitidos: `pendiente`, `en progreso`, `bloqueada`, `completa`.
 - `dyarr_insert` puede escribir fuera de capacidad al insertar en un índice lejano.
 - `dyarr` usa `memmove` sobre tipos no triviales.
 - `resize` puede declarar objetos vivos sin construirlos.
-- Los move assignments actuales pueden perder el bloque previamente poseído por el destino.
+- Los move assignments actuales de `arr` y `dyarr` pueden perder el bloque previamente poseído por el destino.
 - `reset` no destruye actualmente objetos no triviales.
 - `*_init_own` no expresa cómo debe destruirse el allocator recibido.
 

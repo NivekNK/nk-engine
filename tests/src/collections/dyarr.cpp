@@ -1,8 +1,5 @@
 #include <gtest/gtest.h>
 
-#undef NK_ACTIVE_MEMORY_SYSTEM
-#define NK_ACTIVE_MEMORY_SYSTEM FALSE
-
 #include "collections/dyarr.h"
 #include "memory/malloc_allocator.h"
 
@@ -13,7 +10,7 @@ struct DyarrTest {
 TEST(Arr, DyarrInit) {
     auto array = nk::cl::dyarr<DyarrTest>();
 
-    nk::mem::MallocAllocator allocator;
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
     array.dyarr_init(&allocator, 4);
 
     array.dyarr_push_copy(DyarrTest {

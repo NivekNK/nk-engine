@@ -98,7 +98,7 @@ namespace {
     Measurement measure_malloc_allocate_free() {
         return measure("malloc.allocate_free_64B", malloc_operation_count, [](nk::u64& checksum) {
             nk::mem::MallocAllocator allocator;
-            allocator.init();
+            allocator.allocator_init_untracked(nk::mem::MallocAllocator);
 
             const auto start = Clock::now();
             for (nk::u64 index = 0; index < malloc_operation_count; ++index) {
@@ -122,7 +122,7 @@ namespace {
     Measurement measure_dyarr_growth() {
         return measure("dyarr.grow_push_u64", growth_element_count, [](nk::u64& checksum) {
             nk::mem::MallocAllocator allocator;
-            allocator.init();
+            allocator.allocator_init_untracked(nk::mem::MallocAllocator);
             nk::cl::dyarr<nk::u64> values;
 
             const auto start = Clock::now();
@@ -140,7 +140,7 @@ namespace {
     Measurement measure_dyarr_insert() {
         return measure("dyarr.insert_middle_u64", edit_operation_count, [](nk::u64& checksum) {
             nk::mem::MallocAllocator allocator;
-            allocator.init();
+            allocator.allocator_init_untracked(nk::mem::MallocAllocator);
             nk::cl::dyarr<nk::u64> values;
             values.dyarr_init(&allocator, edit_initial_element_count + edit_operation_count);
 
@@ -161,7 +161,7 @@ namespace {
     Measurement measure_dyarr_remove() {
         return measure("dyarr.remove_middle_u64", edit_operation_count, [](nk::u64& checksum) {
             nk::mem::MallocAllocator allocator;
-            allocator.init();
+            allocator.allocator_init_untracked(nk::mem::MallocAllocator);
             nk::cl::dyarr<nk::u64> values;
             values.dyarr_init(&allocator, edit_initial_element_count);
 

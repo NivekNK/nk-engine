@@ -4,419 +4,581 @@
 
 #include "memory/allocator.h"
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 
 namespace nk::mem {
-    namespace Type {
-        u8 to_value(const AllocationType type) {
-            return static_cast<u8>(type);
+    struct MemorySystemStorageAccess {
+        static void* data(MemorySystem& system) noexcept {
+            return system.m_data;
+        }
+    };
+
+    namespace {
+        thread_local bool inside_tracker_callback = false;
+
+        class TrackerCallbackScope {
+        public:
+            TrackerCallbackScope() noexcept {
+                inside_tracker_callback = true;
+            }
+
+            ~TrackerCallbackScope() {
+                inside_tracker_callback = false;
+            }
+
+            TrackerCallbackScope(const TrackerCallbackScope&) = delete;
+            TrackerCallbackScope& operator=(const TrackerCallbackScope&) = delete;
+        };
+
+        struct AllocationInfo {
+            u64 size_bytes = 0;
+            std::string file;
+            u32 line = 0;
+        };
+
+        struct FreeInfo {
+            u64 size_bytes = 0;
+            std::string file;
+            u32 line = 0;
+        };
+
+        struct AllocatorInfo {
+            AllocationInfo allocated;
+            FreeInfo freed;
+        };
+
+        struct AllocationStats {
+            bool registered = false;
+            std::string name;
+            std::string allocator;
+            u32 type = 0;
+            u64 reserved_bytes = 0;
+            u64 used_bytes = 0;
+            u64 peak_used_bytes = 0;
+            u64 active_allocations = 0;
+            AllocationInfo init;
+            std::unordered_map<void*, AllocatorInfo> allocation_log;
+        };
+
+        struct MemorySystemInfo {
+            std::vector<AllocationStats> allocators;
+        };
+
+        cstr source_file(SourceLocation source) noexcept {
+            return source.file == nullptr ? "<unknown>" : source.file;
         }
 
-        cstr to_cstr(const AllocationType type) {
-            static constexpr cstr types[] = {"Init", "Allocate", "Free"};
-            return types[Type::to_value(type)];
+        MemorySystemInfo* system_info(MemorySystem& system) noexcept {
+            return static_cast<MemorySystemInfo*>(MemorySystemStorageAccess::data(system));
         }
-    }
 
-    struct AllocationInfo {
-        u64 size_bytes;
-        std::string file;
-        u32 line;
-    };
-
-    struct FreeInfo {
-        u64 size_bytes;
-        std::string file;
-        u32 line;
-    };
-
-    struct AllocatorInfo {
-        AllocationInfo allocated;
-        FreeInfo freed;
-    };
-
-    struct AllocationStats {
-        std::string name;
-        std::string allocator;
-        MemoryType::Value type;
-
-        u64 size_bytes;
-        u64 used_bytes;
-        u64 allocation_count;
-
-        AllocationInfo init;
-        std::unordered_map<void*, AllocatorInfo> allocator_log;
-    };
-
-    struct MemorySystemInfo {
-        std::vector<AllocationStats> allocations;
-    };
-
-    std::string memory_in_bytes(u64 memory) {
-        if (memory >= GiB()) {
-            return std::format("{:.2f} GiB", memory / static_cast<f32>(GiB()));
-        } else if (memory >= MiB()) {
-            return std::format("{:.2f} MiB", memory / static_cast<f32>(MiB()));
-        } else if (memory >= KiB()) {
-            return std::format("{:.2f} KiB", memory / static_cast<f32>(KiB()));
-        } else {
+        std::string memory_in_bytes(u64 memory) {
+            if (memory >= GiB()) {
+                return std::format("{:.2f} GiB", memory / static_cast<f32>(GiB()));
+            }
+            if (memory >= MiB()) {
+                return std::format("{:.2f} MiB", memory / static_cast<f32>(MiB()));
+            }
+            if (memory >= KiB()) {
+                return std::format("{:.2f} KiB", memory / static_cast<f32>(KiB()));
+            }
             return std::format("{:.2f} B", static_cast<f32>(memory));
         }
-    }
 
-    std::string memory_in_bytes(u64 allocated, u64 used) {
-        if (used >= GiB()) {
-            return std::format("{:.2f}/{:.2f} GiB",
-                               allocated / static_cast<f32>(GiB()), used / static_cast<f32>(GiB()));
-        } else if (used >= MiB()) {
-            return std::format("{:.2f}/{:.2f} MiB",
-                               allocated / static_cast<f32>(MiB()), used / static_cast<f32>(MiB()));
-        } else if (used >= KiB()) {
-            return std::format("{:.2f}/{:.2f} KiB",
-                               allocated / static_cast<f32>(KiB()), used / static_cast<f32>(KiB()));
-        } else {
-            return std::format("{:.2f}/{:.2f} B",
-                               static_cast<f32>(allocated), static_cast<f32>(used));
+        std::string memory_in_bytes(u64 reserved, u64 used) {
+            if (used >= GiB() || reserved >= GiB()) {
+                return std::format(
+                    "{:.2f}/{:.2f} GiB",
+                    reserved / static_cast<f32>(GiB()),
+                    used / static_cast<f32>(GiB()));
+            }
+            if (used >= MiB() || reserved >= MiB()) {
+                return std::format(
+                    "{:.2f}/{:.2f} MiB",
+                    reserved / static_cast<f32>(MiB()),
+                    used / static_cast<f32>(MiB()));
+            }
+            if (used >= KiB() || reserved >= KiB()) {
+                return std::format(
+                    "{:.2f}/{:.2f} KiB",
+                    reserved / static_cast<f32>(KiB()),
+                    used / static_cast<f32>(KiB()));
+            }
+            return std::format(
+                "{:.2f}/{:.2f} B",
+                static_cast<f32>(reserved),
+                static_cast<f32>(used));
+        }
+
+        void update_statistics(
+            AllocationStats& destination,
+            const AllocatorStatistics& source) noexcept {
+            destination.reserved_bytes = source.reserved_bytes;
+            destination.used_bytes = source.used_bytes;
+            destination.peak_used_bytes = source.peak_used_bytes;
+            destination.active_allocations = source.active_allocations;
         }
     }
 
-    void* get_memory_system_data() {
-        return MemorySystem::get().m_data;
-    }
-
-    MemorySystemInfo& get_memory_system_info() {
-        auto memory_system_info = static_cast<MemorySystemInfo*>(get_memory_system_data());
-        return *memory_system_info;
+    AllocationTracker& default_allocation_tracker() noexcept {
+        return MemorySystem::get();
     }
 
     MemorySystem& MemorySystem::init() {
-        auto& instance = get();
+        MemorySystem& instance = get();
 
-        auto memory_system_info = new MemorySystemInfo();
+        if (instance.m_state == MemorySystemState::Ready)
+            return instance;
+        if (instance.m_state == MemorySystemState::Bootstrapping ||
+            instance.m_state == MemorySystemState::ShuttingDown) {
+            instance.log_error("nk::MemorySystem init rejected during a state transition.");
+            return instance;
+        }
 
-        AllocationStats stats{
+        if (instance.m_state == MemorySystemState::Stopped) {
+            instance.m_journal.clear();
+            instance.m_next_allocator_id = native_allocator_id + 1;
+            instance.m_dropped_event_count = 0;
+            instance.m_reentrant_event_count = 0;
+            instance.m_state = MemorySystemState::Cold;
+        }
+
+        instance.m_state = MemorySystemState::Bootstrapping;
+        auto* info = new (std::nothrow) MemorySystemInfo();
+        if (info == nullptr) {
+            instance.m_state = MemorySystemState::Stopped;
+            instance.log_error("nk::MemorySystem could not allocate its transitional metadata.");
+            return instance;
+        }
+
+        instance.m_data = info;
+        instance.apply_register(native_allocator_id, {
             .name = "Native Allocation",
-            .allocator = "Native",
-            .type = MemoryType::Native,
-            .size_bytes = 0,
-            .used_bytes = 0,
-            .allocation_count = 0,
-            .init = {
-                .size_bytes = 0,
-                .file = __FILE__,
-                .line = __LINE__,
-            },
-            .allocator_log = {},
-        };
-        memory_system_info->allocations.push_back(stats);
-        instance.m_data = memory_system_info;
+            .implementation = "Native",
+            .memory_type = MemoryType::Native,
+            .source = {__FILE__, __LINE__},
+            .statistics = {},
+        });
 
+        if (!instance.m_journal.complete()) {
+            instance.m_dropped_event_count += instance.m_journal.dropped_count();
+            delete info;
+            instance.m_data = nullptr;
+            instance.m_journal.clear();
+            instance.m_state = MemorySystemState::Stopped;
+            instance.log_error("nk::MemorySystem bootstrap failed: early allocation journal overflow.");
+            return instance;
+        }
+
+        instance.replay_journal();
+        instance.m_journal.clear();
+        instance.m_state = MemorySystemState::Ready;
         instance.log_title("nk::MemorySystem initialized.");
-
         return instance;
     }
 
     void MemorySystem::shutdown() {
-        auto& instance = get();
+        MemorySystem& instance = get();
+        if (instance.m_state != MemorySystemState::Ready)
+            return;
 
-        auto memory_system_info = static_cast<MemorySystemInfo*>(instance.m_data);
-        memory_system_info->allocations.clear();
-        delete memory_system_info;
-
+        instance.m_state = MemorySystemState::ShuttingDown;
+        delete system_info(instance);
+        instance.m_data = nullptr;
+        instance.m_state = MemorySystemState::Stopped;
         instance.log_title("nk::MemorySystem shutdown.");
     }
 
-    void MemorySystem::init_allocator(mem::Allocator* allocator, cstr file,
-                                      u32 line, cstr name, MemoryType::Value type) {
-        auto& memory_system_info = get_memory_system_info();
+    AllocatorId MemorySystem::register_allocator(
+        [[maybe_unused]] Allocator& allocator,
+        const AllocatorDescriptor& descriptor) noexcept {
+        if (inside_tracker_callback) {
+            ++m_reentrant_event_count;
+            return invalid_allocator_id;
+        }
+        TrackerCallbackScope callback_scope;
 
-        AllocationStats stats{
-            .name = name,
-            .allocator = allocator->to_cstr(),
-            .type = type,
-            .size_bytes = allocator->get_size_bytes(),
-            .used_bytes = allocator->get_used_bytes(),
-            .allocation_count = allocator->get_allocation_count(),
-            .init = {
-                .size_bytes = allocator->get_size_bytes(),
-                .file = file,
-                .line = line,
-            },
-            .allocator_log = {},
+        if (m_state == MemorySystemState::Stopped ||
+            m_state == MemorySystemState::ShuttingDown ||
+            m_next_allocator_id == invalid_allocator_id) {
+            return invalid_allocator_id;
+        }
+
+        const AllocatorId allocator_id = m_next_allocator_id++;
+        if (m_state == MemorySystemState::Cold ||
+            m_state == MemorySystemState::Bootstrapping) {
+            journal({
+                .type = EarlyAllocationEventType::RegisterAllocator,
+                .allocator_id = allocator_id,
+                .descriptor = descriptor,
+                .allocation = {},
+                .reset = {},
+            });
+        } else {
+            apply_register(allocator_id, descriptor);
+        }
+        return allocator_id;
+    }
+
+    void MemorySystem::unregister_allocator(AllocatorId allocator_id) noexcept {
+        if (inside_tracker_callback) {
+            ++m_reentrant_event_count;
+            return;
+        }
+        TrackerCallbackScope callback_scope;
+
+        if (m_state == MemorySystemState::Cold ||
+            m_state == MemorySystemState::Bootstrapping) {
+            journal({
+                .type = EarlyAllocationEventType::UnregisterAllocator,
+                .allocator_id = allocator_id,
+                .descriptor = {},
+                .allocation = {},
+                .reset = {},
+            });
+        } else if (m_state == MemorySystemState::Ready) {
+            apply_unregister(allocator_id);
+        }
+    }
+
+    void MemorySystem::on_allocate(const AllocationEvent& event) noexcept {
+        if (inside_tracker_callback) {
+            ++m_reentrant_event_count;
+            return;
+        }
+        TrackerCallbackScope callback_scope;
+
+        if (m_state == MemorySystemState::Cold ||
+            m_state == MemorySystemState::Bootstrapping) {
+            journal({
+                .type = EarlyAllocationEventType::Allocate,
+                .allocator_id = event.allocator_id,
+                .descriptor = {},
+                .allocation = event,
+                .reset = {},
+            });
+        } else if (m_state == MemorySystemState::Ready) {
+            apply_allocate(event);
+        }
+    }
+
+    void MemorySystem::on_free(const AllocationEvent& event) noexcept {
+        if (inside_tracker_callback) {
+            ++m_reentrant_event_count;
+            return;
+        }
+        TrackerCallbackScope callback_scope;
+
+        if (m_state == MemorySystemState::Cold ||
+            m_state == MemorySystemState::Bootstrapping) {
+            journal({
+                .type = EarlyAllocationEventType::Free,
+                .allocator_id = event.allocator_id,
+                .descriptor = {},
+                .allocation = event,
+                .reset = {},
+            });
+        } else if (m_state == MemorySystemState::Ready) {
+            apply_free(event);
+        }
+    }
+
+    void MemorySystem::on_reset(const AllocatorResetEvent& event) noexcept {
+        if (inside_tracker_callback) {
+            ++m_reentrant_event_count;
+            return;
+        }
+        TrackerCallbackScope callback_scope;
+
+        if (m_state == MemorySystemState::Cold ||
+            m_state == MemorySystemState::Bootstrapping) {
+            journal({
+                .type = EarlyAllocationEventType::Reset,
+                .allocator_id = event.allocator_id,
+                .descriptor = {},
+                .allocation = {},
+                .reset = event,
+            });
+        } else if (m_state == MemorySystemState::Ready) {
+            apply_reset(event);
+        }
+    }
+
+    bool MemorySystem::journal(const EarlyAllocationRecord& record) noexcept {
+        const bool stored = m_journal.push(record);
+        if (!stored && m_journal.dropped_count() == 1) {
+            constexpr cstr message =
+                "nk::MemorySystem early allocation journal overflow; report will be incomplete.\n";
+            os::write(message, std::char_traits<char>::length(message));
+            os::flush();
+        }
+        return stored;
+    }
+
+    void MemorySystem::replay_journal() {
+        for (u32 index = 0; index < m_journal.count(); ++index) {
+            const EarlyAllocationRecord& record = m_journal[index];
+            switch (record.type) {
+                case EarlyAllocationEventType::RegisterAllocator:
+                    apply_register(record.allocator_id, record.descriptor);
+                    break;
+                case EarlyAllocationEventType::UnregisterAllocator:
+                    apply_unregister(record.allocator_id);
+                    break;
+                case EarlyAllocationEventType::Allocate:
+                    apply_allocate(record.allocation);
+                    break;
+                case EarlyAllocationEventType::Free:
+                    apply_free(record.allocation);
+                    break;
+                case EarlyAllocationEventType::Reset:
+                    apply_reset(record.reset);
+                    break;
+            }
+        }
+    }
+
+    void MemorySystem::apply_register(
+        AllocatorId allocator_id,
+        const AllocatorDescriptor& descriptor) {
+        MemorySystemInfo* info = system_info(*this);
+        if (info == nullptr)
+            return;
+        if (info->allocators.size() <= allocator_id)
+            info->allocators.resize(static_cast<std::size_t>(allocator_id) + 1);
+
+        AllocationStats& stats = info->allocators[allocator_id];
+        stats.registered = true;
+        stats.name = descriptor.name == nullptr ? "<unnamed>" : descriptor.name;
+        stats.allocator =
+            descriptor.implementation == nullptr ? "<unknown>" : descriptor.implementation;
+        stats.type = descriptor.memory_type;
+        update_statistics(stats, descriptor.statistics);
+        stats.init = {
+            .size_bytes = descriptor.statistics.reserved_bytes,
+            .file = source_file(descriptor.source),
+            .line = descriptor.source.line,
         };
-        memory_system_info.allocations.push_back(stats);
-
-        allocator->m_key = memory_system_info.allocations.size() - 1;
+        stats.allocation_log.clear();
     }
 
-    void MemorySystem::update_allocator(mem::Allocator* allocator, cstr file,
-                                        u32 line, void* data, u64 size_bytes,
-                                        AllocationType allocation_type) {
-        auto& memory_system_info = get_memory_system_info();
+    void MemorySystem::apply_unregister(AllocatorId allocator_id) noexcept {
+        MemorySystemInfo* info = system_info(*this);
+        if (info == nullptr || allocator_id >= info->allocators.size())
+            return;
+        info->allocators[allocator_id].registered = false;
+    }
 
-        if (allocator->m_key >= memory_system_info.allocations.size())
+    void MemorySystem::apply_allocate(const AllocationEvent& event) {
+        MemorySystemInfo* info = system_info(*this);
+        if (info == nullptr || event.allocator_id >= info->allocators.size())
             return;
 
-        auto& value = memory_system_info.allocations.at(allocator->m_key);
-        value.size_bytes = allocator->get_size_bytes();
-        value.used_bytes = allocator->get_used_bytes();
-        value.allocation_count = allocator->get_allocation_count();
+        AllocationStats& stats = info->allocators[event.allocator_id];
+        if (event.allocator_id == native_allocator_id) {
+            stats.reserved_bytes += event.size_bytes;
+            stats.used_bytes += event.size_bytes;
+            stats.peak_used_bytes = MaxValue(stats.peak_used_bytes, stats.used_bytes);
+            ++stats.active_allocations;
+        } else {
+            update_statistics(stats, event.statistics);
+        }
 
-        if (allocation_type == AllocationType::Allocate) {
-            auto [it, emplaced] = value.allocator_log.try_emplace(data, AllocatorInfo {
+        auto [iterator, inserted] = stats.allocation_log.try_emplace(
+            event.address,
+            AllocatorInfo{
                 .allocated = {
-                    .size_bytes = size_bytes,
-                    .file = file,
-                    .line = line,
+                    .size_bytes = event.size_bytes,
+                    .file = source_file(event.source),
+                    .line = event.source.line,
                 },
-                .freed = {
-                    .size_bytes = 0,
-                },
+                .freed = {},
             });
-
-            if (emplaced)
-                return;
-
-            it->second.allocated = AllocationInfo {
-                .size_bytes = size_bytes,
-                .file = file,
-                .line = line,
+        if (!inserted) {
+            iterator->second.allocated = {
+                .size_bytes = event.size_bytes,
+                .file = source_file(event.source),
+                .line = event.source.line,
             };
-        } else if (allocation_type == AllocationType::Free) {
-            auto it = value.allocator_log.find(data);
-            if (it != value.allocator_log.end()) {
-                it->second.freed = FreeInfo {
-                    .size_bytes = size_bytes,
-                    .file = file,
-                    .line = line,
-                };
-            }
+            iterator->second.freed = {};
         }
     }
 
-    void MemorySystem::clear_allocator_tracking(mem::Allocator* allocator, cstr file, u32 line) {
-        auto& memory_system_info = get_memory_system_info();
-
-        if (allocator->m_key >= memory_system_info.allocations.size())
+    void MemorySystem::apply_free(const AllocationEvent& event) {
+        MemorySystemInfo* info = system_info(*this);
+        if (info == nullptr || event.allocator_id >= info->allocators.size())
             return;
 
-        auto& value = memory_system_info.allocations.at(allocator->m_key);
-        
-        // Clear all tracked allocations for this allocator
-        value.allocator_log.clear();
-        
-        // Update the allocator stats to reflect the reset
-        value.size_bytes = allocator->get_size_bytes();
-        value.used_bytes = allocator->get_used_bytes();
-        value.allocation_count = allocator->get_allocation_count();
+        AllocationStats& stats = info->allocators[event.allocator_id];
+        if (event.allocator_id == native_allocator_id) {
+            stats.reserved_bytes =
+                event.size_bytes > stats.reserved_bytes ? 0 : stats.reserved_bytes - event.size_bytes;
+            stats.used_bytes =
+                event.size_bytes > stats.used_bytes ? 0 : stats.used_bytes - event.size_bytes;
+            if (stats.active_allocations > 0)
+                --stats.active_allocations;
+        } else {
+            update_statistics(stats, event.statistics);
+        }
+
+        auto iterator = stats.allocation_log.find(event.address);
+        if (iterator != stats.allocation_log.end()) {
+            iterator->second.freed = {
+                .size_bytes = event.size_bytes,
+                .file = source_file(event.source),
+                .line = event.source.line,
+            };
+        }
     }
 
-    void MemorySystem::native_allocation(cstr file, u32 line, void* data, u64 size_bytes,
-                                         AllocationType allocation_type) {
-        auto& memory_system_info = get_memory_system_info();
-        auto& value = memory_system_info.allocations.at(0);
+    void MemorySystem::apply_reset(const AllocatorResetEvent& event) {
+        MemorySystemInfo* info = system_info(*this);
+        if (info == nullptr || event.allocator_id >= info->allocators.size())
+            return;
 
-        if (allocation_type == AllocationType::Allocate) {
-            value.size_bytes += size_bytes;
-            value.used_bytes += size_bytes;
-            value.allocation_count++;
+        AllocationStats& stats = info->allocators[event.allocator_id];
+        update_statistics(stats, event.statistics);
+        stats.allocation_log.clear();
+    }
 
-            auto [it, emplaced] = value.allocator_log.try_emplace(data, AllocatorInfo {
-                .allocated = {
-                    .size_bytes = size_bytes,
-                    .file = file,
-                    .line = line,
-                },
-                .freed = {
-                    .size_bytes = 0,
-                },
-            });
-
-            if (emplaced)
-                return;
-
-            it->second.allocated = AllocationInfo {
-                .size_bytes = size_bytes,
-                .file = file,
-                .line = line,
-            };
-        } else if (allocation_type == AllocationType::Free) {
-            value.size_bytes -= size_bytes;
-            value.used_bytes -= size_bytes;
-            value.allocation_count--;
-
-            auto it = value.allocator_log.find(data);
-            if (it != value.allocator_log.end()) {
-                it->second.freed = FreeInfo {
-                    .size_bytes = size_bytes,
-                    .file = file,
-                    .line = line,
-                };
+    cstr MemorySystem::allocator_name(AllocatorId allocator_id) const noexcept {
+        if (m_state == MemorySystemState::Cold ||
+            m_state == MemorySystemState::Bootstrapping) {
+            for (u32 index = m_journal.count(); index > 0; --index) {
+                const EarlyAllocationRecord& record = m_journal[index - 1];
+                if (record.type == EarlyAllocationEventType::RegisterAllocator &&
+                    record.allocator_id == allocator_id) {
+                    return record.descriptor.name == nullptr
+                        ? "<unnamed>"
+                        : record.descriptor.name;
+                }
             }
+            return "Invalid";
         }
+
+        const auto* info = static_cast<const MemorySystemInfo*>(m_data);
+        if (info == nullptr || allocator_id >= info->allocators.size())
+            return "Invalid";
+        return info->allocators[allocator_id].name.c_str();
     }
 
     void MemorySystem::log_report(bool detailed) {
-        auto& instance = get();
-        auto& memory_system_info = get_memory_system_info();
+        MemorySystem& instance = get();
+        MemorySystemInfo* info = system_info(instance);
+        if (info == nullptr)
+            return;
 
         instance.log_title("nk::MemorySystem Report");
+        for (const AllocationStats& stats : info->allocators) {
+            if (stats.name.empty())
+                continue;
 
-        for (const auto& stats : memory_system_info.allocations) {
-            std::string header = std::format("[Allocator: {}] ({})", stats.name, stats.allocator);
-            instance.log_info(header.c_str());
+            instance.log_info(std::format(
+                "[Allocator: {}] ({}){}",
+                stats.name,
+                stats.allocator,
+                stats.registered ? "" : " [detached]"));
 
             if (stats.type != MemoryType::Native) {
-                std::string init_info = std::format("  - Initialized at: {}:{} with size {}",
-                                                    stats.init.file,
-                                                    stats.init.line,
-                                                    memory_in_bytes(stats.init.size_bytes));
-                instance.log_info(init_info.c_str());
+                instance.log_info(std::format(
+                    "  - Initialized at: {}:{} with reserved size {}",
+                    stats.init.file,
+                    stats.init.line,
+                    memory_in_bytes(stats.init.size_bytes)));
             }
 
-            std::string usage_info;
-            if (stats.type == MemoryType::Native) {
-                usage_info = std::format("  - Usage: {}, {} allocations",
-                                        memory_in_bytes(stats.used_bytes),
-                                        stats.allocation_count);
-            } else {
-                usage_info = std::format("  - Usage: {}, {} allocations",
-                                        memory_in_bytes(stats.size_bytes, stats.used_bytes),
-                                        stats.allocation_count);
-            }
-            instance.log_info(usage_info.c_str());
+            instance.log_info(std::format(
+                "  - Usage: {}, peak {}, {} active allocation(s)",
+                stats.type == MemoryType::Native
+                    ? memory_in_bytes(stats.used_bytes)
+                    : memory_in_bytes(stats.reserved_bytes, stats.used_bytes),
+                memory_in_bytes(stats.peak_used_bytes),
+                stats.active_allocations));
 
             u64 leak_count = 0;
             u64 leaked_bytes = 0;
-
-            for (const auto& [address, info] : stats.allocator_log) {
-                if (info.freed.size_bytes == 0) {
-                    leak_count++;
-                    leaked_bytes += info.allocated.size_bytes;
+            for (const auto& [address, allocation] : stats.allocation_log) {
+                if (allocation.freed.size_bytes == 0) {
+                    ++leak_count;
+                    leaked_bytes += allocation.allocated.size_bytes;
                     if (detailed) {
-                        std::string leak_msg = std::format("  [LEAK] {} allocated at {}:{} was never freed. Address: {}",
-                                                        memory_in_bytes(info.allocated.size_bytes),
-                                                        info.allocated.file,
-                                                        info.allocated.line,
-                                                        address);
-                        instance.log_error(leak_msg.c_str());
+                        instance.log_error(std::format(
+                            "  [LEAK] {} allocated at {}:{} was never freed. Address: {}",
+                            memory_in_bytes(allocation.allocated.size_bytes),
+                            allocation.allocated.file,
+                            allocation.allocated.line,
+                            address));
                     }
-                } else if (info.freed.size_bytes != info.allocated.size_bytes) {
-                    std::string partial_free_msg = std::format("  [WARN] Mismatch at Address: {}. Allocated {}, but freed {}.",
-                                                            address,
-                                                            memory_in_bytes(info.allocated.size_bytes),
-                                                            memory_in_bytes(info.freed.size_bytes));
-                    instance.log_warn(partial_free_msg.c_str());
-                    if (detailed) {
-                        std::string alloc_details = std::format("    - Allocated at: {}:{}", info.allocated.file, info.allocated.line);
-                        instance.log_info(alloc_details.c_str());
-                        std::string free_details = std::format("    - Freed at: {}:{}", info.freed.file, info.freed.line);
-                        instance.log_info(free_details.c_str());
-                    }
-                } else {
-                    if (detailed) {
-                        std::string ok_msg = std::format("  [OK] {} at Address: {}",
-                                                        memory_in_bytes(info.allocated.size_bytes),
-                                                        address);
-                        instance.log_trace(ok_msg.c_str());
-                        std::string alloc_details = std::format("    - Allocated at: {}:{}", info.allocated.file, info.allocated.line);
-                        instance.log_trace(alloc_details.c_str());
-                        std::string free_details = std::format("    - Freed at: {}:{}", info.freed.file, info.freed.line);
-                        instance.log_trace(free_details.c_str());
-                    }
+                } else if (allocation.freed.size_bytes != allocation.allocated.size_bytes) {
+                    instance.log_warn(std::format(
+                        "  [WARN] Address {} allocated {}, but freed {}.",
+                        address,
+                        memory_in_bytes(allocation.allocated.size_bytes),
+                        memory_in_bytes(allocation.freed.size_bytes)));
+                } else if (detailed) {
+                    instance.log_trace(std::format(
+                        "  [OK] {} at Address: {}",
+                        memory_in_bytes(allocation.allocated.size_bytes),
+                        address));
                 }
             }
 
-            if (leak_count > 0) {
-                std::string leak_summary = std::format("  - Leaks: {} leak(s) found, totalling {}.",
-                                                    leak_count,
-                                                    memory_in_bytes(leaked_bytes));
-                instance.log_error(leak_summary.c_str());
-            } else {
+            if (leak_count == 0) {
                 instance.log_info("  - Leaks: 0 leak(s) found.");
+            } else {
+                instance.log_error(std::format(
+                    "  - Leaks: {} leak(s) found, totalling {}.",
+                    leak_count,
+                    memory_in_bytes(leaked_bytes)));
             }
+        }
+
+        if (instance.m_dropped_event_count != 0 || instance.m_reentrant_event_count != 0) {
+            instance.log_warn(std::format(
+                "Tracking incomplete: {} dropped journal event(s), {} reentrant event(s).",
+                instance.m_dropped_event_count,
+                instance.m_reentrant_event_count));
         }
         instance.log_title("End of nk::MemorySystem Report");
     }
 
     void MemorySystem::log_report_intermediate() {
-        auto& instance = get();
-        auto& memory_system_info = get_memory_system_info();
+        MemorySystem& instance = get();
+        MemorySystemInfo* info = system_info(instance);
+        if (info == nullptr)
+            return;
 
         instance.log_title("nk::MemorySystem Usage Report");
-
-        for (const auto& stats : memory_system_info.allocations) {
-            std::string header = std::format("[Allocator: {}] ({})", stats.name, stats.allocator);
-            instance.log_info(header.c_str());
-
-            if (stats.type != MemoryType::Native) {
-                std::string init_info = std::format("  - Initialized at: {}:{} with size {}",
-                                                    stats.init.file,
-                                                    stats.init.line,
-                                                    memory_in_bytes(stats.init.size_bytes));
-                instance.log_info(init_info.c_str());
-            }
-
-            std::string usage_info;
-            if (stats.type == MemoryType::Native) {
-                usage_info = std::format("  - Usage: {}, {} allocations",
-                                        memory_in_bytes(stats.used_bytes),
-                                        stats.allocation_count);
-            } else {
-                usage_info = std::format("  - Usage: {}, {} allocations",
-                                        memory_in_bytes(stats.size_bytes, stats.used_bytes),
-                                        stats.allocation_count);
-            }
-            instance.log_info(usage_info.c_str());
-
-            u64 active_count = 0;
-            u64 active_bytes = 0;
-
-            for (const auto& [address, info] : stats.allocator_log) {
-                if (info.freed.size_bytes == 0) {
-                    active_count++;
-                    active_bytes += info.allocated.size_bytes;
-                } else if (info.freed.size_bytes != info.allocated.size_bytes) {
-                    // Count partially freed allocations as still active
-                    active_count++;
-                    active_bytes += (info.allocated.size_bytes - info.freed.size_bytes);
-                }
-            }
-
-            if (active_count > 0) {
-                std::string active_summary = std::format("  - Active: {} allocation(s) in use, totalling {}.",
-                                                        active_count,
-                                                        memory_in_bytes(active_bytes));
-                instance.log_info(active_summary.c_str());
-            } else {
-                instance.log_info("  - Active: 0 allocations in use.");
-            }
+        for (const AllocationStats& stats : info->allocators) {
+            if (stats.name.empty())
+                continue;
+            instance.log_info(std::format(
+                "[Allocator: {}] ({}) - {}, peak {}, {} active",
+                stats.name,
+                stats.allocator,
+                stats.type == MemoryType::Native
+                    ? memory_in_bytes(stats.used_bytes)
+                    : memory_in_bytes(stats.reserved_bytes, stats.used_bytes),
+                memory_in_bytes(stats.peak_used_bytes),
+                stats.active_allocations));
         }
         instance.log_title("End of nk::MemorySystem Usage Report");
     }
 
-    std::string_view MemorySystem::get_allocator_name(Allocator* allocator) {
-        const u32 key = allocator->m_key;
-        auto& memory_system_info = get_memory_system_info();
-
-        if (key >= memory_system_info.allocations.size())
-            return "Invalid";
-
-        auto& value = memory_system_info.allocations.at(key);
-        return value.name;
-    }
-
     void MemorySystem::log(cstr color, cstr msg, std::size_t msg_size) {
-        // TODO: Add general mutex for logging std::lock_guard<std::mutex> lock(mutex);
-        os::write(color, 19);
+        os::write(color, std::char_traits<char>::length(color));
         os::write(msg, msg_size);
         os::write("\033[0m\n", 5);
         os::flush();
     }
+}
 
-    void memory_system_extended_memory_type(const std::function<nk::MemoryType::Value()>& max_memory_type, const std::function<cstr(MemoryType::Value)>& memory_type_to_cstr) {
+namespace nk {
+    void memory_system_extended_memory_type(
+        const std::function<MemoryType::Value()>& max_memory_type,
+        const std::function<cstr(MemoryType::Value)>& memory_type_to_cstr) {
         MemoryType::Internal::max = max_memory_type;
         MemoryType::Internal::extended_to_cstr = memory_type_to_cstr;
     }

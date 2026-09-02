@@ -2,84 +2,303 @@
 
 #include "memory/allocator.h"
 
-#include "systems/memory_system.h"
-
 namespace nk::mem {
-    Allocator::Allocator()
-        : m_size_bytes{0},
+    namespace {
+        void allocator_diagnostic(cstr message, std::size_t length) noexcept {
+            constexpr cstr color = "\033[38;2;233;38;109m";
+            os::write(color, std::char_traits<char>::length(color));
+            os::write(message, length);
+            os::write("\033[0m\n", 5);
+            os::flush();
+        }
+
+        template <std::size_t N>
+        void allocator_diagnostic(const char (&message)[N]) noexcept {
+            allocator_diagnostic(message, N - 1);
+        }
+    }
+
+    Allocator::Allocator() noexcept
+        : m_reserved_bytes{0},
           m_used_bytes{0},
-          m_allocation_count{0},
-          m_data{nullptr} {
+          m_peak_used_bytes{0},
+          m_active_allocations{0},
+          m_data{nullptr},
+          m_lifecycle{AllocatorLifecycle::Uninitialized}
+#if NK_MEMORY_TRACKING_ENABLED
+          , m_tracker{nullptr},
+          m_allocator_id{invalid_allocator_id}
+#endif
+    {
     }
 
     Allocator::~Allocator() {
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
-        if (m_allocation_count != 0 || m_used_bytes != 0) {
-            NK_MEMORY_SYSTEM_DETAILED_LOG_REPORT();
+        if (m_active_allocations != 0 || m_used_bytes != 0) {
+            allocator_diagnostic("nk::mem::Allocator destroyed with active allocations.");
         }
-#endif
-        Assert(m_allocation_count == 0 && m_used_bytes == 0);
+        _detach_tracker_unchecked();
     }
 
-    Allocator::Allocator(Allocator&& other)
-        : m_size_bytes{other.m_size_bytes},
-          m_used_bytes{other.m_used_bytes},
-          m_allocation_count{other.m_allocation_count},
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
-          m_key{other.m_key},
-#endif
-          m_data{other.m_data} {
-        other.m_size_bytes = 0;
-        other.m_used_bytes = 0;
-        other.m_allocation_count = 0;
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
-        other.m_key = numeric::u32_max;
-#endif
-        other.m_data = nullptr;
+    Allocator::Allocator(Allocator&& other) noexcept
+        : Allocator() {
+        _move_from(other);
     }
 
-    Allocator& Allocator::operator=(Allocator&& other) {
-        m_size_bytes = other.m_size_bytes;
-        m_used_bytes = other.m_used_bytes;
-        m_allocation_count = other.m_allocation_count;
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
-        m_key = other.m_key;
-#endif
-        m_data = other.m_data;
+    Allocator& Allocator::operator=(Allocator&& other) noexcept {
+        if (this == &other)
+            return *this;
 
-        other.m_size_bytes = 0;
-        other.m_used_bytes = 0;
-        other.m_allocation_count = 0;
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
-        other.m_key = numeric::u32_max;
-#endif
-        other.m_data = nullptr;
+        if (!_can_accept_move()) {
+            allocator_diagnostic("nk::mem::Allocator move assignment rejected: destination still owns active allocations.");
+            return *this;
+        }
 
+        _detach_tracker_unchecked();
+        _move_from(other);
         return *this;
     }
 
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+    bool Allocator::_begin_initialization() noexcept {
+        if (m_lifecycle == AllocatorLifecycle::Uninitialized)
+            return true;
 
-    void* Allocator::_allocate_raw(cstr file, u32 line, const u64 size_bytes, const u64 alignment) {
-        void* data = _allocate_raw(size_bytes, alignment);
-        mem::MemorySystem::update_allocator(this, file, line, data, size_bytes, mem::AllocationType::Allocate);
+        allocator_diagnostic("nk::mem::Allocator cannot be initialized more than once.");
+        return false;
+    }
+
+    void Allocator::_complete_initialization(Untracked) noexcept {
+        m_lifecycle = AllocatorLifecycle::Initialized;
+    }
+
+#if NK_MEMORY_TRACKING_ENABLED
+    bool Allocator::_complete_initialization(
+        AllocationTracker& tracker,
+        const AllocatorDescriptor& descriptor) noexcept {
+        m_tracker = &tracker;
+        m_allocator_id = tracker.register_allocator(*this, descriptor);
+        if (m_allocator_id == invalid_allocator_id) {
+            allocator_diagnostic("nk::mem::Allocator tracker registration failed.");
+            m_tracker = nullptr;
+            m_lifecycle = AllocatorLifecycle::InitializationFailed;
+            return false;
+        }
+        m_lifecycle = AllocatorLifecycle::Initialized;
+        return true;
+    }
+
+    bool Allocator::attach_tracker(
+        AllocationTracker& tracker,
+        cstr name,
+        u32 memory_type,
+        SourceLocation source) noexcept {
+        if (!is_initialized() || is_tracked() || m_active_allocations != 0) {
+            allocator_diagnostic("nk::mem::Allocator tracker attach rejected by allocator state.");
+            return false;
+        }
+
+        m_tracker = &tracker;
+        m_allocator_id = tracker.register_allocator(*this, {
+            .name = name,
+            .implementation = to_cstr(),
+            .memory_type = memory_type,
+            .source = source,
+            .statistics = statistics(),
+        });
+        if (m_allocator_id == invalid_allocator_id) {
+            m_tracker = nullptr;
+            return false;
+        }
+        return true;
+    }
+
+    bool Allocator::detach_tracker() noexcept {
+        if (!is_initialized() || m_active_allocations != 0) {
+            allocator_diagnostic("nk::mem::Allocator tracker detach rejected by allocator state.");
+            return false;
+        }
+
+        _detach_tracker_unchecked();
+        return true;
+    }
+#endif
+
+    void Allocator::_detach_tracker_unchecked() noexcept {
+#if NK_MEMORY_TRACKING_ENABLED
+        if (m_tracker != nullptr && m_allocator_id != invalid_allocator_id)
+            m_tracker->unregister_allocator(m_allocator_id);
+        m_tracker = nullptr;
+        m_allocator_id = invalid_allocator_id;
+#endif
+    }
+
+    void* Allocator::_allocate_raw(u64 size_bytes, u64 alignment) noexcept {
+        return _allocate_impl({nullptr, 0}, size_bytes, alignment);
+    }
+
+    bool Allocator::_free_raw(void* data, u64 size_bytes) noexcept {
+        return _free_impl({nullptr, 0}, data, size_bytes);
+    }
+
+#if NK_MEMORY_TRACKING_ENABLED
+    void* Allocator::_allocate_raw(
+        cstr file,
+        u32 line,
+        u64 size_bytes,
+        u64 alignment) noexcept {
+        return _allocate_impl({file, line}, size_bytes, alignment);
+    }
+
+    bool Allocator::_free_raw(
+        cstr file,
+        u32 line,
+        void* data,
+        u64 size_bytes) noexcept {
+        return _free_impl({file, line}, data, size_bytes);
+    }
+#endif
+
+    void* Allocator::_allocate_impl(
+        SourceLocation source,
+        u64 size_bytes,
+        u64 alignment) noexcept {
+        if (!is_initialized()) {
+            allocator_diagnostic("nk::mem::Allocator allocation rejected before initialization.");
+            return nullptr;
+        }
+
+        if (size_bytes == 0)
+            return nullptr;
+
+        if (alignment == 0 || (alignment & (alignment - 1)) != 0 ||
+            alignment > static_cast<u64>(std::numeric_limits<std::size_t>::max())) {
+            allocator_diagnostic("nk::mem::Allocator allocation rejected invalid alignment.");
+            return nullptr;
+        }
+
+        if (size_bytes > static_cast<u64>(std::numeric_limits<std::size_t>::max())) {
+            allocator_diagnostic("nk::mem::Allocator allocation rejected unrepresentable size.");
+            return nullptr;
+        }
+
+        void* data = _do_allocate(size_bytes, alignment);
+        if (data == nullptr)
+            return nullptr;
+
+#if NK_MEMORY_TRACKING_ENABLED
+        if (m_tracker != nullptr && m_allocator_id != invalid_allocator_id) {
+            m_tracker->on_allocate({
+                .allocator_id = m_allocator_id,
+                .address = data,
+                .size_bytes = size_bytes,
+                .alignment = alignment,
+                .source = source,
+                .statistics = statistics(),
+            });
+        }
+#else
+        static_cast<void>(source);
+#endif
         return data;
     }
 
-    bool Allocator::_free_raw(cstr file, u32 line, void* const data, const u64 size_bytes) {
-        bool freed = _free_raw(data, size_bytes);
-        if (freed)
-            mem::MemorySystem::update_allocator(this, file, line, data, size_bytes, mem::AllocationType::Free);
-        return freed;
-    }
+    bool Allocator::_free_impl(
+        SourceLocation source,
+        void* data,
+        u64 size_bytes) noexcept {
+        if (!is_initialized()) {
+            allocator_diagnostic("nk::mem::Allocator free rejected before initialization.");
+            return false;
+        }
 
-    std::string_view Allocator::_allocator_name() {
-        return mem::MemorySystem::get_allocator_name(this);
-    }
+        if (data == nullptr || size_bytes == 0)
+            return false;
 
-    void Allocator::_allocator_init(cstr file, u32 line, cstr name, MemoryType::Value type) {
-        mem::MemorySystem::init_allocator(this, file, line, name, type);
-    }
+        if (!_do_free(data, size_bytes))
+            return false;
 
+#if NK_MEMORY_TRACKING_ENABLED
+        if (m_tracker != nullptr && m_allocator_id != invalid_allocator_id) {
+            m_tracker->on_free({
+                .allocator_id = m_allocator_id,
+                .address = data,
+                .size_bytes = size_bytes,
+                .alignment = 0,
+                .source = source,
+                .statistics = statistics(),
+            });
+        }
+#else
+        static_cast<void>(source);
 #endif
+        return true;
+    }
+
+    void Allocator::_notify_reset(SourceLocation source) noexcept {
+#if NK_MEMORY_TRACKING_ENABLED
+        if (m_tracker != nullptr && m_allocator_id != invalid_allocator_id) {
+            m_tracker->on_reset({
+                .allocator_id = m_allocator_id,
+                .source = source,
+                .statistics = statistics(),
+            });
+        }
+#else
+        static_cast<void>(source);
+#endif
+    }
+
+    bool Allocator::_can_accept_move() const noexcept {
+        return m_active_allocations == 0 && m_used_bytes == 0;
+    }
+
+    void Allocator::_move_from(Allocator& other) noexcept {
+        m_reserved_bytes = other.m_reserved_bytes;
+        m_used_bytes = other.m_used_bytes;
+        m_peak_used_bytes = other.m_peak_used_bytes;
+        m_active_allocations = other.m_active_allocations;
+        m_data = other.m_data;
+        m_lifecycle = other.m_lifecycle;
+#if NK_MEMORY_TRACKING_ENABLED
+        m_tracker = other.m_tracker;
+        m_allocator_id = other.m_allocator_id;
+#endif
+        other._reset_moved_from();
+    }
+
+    void Allocator::_reset_moved_from() noexcept {
+        m_reserved_bytes = 0;
+        m_used_bytes = 0;
+        m_peak_used_bytes = 0;
+        m_active_allocations = 0;
+        m_data = nullptr;
+        m_lifecycle = AllocatorLifecycle::MovedFrom;
+#if NK_MEMORY_TRACKING_ENABLED
+        m_tracker = nullptr;
+        m_allocator_id = invalid_allocator_id;
+#endif
+    }
+
+    bool Allocator::is_tracked() const noexcept {
+#if NK_MEMORY_TRACKING_ENABLED
+        return m_tracker != nullptr && m_allocator_id != invalid_allocator_id;
+#else
+        return false;
+#endif
+    }
+
+    AllocatorId Allocator::allocator_id() const noexcept {
+#if NK_MEMORY_TRACKING_ENABLED
+        return m_allocator_id;
+#else
+        return invalid_allocator_id;
+#endif
+    }
+
+    cstr Allocator::_allocator_name() const noexcept {
+#if NK_MEMORY_TRACKING_ENABLED
+        if (m_tracker != nullptr && m_allocator_id != invalid_allocator_id)
+            return m_tracker->allocator_name(m_allocator_id);
+#endif
+        return is_initialized() ? "Untracked" : "Invalid";
+    }
 }

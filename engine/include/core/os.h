@@ -71,23 +71,47 @@ namespace nk::os {
 #endif
     }
 
-    void* _native_allocate(u64 size_bytes, u64 alignment);
+    // Lowest allocation layer. These functions never emit tracking events.
+    void* allocate_raw(u64 size_bytes, u64 alignment) noexcept;
+    bool free_raw(void* data, u64 size_bytes) noexcept;
 
-    void _native_free(void* data, u64 size_bytes);
+    // Compatibility wrappers used by the public native_* macros. In tracking
+    // builds they emit events after the raw operation succeeds.
+    void* _native_allocate(u64 size_bytes, u64 alignment) noexcept;
+
+    void _native_free(void* data, u64 size_bytes) noexcept;
+
+    template <typename T>
+    bool _native_size_for(u64 count, u64& size_bytes) noexcept {
+        if (count == 0 || count > numeric::u64_max / sizeof(T)) {
+            size_bytes = 0;
+            return false;
+        }
+        size_bytes = sizeof(T) * count;
+        return true;
+    }
 
     template <typename T>
     T* _native_allocate_lot(u64 lot) {
-        return static_cast<T*>(_native_allocate(sizeof(T) * lot, alignof(T)));
+        u64 size_bytes = 0;
+        if (!_native_size_for<T>(lot, size_bytes))
+            return nullptr;
+        return static_cast<T*>(_native_allocate(size_bytes, alignof(T)));
     }
 
     template <typename T>
     void _native_free_lot(T* data, u64 lot) {
-        _native_free(data, sizeof(T) * lot);
+        u64 size_bytes = 0;
+        if (_native_size_for<T>(lot, size_bytes))
+            _native_free(data, size_bytes);
     }
 
     template <typename T, typename... Args>
     inline T* _native_construct(Args&&... args) {
-        return new (_native_allocate(sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
+        void* storage = _native_allocate(sizeof(T), alignof(T));
+        if (storage == nullptr)
+            return nullptr;
+        return new (storage) T(std::forward<Args>(args)...);
     }
 
     template <typename T, typename V>
@@ -95,29 +119,40 @@ namespace nk::os {
         if (data == nullptr)
             return;
 
-        data->~V();
-        _native_free(data, sizeof(T));
+        auto* typed_data = static_cast<T*>(data);
+        typed_data->~T();
+        _native_free(typed_data, sizeof(T));
     }
 
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+#if defined(NK_DEV_MODE) && defined(NK_RELEASE_DEBUG_INFO) && \
+    defined(NK_ACTIVE_MEMORY_SYSTEM) && \
+    NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
-    void* _native_allocate(cstr file, u32 line, u64 size_bytes, u64 alignment);
+    void* _native_allocate(cstr file, u32 line, u64 size_bytes, u64 alignment) noexcept;
 
-    void _native_free(cstr file, u32 line, void* data, u64 size_bytes);
+    void _native_free(cstr file, u32 line, void* data, u64 size_bytes) noexcept;
 
     template <typename T>
     T* _native_allocate_lot(cstr file, u32 line, u64 lot) {
-        return static_cast<T*>(_native_allocate(file, line, sizeof(T) * lot, alignof(T)));
+        u64 size_bytes = 0;
+        if (!_native_size_for<T>(lot, size_bytes))
+            return nullptr;
+        return static_cast<T*>(_native_allocate(file, line, size_bytes, alignof(T)));
     }
 
     template <typename T>
     void _native_free_lot(cstr file, u32 line, T* data, u64 lot) {
-        _native_free(file, line, data, sizeof(T) * lot);
+        u64 size_bytes = 0;
+        if (_native_size_for<T>(lot, size_bytes))
+            _native_free(file, line, data, size_bytes);
     }
 
     template <typename T, typename... Args>
     inline T* _native_construct_args(cstr file, u32 line, Args&&... args) {
-        return new (_native_allocate(file, line, sizeof(T), alignof(T))) T(std::forward<Args>(args)...);
+        void* storage = _native_allocate(file, line, sizeof(T), alignof(T));
+        if (storage == nullptr)
+            return nullptr;
+        return new (storage) T(std::forward<Args>(args)...);
     }
 
     template <typename T, typename V>
@@ -125,14 +160,17 @@ namespace nk::os {
         if (data == nullptr)
             return;
 
-        data->~V();
-        _native_free(file, line, data, sizeof(T));
+        auto* typed_data = static_cast<T*>(data);
+        typed_data->~T();
+        _native_free(file, line, typed_data, sizeof(T));
     }
 
 #endif
 }
 
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+#if defined(NK_DEV_MODE) && defined(NK_RELEASE_DEBUG_INFO) && \
+    defined(NK_ACTIVE_MEMORY_SYSTEM) && \
+    NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
 
     #define native_allocate(size_bytes, alignment) \
         nk::os::_native_allocate(__FILE__, __LINE__, size_bytes, alignment)

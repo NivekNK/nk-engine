@@ -1,46 +1,62 @@
 #pragma once
 
-#if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO && NK_ACTIVE_MEMORY_SYSTEM
+#include "memory/allocation_tracker.h"
+
+#if NK_MEMORY_TRACKING_ENABLED
 
     #include "memory/memory_type.h"
 
 namespace nk::mem {
-    class Allocator;
+    struct MemorySystemStorageAccess;
 
-    enum class AllocationType : u8 {
-        Init,
-        Allocate,
-        Free,
+    enum class MemorySystemState : u8 {
+        Cold,
+        Bootstrapping,
+        Ready,
+        ShuttingDown,
+        Stopped,
     };
 
-    class MemorySystem {
+    class MemorySystem final : public AllocationTracker {
     public:
-        ~MemorySystem() = default;
+        ~MemorySystem() override = default;
 
         static MemorySystem& init();
         static void shutdown();
 
-        static MemorySystem& get() {
+        static MemorySystem& get() noexcept {
             static MemorySystem instance;
             return instance;
         }
 
-        static void native_allocation(cstr file, u32 line, void* data, u64 size_bytes,
-                                      AllocationType allocation_type);
-        static void init_allocator(mem::Allocator* allocator, cstr file,
-                                   u32 line, cstr name, MemoryType::Value type);
-        static void update_allocator(mem::Allocator* allocator, cstr file,
-                                     u32 line, void* data, u64 size_bytes,
-                                     AllocationType allocation_type);
-
-        static void clear_allocator_tracking(mem::Allocator* allocator, cstr file, u32 line);
+        AllocatorId register_allocator(
+            Allocator& allocator,
+            const AllocatorDescriptor& descriptor) noexcept override;
+        void unregister_allocator(AllocatorId allocator_id) noexcept override;
+        void on_allocate(const AllocationEvent& event) noexcept override;
+        void on_free(const AllocationEvent& event) noexcept override;
+        void on_reset(const AllocatorResetEvent& event) noexcept override;
+        cstr allocator_name(AllocatorId allocator_id) const noexcept override;
 
         static void log_report(bool detailed = false);
         static void log_report_intermediate();
-        static std::string_view get_allocator_name(mem::Allocator* allocator);
+
+        MemorySystemState state() const noexcept { return m_state; }
+        u32 journal_count() const noexcept { return m_journal.count(); }
+        u64 dropped_event_count() const noexcept {
+            return m_dropped_event_count + m_journal.dropped_count();
+        }
 
     private:
-        MemorySystem() = default;
+        MemorySystem() noexcept = default;
+
+        bool journal(const EarlyAllocationRecord& record) noexcept;
+        void replay_journal();
+        void apply_register(AllocatorId allocator_id, const AllocatorDescriptor& descriptor);
+        void apply_unregister(AllocatorId allocator_id) noexcept;
+        void apply_allocate(const AllocationEvent& event);
+        void apply_free(const AllocationEvent& event);
+        void apply_reset(const AllocatorResetEvent& event);
 
         void log_title(std::string_view msg) {
             log("\033[38;2;170;129;246m", msg.data(), msg.length());
@@ -64,9 +80,14 @@ namespace nk::mem {
 
         void log(cstr color, cstr msg, std::size_t msg_size);
 
-        void* m_data;
+        void* m_data = nullptr;
+        EarlyAllocationJournal m_journal{};
+        AllocatorId m_next_allocator_id = native_allocator_id + 1;
+        u64 m_dropped_event_count = 0;
+        u64 m_reentrant_event_count = 0;
+        MemorySystemState m_state = MemorySystemState::Cold;
 
-        friend void* get_memory_system_data();
+        friend struct MemorySystemStorageAccess;
     };
 }
 
