@@ -59,8 +59,11 @@ namespace {
         return measure_map([](auto& values, const nk::u64 sample) {
             nk::u64 checksum = sample;
             for (nk::u64 key = 0; key < operation_count; ++key) {
-                if (!values.insert(key, key ^ sample))
+                const auto inserted = values.insert(key, key ^ sample);
+                if (!inserted ||
+                    inserted.value() != nk::cl::insert_outcome::inserted) {
                     std::abort();
+                }
                 checksum ^= key;
             }
             return checksum ^ values.length();
@@ -73,8 +76,11 @@ namespace {
         if (!values.map_init(&allocator, operation_count, nk::hash_seed::deterministic))
             std::abort();
         for (nk::u64 key = 0; key < operation_count; ++key) {
-            if (!values.insert(key, key * 3))
+            const auto inserted = values.insert(key, key * 3);
+            if (!inserted ||
+                inserted.value() != nk::cl::insert_outcome::inserted) {
                 std::abort();
+            }
         }
         const Distribution result = measure([&](const std::size_t sample) {
             nk::u64 checksum = static_cast<nk::u64>(sample);
@@ -101,8 +107,11 @@ namespace {
             if (!values.map_init(&allocator, operation_count, nk::hash_seed::deterministic))
                 std::abort();
             for (nk::u64 key = 0; key < operation_count; ++key) {
-                if (!values.insert(key, key))
+                const auto inserted = values.insert(key, key);
+                if (!inserted ||
+                    inserted.value() != nk::cl::insert_outcome::inserted) {
                     std::abort();
+                }
             }
 
             const auto start = Clock::now();

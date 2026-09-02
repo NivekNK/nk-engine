@@ -47,6 +47,14 @@ namespace nk {
         const char& operator[](u64 index) const noexcept { return _data()[index]; }
         explicit operator strview() const noexcept { return view(); }
 
+        bool operator==(const str& other) const noexcept {
+            return view() == other.view();
+        }
+
+        bool operator!=(const str& other) const noexcept {
+            return !(*this == other);
+        }
+
         bool operator==(strview other) const noexcept {
             return view() == other;
         }

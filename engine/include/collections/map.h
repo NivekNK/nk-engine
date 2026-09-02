@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <concepts>
 #include <cstdlib>
 #include <memory>
 #include <type_traits>
@@ -8,16 +9,37 @@
 
 #include "core/hash.h"
 #include "core/os.h"
+#include "core/result.h"
 #include "memory/allocator.h"
 #include "memory/object_lifetime.h"
 
 namespace nk::cl {
+    enum class map_error : u8 {
+        out_of_memory,
+        capacity_overflow,
+    };
+
+    enum class insert_outcome : u8 {
+        inserted,
+        already_present,
+        assigned,
+    };
+
     namespace map_detail {
         template <typename Key>
         u64 hash_key(const Key& key, const u64 seed) noexcept {
             using nk::hash64;
             return hash64(key, seed);
         }
+
+        template <typename StoredKey, typename Query>
+        concept CompatibleKey = requires(
+            const StoredKey& stored,
+            const Query& query,
+            const u64 seed) {
+            { hash_key(query, seed) } -> std::same_as<u64>;
+            { stored == query } -> std::convertible_to<bool>;
+        };
     }
 
     template <mem::RelocatableObject K, mem::RelocatableObject V>
@@ -55,6 +77,16 @@ namespace nk::cl {
                 ValueArg&& initial_value)
                 : key{std::forward<KeyArg>(initial_key)},
                   value{std::forward<ValueArg>(initial_value)},
+                  hash{initial_hash} {}
+
+            template <typename KeyArg, typename... ValueArgs>
+            Pending(
+                const u64 initial_hash,
+                std::in_place_t,
+                KeyArg&& initial_key,
+                ValueArgs&&... value_args)
+                : key{std::forward<KeyArg>(initial_key)},
+                  value{std::forward<ValueArgs>(value_args)...},
                   hash{initial_hash} {}
 
             K key;
@@ -153,7 +185,7 @@ namespace nk::cl {
                 _diagnostic("nk::cl::map destructor could not release its storage.\n");
         }
 
-        bool _map_init(
+        [[nodiscard]] result<void, map_error> _map_init(
             mem::Allocator* allocator,
             const u64 expected_entries,
             const u64 seed) noexcept {
@@ -165,7 +197,7 @@ namespace nk::cl {
         }
 
 #if NK_MEMORY_TRACKING_ENABLED
-        bool _map_init(
+        [[nodiscard]] result<void, map_error> _map_init(
             const cstr file,
             const u32 line,
             mem::Allocator* allocator,
@@ -179,20 +211,26 @@ namespace nk::cl {
         }
 #endif
 
-        bool reserve(const u64 expected_entries) noexcept {
+        [[nodiscard]] result<void, map_error> reserve(
+            const u64 expected_entries) noexcept {
+            _require_initialized();
             u64 required_capacity = 0;
             if (!_capacity_for(expected_entries, required_capacity))
-                return false;
+                return err(map_error::capacity_overflow);
             return _rehash({__FILE__, __LINE__}, required_capacity);
         }
 
-        bool insert(const K& key, const V& value) noexcept
+        [[nodiscard]] result<insert_outcome, map_error> insert(
+            const K& key,
+            const V& value) noexcept
             requires std::is_copy_constructible_v<K> &&
                      std::is_copy_constructible_v<V> {
             return _insert({__FILE__, __LINE__}, key, value, false);
         }
 
-        bool insert(K&& key, V&& value) noexcept {
+        [[nodiscard]] result<insert_outcome, map_error> insert(
+            K&& key,
+            V&& value) noexcept {
             return _insert(
                 {__FILE__, __LINE__},
                 std::move(key),
@@ -200,13 +238,17 @@ namespace nk::cl {
                 false);
         }
 
-        bool insert_or_assign(const K& key, const V& value) noexcept
+        [[nodiscard]] result<insert_outcome, map_error> insert_or_assign(
+            const K& key,
+            const V& value) noexcept
             requires std::is_copy_constructible_v<K> &&
                      std::is_copy_constructible_v<V> {
             return _insert({__FILE__, __LINE__}, key, value, true);
         }
 
-        bool insert_or_assign(K&& key, V&& value) noexcept {
+        [[nodiscard]] result<insert_outcome, map_error> insert_or_assign(
+            K&& key,
+            V&& value) noexcept {
             return _insert(
                 {__FILE__, __LINE__},
                 std::move(key),
@@ -214,35 +256,51 @@ namespace nk::cl {
                 true);
         }
 
-        V* find(const K& key) noexcept {
+        template <typename Query = K>
+            requires map_detail::CompatibleKey<K, Query>
+        V* find(const Query& key) noexcept {
+            _require_initialized();
             const u64 index = _find_index(key);
             return index == npos ? nullptr : m_buckets[index].value();
         }
 
-        const V* find(const K& key) const noexcept {
+        template <typename Query = K>
+            requires map_detail::CompatibleKey<K, Query>
+        const V* find(const Query& key) const noexcept {
+            _require_initialized();
             const u64 index = _find_index(key);
             return index == npos ? nullptr : m_buckets[index].value();
         }
 
-        bool contains(const K& key) const noexcept {
+        template <typename Query = K>
+            requires map_detail::CompatibleKey<K, Query>
+        bool contains(const Query& key) const noexcept {
+            _require_initialized();
             return _find_index(key) != npos;
         }
 
-        V& at(const K& key) noexcept {
+        template <typename Query = K>
+            requires map_detail::CompatibleKey<K, Query>
+        V& at(const Query& key) noexcept {
             V* value = find(key);
             if (value == nullptr)
                 _fatal("nk::cl::map::at could not find the requested key.\n");
             return *value;
         }
 
-        const V& at(const K& key) const noexcept {
+        template <typename Query = K>
+            requires map_detail::CompatibleKey<K, Query>
+        const V& at(const Query& key) const noexcept {
             const V* value = find(key);
             if (value == nullptr)
                 _fatal("nk::cl::map::at could not find the requested key.\n");
             return *value;
         }
 
-        bool remove(const K& key) noexcept {
+        template <typename Query = K>
+            requires map_detail::CompatibleKey<K, Query>
+        bool remove(const Query& key) noexcept {
+            _require_initialized();
             const u64 index = _find_index(key);
             if (index == npos)
                 return false;
@@ -252,6 +310,7 @@ namespace nk::cl {
         }
 
         void clear() noexcept {
+            _require_initialized();
             _destroy_entries(m_buckets, m_capacity);
             m_length = 0;
         }
@@ -283,6 +342,33 @@ namespace nk::cl {
         // Any reserve/rehash invalidates every reference and iterator. Insert
         // without rehash preserves references, while remove invalidates the
         // erased entry and all entries shifted backward in its cluster.
+
+        template <typename KeyArg, typename... ValueArgs>
+            requires map_detail::CompatibleKey<K, std::remove_cvref_t<KeyArg>> &&
+                     std::constructible_from<K, KeyArg&&> &&
+                     std::constructible_from<V, ValueArgs&&...>
+        [[nodiscard]] result<insert_outcome, map_error> try_emplace(
+            KeyArg&& key,
+            ValueArgs&&... value_args) noexcept {
+            _require_initialized();
+            const u64 hash = map_detail::hash_key(key, m_seed);
+            if (_find_index(key, hash) != npos)
+                return ok(insert_outcome::already_present);
+
+            K owned_key{std::forward<KeyArg>(key)};
+            auto capacity = _ensure_insert_capacity({__FILE__, __LINE__});
+            if (!capacity)
+                return err(capacity.error());
+
+            Pending pending{
+                hash,
+                std::in_place,
+                std::move(owned_key),
+                std::forward<ValueArgs>(value_args)...};
+            _place_pending(m_buckets, m_capacity, pending);
+            ++m_length;
+            return ok(insert_outcome::inserted);
+        }
 
     private:
         static constexpr u64 npos = numeric::u64_max;
@@ -426,36 +512,35 @@ namespace nk::cl {
             }
         }
 
-        bool _initialize(
+        [[nodiscard]] result<void, map_error> _initialize(
             const mem::SourceLocation source,
             mem::Allocator* allocator,
             const u64 expected_entries,
             const u64 seed) noexcept {
             if (m_allocator != nullptr || m_buckets != nullptr ||
-                allocator == nullptr || !allocator->is_initialized()) {
-                return false;
-            }
+                allocator == nullptr || !allocator->is_initialized())
+                _fatal("nk::cl::map initialization contract was violated.\n");
 
             u64 capacity = 0;
             if (!_capacity_for(expected_entries, capacity))
-                return false;
+                return err(map_error::capacity_overflow);
             Bucket* buckets = _allocate_buckets(*allocator, source, capacity);
             if (capacity != 0 && buckets == nullptr)
-                return false;
+                return err(map_error::out_of_memory);
 
             m_allocator = allocator;
             m_buckets = buckets;
             m_capacity = capacity;
             m_seed = seed;
-            return true;
+            return ok();
         }
 
-        bool _ensure_insert_capacity(
+        [[nodiscard]] result<void, map_error> _ensure_insert_capacity(
             const mem::SourceLocation source) noexcept {
             if (m_length == numeric::u64_max)
-                return false;
+                return err(map_error::capacity_overflow);
             if (m_capacity != 0 && m_length + 1 <= _max_entries(m_capacity))
-                return true;
+                return ok();
 
             const u64 next_capacity = m_capacity == 0
                 ? minimum_capacity
@@ -463,24 +548,23 @@ namespace nk::cl {
                     ? m_capacity * 2
                     : 0);
             if (next_capacity == 0)
-                return false;
+                return err(map_error::capacity_overflow);
             return _rehash(source, next_capacity);
         }
 
-        bool _rehash(
+        [[nodiscard]] result<void, map_error> _rehash(
             const mem::SourceLocation source,
             const u64 requested_capacity) noexcept {
+            _require_initialized();
             if (requested_capacity <= m_capacity)
-                return true;
-            if (m_allocator == nullptr)
-                return false;
+                return ok();
 
             Bucket* replacement = _allocate_buckets(
                 *m_allocator,
                 source,
                 requested_capacity);
             if (replacement == nullptr)
-                return false;
+                return err(map_error::out_of_memory);
 
             for (u64 index = 0; index < m_capacity; ++index) {
                 Bucket& source_bucket = m_buckets[index];
@@ -505,51 +589,55 @@ namespace nk::cl {
                     previous_capacity)) {
                 _diagnostic("nk::cl::map could not release buckets after rehash.\n");
             }
-            return true;
+            return ok();
         }
 
         template <typename KeyArg, typename ValueArg>
-        bool _insert(
+        [[nodiscard]] result<insert_outcome, map_error> _insert(
             const mem::SourceLocation source,
             KeyArg&& key,
             ValueArg&& value,
             const bool assign_existing) noexcept {
-            if (m_allocator == nullptr)
-                return false;
+            _require_initialized();
 
             const u64 hash = map_detail::hash_key(key, m_seed);
             const u64 existing_index = _find_index(key, hash);
             if (existing_index != npos) {
                 if (!assign_existing)
-                    return false;
+                    return ok(insert_outcome::already_present);
 
                 V* destination = m_buckets[existing_index].value();
                 if (destination == std::addressof(value))
-                    return true;
+                    return ok(insert_outcome::assigned);
                 V replacement{std::forward<ValueArg>(value)};
                 std::destroy_at(destination);
                 std::construct_at(destination, std::move(replacement));
-                return true;
+                return ok(insert_outcome::assigned);
             }
 
             Pending pending{
                 hash,
                 std::forward<KeyArg>(key),
                 std::forward<ValueArg>(value)};
-            if (!_ensure_insert_capacity(source))
-                return false;
+            auto capacity = _ensure_insert_capacity(source);
+            if (!capacity)
+                return err(capacity.error());
             _place_pending(m_buckets, m_capacity, pending);
             ++m_length;
-            return true;
+            return ok(insert_outcome::inserted);
         }
 
-        u64 _find_index(const K& key) const noexcept {
+        template <typename Query>
+            requires map_detail::CompatibleKey<K, Query>
+        u64 _find_index(const Query& key) const noexcept {
             return _find_index(
                 key,
                 map_detail::hash_key(key, m_seed));
         }
 
-        u64 _find_index(const K& key, const u64 hash) const noexcept {
+        template <typename Query>
+            requires map_detail::CompatibleKey<K, Query>
+        u64 _find_index(const Query& key, const u64 hash) const noexcept {
             if (m_capacity == 0)
                 return npos;
 
@@ -566,6 +654,11 @@ namespace nk::cl {
                 index = (index + 1) & mask;
             }
             return npos;
+        }
+
+        void _require_initialized() const noexcept {
+            if (m_allocator == nullptr)
+                _fatal("nk::cl::map operation requires initialization.\n");
         }
 
         void _erase_at(const u64 erased_index) noexcept {

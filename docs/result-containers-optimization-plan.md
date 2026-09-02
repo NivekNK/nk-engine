@@ -437,18 +437,18 @@ de `Allocator` ni el tracking.
 
 ### Trabajo
 
-- [ ] Separar `insert_outcome::{inserted, already_present}` de
+- [x] Separar `insert_outcome::{inserted, already_present}` de
       `map_error::{out_of_memory, capacity_overflow}`.
-- [ ] Tratar un mapa no inicializado como violación de contrato, no como OOM.
-- [ ] Migrar `map_init`, `reserve` e inserciones fallibles a `result` donde el
+- [x] Tratar un mapa no inicializado como violación de contrato, no como OOM.
+- [x] Migrar `map_init`, `reserve` e inserciones fallibles a `result` donde el
       caller pueda actuar sobre la causa.
-- [ ] Mantener `find` como puntero anulable, `contains` como predicado y
+- [x] Mantener `find` como puntero anulable, `contains` como predicado y
       `remove` como presencia/ausencia normal.
-- [ ] Añadir lookup heterogéneo para poder almacenar `str` y buscar con
+- [x] Añadir lookup heterogéneo para poder almacenar `str` y buscar con
       `strview`, sin crear texto propietario.
-- [ ] Añadir `try_emplace` para no construir `V` cuando la clave ya existe.
-- [ ] Instrumentar construcciones/movimientos para comprobar el ahorro real.
-- [ ] No cambiar todavía el layout de buckets ni el algoritmo de probing.
+- [x] Añadir `try_emplace` para no construir `V` cuando la clave ya existe.
+- [x] Instrumentar construcciones/movimientos para comprobar el ahorro real.
+- [x] No cambiar todavía el layout de buckets ni el algoritmo de probing.
 
 ### Criterio de salida
 

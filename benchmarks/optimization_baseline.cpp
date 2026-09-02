@@ -377,8 +377,13 @@ namespace {
         for (nk::u64 index = 0; index < entry_count; ++index) {
             K key = key_at(index);
             V value = value_at(index);
-            if (!values.insert(std::move(key), std::move(value)))
+            const auto inserted = values.insert(
+                std::move(key),
+                std::move(value));
+            if (!inserted ||
+                inserted.value() != nk::cl::insert_outcome::inserted) {
                 std::abort();
+            }
         }
 
         const nk::u64 storage_bytes = allocator.get_used_bytes();
@@ -531,8 +536,11 @@ namespace {
             }
             for (nk::u64 index = 0; index < entry_count; ++index) {
                 current_keys[index] = index;
-                if (!values.insert(index, index * 3))
+                const auto inserted = values.insert(index, index * 3);
+                if (!inserted ||
+                    inserted.value() != nk::cl::insert_outcome::inserted) {
                     std::abort();
+                }
             }
 
             for (nk::u64 operation = 0; operation < lookup_operation_count; ++operation) {
@@ -541,8 +549,13 @@ namespace {
                     std::abort();
                 const nk::u64 replacement =
                     entry_count + operation + sample * lookup_operation_count;
-                if (!values.insert(replacement, replacement * 3))
+                const auto inserted = values.insert(
+                    replacement,
+                    replacement * 3);
+                if (!inserted ||
+                    inserted.value() != nk::cl::insert_outcome::inserted) {
                     std::abort();
+                }
                 current_keys[slot] = replacement;
                 checksum ^= replacement;
             }

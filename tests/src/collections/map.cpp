@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "collections/map.h"
+#include "core/str.h"
 #include "memory/malloc_allocator.h"
 
 namespace map_test {
@@ -49,6 +50,29 @@ namespace map_test {
         int value;
     };
 
+    struct ConstructionProbe {
+        static inline int construction_count = 0;
+
+        ConstructionProbe(const int left, const int right) noexcept
+            : value{left + right} {
+            ++construction_count;
+        }
+
+        ConstructionProbe(const ConstructionProbe&) = delete;
+        ConstructionProbe& operator=(const ConstructionProbe&) = delete;
+
+        ConstructionProbe(ConstructionProbe&& other) noexcept
+            : value{other.value} {}
+
+        ConstructionProbe& operator=(ConstructionProbe&&) = delete;
+
+        static void reset() noexcept {
+            construction_count = 0;
+        }
+
+        int value;
+    };
+
     class ToggleAllocator final : public nk::mem::MallocAllocator {
     public:
         ToggleAllocator()
@@ -77,10 +101,18 @@ TEST(Map, InsertsFindsAssignsRemovesAndIterates) {
     nk::cl::map<nk::u32, nk::u64> values;
     ASSERT_TRUE(values.map_init(&allocator, 2, nk::hash_seed::deterministic));
 
-    EXPECT_TRUE(values.insert(1u, 10ull));
-    EXPECT_TRUE(values.insert(2u, 20ull));
-    EXPECT_FALSE(values.insert(2u, 99ull));
-    EXPECT_TRUE(values.insert_or_assign(2u, 25ull));
+    const auto first = values.insert(1u, 10ull);
+    ASSERT_TRUE(first);
+    EXPECT_EQ(first.value(), nk::cl::insert_outcome::inserted);
+    const auto second = values.insert(2u, 20ull);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(second.value(), nk::cl::insert_outcome::inserted);
+    const auto duplicate = values.insert(2u, 99ull);
+    ASSERT_TRUE(duplicate);
+    EXPECT_EQ(duplicate.value(), nk::cl::insert_outcome::already_present);
+    const auto assigned = values.insert_or_assign(2u, 25ull);
+    ASSERT_TRUE(assigned);
+    EXPECT_EQ(assigned.value(), nk::cl::insert_outcome::assigned);
     EXPECT_TRUE(values.contains(1u));
     ASSERT_NE(values.find(2u), nullptr);
     EXPECT_EQ(*values.find(2u), 25u);
@@ -146,7 +178,9 @@ TEST(Map, PreservesStateWhenGrowthAllocationFails) {
     const nk::u64 original_capacity = values.capacity();
 
     allocator.reject_allocations(true);
-    EXPECT_FALSE(values.insert(100u, 200u));
+    const auto rejected = values.insert(100u, 200u);
+    ASSERT_FALSE(rejected);
+    EXPECT_EQ(rejected.error(), nk::cl::map_error::out_of_memory);
     EXPECT_EQ(values.length(), 7);
     EXPECT_EQ(values.capacity(), original_capacity);
     for (nk::u32 index = 0; index < 7; ++index)
@@ -171,4 +205,73 @@ TEST(Map, MoveTransfersFlatStorageAndSeed) {
     EXPECT_EQ(source.allocator(), nullptr);
     EXPECT_EQ(source.capacity(), 0);
     EXPECT_EQ(allocator.get_active_allocation_count(), 1);
+}
+
+TEST(Map, SupportsHeterogeneousStringLookupWithoutAllocating) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::cl::map<nk::str, nk::u32> values;
+    ASSERT_TRUE(values.map_init(&allocator, 2, nk::hash_seed::deterministic));
+
+    auto inserted = values.try_emplace(
+        nk::str{allocator, "renderer.texture.default"},
+        41u);
+    ASSERT_TRUE(inserted);
+    EXPECT_EQ(inserted.value(), nk::cl::insert_outcome::inserted);
+
+    const nk::u64 allocations_before = allocator.get_active_allocation_count();
+    const nk::strview query{"renderer.texture.default"};
+    EXPECT_TRUE(values.contains(query));
+    ASSERT_NE(values.find(query), nullptr);
+    EXPECT_EQ(values.at(query), 41u);
+    EXPECT_EQ(allocator.get_active_allocation_count(), allocations_before);
+    EXPECT_TRUE(values.remove(query));
+    EXPECT_FALSE(values.contains(query));
+}
+
+TEST(Map, TryEmplaceConstructsValuesOnlyForSuccessfulInsertions) {
+    map_test::ConstructionProbe::reset();
+    map_test::ToggleAllocator allocator;
+    nk::cl::map<nk::u32, map_test::ConstructionProbe> values;
+    ASSERT_TRUE(values.map_init(&allocator, 1, nk::hash_seed::deterministic));
+
+    auto first = values.try_emplace(7u, 20, 22);
+    ASSERT_TRUE(first);
+    EXPECT_EQ(first.value(), nk::cl::insert_outcome::inserted);
+    EXPECT_EQ(map_test::ConstructionProbe::construction_count, 1);
+    EXPECT_EQ(values.at(7u).value, 42);
+
+    auto duplicate = values.try_emplace(7u, 100, 200);
+    ASSERT_TRUE(duplicate);
+    EXPECT_EQ(duplicate.value(), nk::cl::insert_outcome::already_present);
+    EXPECT_EQ(map_test::ConstructionProbe::construction_count, 1);
+
+    for (nk::u32 index = 0; index < 6; ++index)
+        ASSERT_TRUE(values.try_emplace(index + 20, 1, 2));
+    const int constructions_before_failure =
+        map_test::ConstructionProbe::construction_count;
+    allocator.reject_allocations(true);
+    auto rejected = values.try_emplace(100u, 3, 4);
+    ASSERT_FALSE(rejected);
+    EXPECT_EQ(rejected.error(), nk::cl::map_error::out_of_memory);
+    EXPECT_EQ(
+        map_test::ConstructionProbe::construction_count,
+        constructions_before_failure);
+}
+
+TEST(Map, ReserveReportsCapacityOverflow) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::cl::map<nk::u32, nk::u32> values;
+    ASSERT_TRUE(values.map_init(&allocator, 0, nk::hash_seed::deterministic));
+
+    const auto reserved = values.reserve(nk::numeric::u64_max);
+    ASSERT_FALSE(reserved);
+    EXPECT_EQ(reserved.error(), nk::cl::map_error::capacity_overflow);
+    EXPECT_EQ(values.capacity(), 0u);
+}
+
+TEST(MapDeathTest, RejectsOperationsBeforeInitialization) {
+    nk::cl::map<nk::u32, nk::u32> values;
+    EXPECT_DEATH_IF_SUPPORTED(
+        static_cast<void>(values.find(1u)),
+        "");
 }
