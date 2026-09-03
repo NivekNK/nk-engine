@@ -572,7 +572,8 @@ namespace nk {
         return ok();
     }
 
-    result<void, shader_system_error> ShaderSystem::apply_instance() {
+    result<void, shader_system_error> ShaderSystem::apply_instance(
+        const bool needs_update) {
         if (!m_initialized) {
             return err(shader_system_error{
                 shader_system_error_code::not_initialized,
@@ -585,7 +586,9 @@ namespace nk {
                 0,
             });
         }
-        auto applied = m_renderer->apply_shader_instance(m_current_shader);
+        auto applied = m_renderer->apply_shader_instance(
+            m_current_shader,
+            needs_update);
         if (!applied)
             return err(from_renderer(applied.error()));
         return ok();
@@ -660,12 +663,13 @@ namespace nk {
 
     result<void, shader_system_error> ShaderSystem::set_sampler(
         const ShaderUniformHandle uniform,
-        Texture* texture) {
+        Texture* texture,
+        const u32 array_index) {
         const ShaderUniformMetadata* metadata = current_uniform(uniform);
         if (metadata == nullptr)
             return err(current_uniform_error(uniform));
         if (metadata->type != ShaderUniformType::sampler_2d ||
-            metadata->array_length != 1) {
+            array_index >= metadata->array_length) {
             return err(shader_system_error{
                 shader_system_error_code::invalid_uniform,
                 0,
@@ -674,7 +678,8 @@ namespace nk {
         auto set = m_renderer->set_shader_sampler(
             m_current_shader,
             uniform,
-            texture);
+            texture,
+            array_index);
         if (!set)
             return err(from_renderer(set.error()));
         return ok();

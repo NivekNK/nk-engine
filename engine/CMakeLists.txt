@@ -95,7 +95,6 @@ set(SOURCES
     # Shaders
     src/renderer/vulkan/shaders/utils.cpp
     src/renderer/vulkan/shaders/vulkan_shader.cpp
-    src/renderer/vulkan/shaders/material_shader.cpp
 
     # Temporal
     src/core/camera.cpp

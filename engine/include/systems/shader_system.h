@@ -80,7 +80,8 @@ namespace nk {
         [[nodiscard]] result<void, shader_system_error> bind_instance(
             u32 instance_id);
         [[nodiscard]] result<void, shader_system_error> apply_globals();
-        [[nodiscard]] result<void, shader_system_error> apply_instance();
+        [[nodiscard]] result<void, shader_system_error> apply_instance(
+            bool needs_update = true);
         [[nodiscard]] result<u32, shader_system_error> acquire_instance(
             ShaderHandle shader);
         [[nodiscard]] result<void, shader_system_error> release_instance(
@@ -116,7 +117,8 @@ namespace nk {
             u32 size);
         [[nodiscard]] result<void, shader_system_error> set_sampler(
             ShaderUniformHandle uniform,
-            Texture* texture);
+            Texture* texture,
+            u32 array_index = 0);
 
         [[nodiscard]] ShaderHandle current_shader() const noexcept {
             return m_current_shader;

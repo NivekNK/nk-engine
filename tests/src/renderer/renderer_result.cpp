@@ -48,6 +48,7 @@ namespace {
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
         nk::u32 created_shaders() const { return m_created_shaders; }
         nk::u32 destroyed_shaders() const { return m_destroyed_shaders; }
+        nk::u32 sampler_array_index() const { return m_sampler_array_index; }
         nk::u32 created_materials() const { return m_created_materials; }
         nk::u32 destroyed_materials() const { return m_destroyed_materials; }
         nk::u32 created_geometries() const { return m_created_geometries; }
@@ -108,7 +109,8 @@ namespace {
         }
 
         nk::result<void, nk::renderer_error> apply_shader_instance(
-            nk::ShaderHandle) override {
+            nk::ShaderHandle,
+            bool) override {
             append_shader_trace(8);
             return nk::ok();
         }
@@ -127,7 +129,9 @@ namespace {
         nk::result<void, nk::renderer_error> set_shader_sampler(
             nk::ShaderHandle,
             nk::ShaderUniformHandle,
-            nk::Texture*) override {
+            nk::Texture*,
+            const nk::u32 array_index) override {
+            m_sampler_array_index = array_index;
             append_shader_trace(7);
             return nk::ok();
         }
@@ -281,6 +285,7 @@ namespace {
         nk::u16 m_next_shader_index = 2;
         nk::u32 m_created_shaders = 0;
         nk::u32 m_destroyed_shaders = 0;
+        nk::u32 m_sampler_array_index = 0;
         nk::u32 m_world_global_updates = 0;
         nk::u32 m_ui_global_updates = 0;
         nk::u32 m_world_object_updates = 0;
@@ -774,6 +779,47 @@ TEST(ShaderSystem, EnforcesUniformAndSamplerLimitsFromConfiguration) {
         invalid.error().native_code,
         static_cast<nk::i32>(
             nk::shader_resource_parse_error::invalid_uniform));
+
+    nk::ShaderSystem::destroy(allocator, shaders);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(ShaderSystem, RoutesSamplerArrayElementsWithoutTemporaryNames) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_FIXTURE_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto shaders_created = nk::ShaderSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        {
+            .max_shader_count = 1,
+            .max_uniform_count = 8,
+            .max_global_samplers = 4,
+            .max_instance_samplers = 0,
+        });
+    ASSERT_TRUE(shaders_created);
+    nk::ShaderSystem* shaders = *shaders_created;
+
+    auto shader = shaders->load("Test.Array");
+    ASSERT_TRUE(shader);
+    auto textures = shaders->uniform(*shader, "textures");
+    ASSERT_TRUE(textures);
+    ASSERT_TRUE(shaders->use(*shader));
+    ASSERT_TRUE(shaders->bind_globals());
+    ASSERT_TRUE(shaders->set_sampler(*textures, nullptr, 2));
+    EXPECT_EQ(renderer.sampler_array_index(), 2u);
+
+    auto out_of_bounds = shaders->set_sampler(*textures, nullptr, 3);
+    ASSERT_FALSE(out_of_bounds);
+    EXPECT_EQ(
+        out_of_bounds.error().code,
+        nk::shader_system_error_code::invalid_uniform);
 
     nk::ShaderSystem::destroy(allocator, shaders);
     nk::ResourceSystem::destroy(allocator, resources);

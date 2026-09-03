@@ -180,7 +180,7 @@ namespace nk {
                     material->diffuse_map.texture);
                 if (!texture_set)
                     return fail(texture_set.error());
-                auto instance_applied = apply_shader_instance(shader);
+                auto instance_applied = apply_shader_instance(shader, true);
                 if (!instance_applied)
                     return fail(instance_applied.error());
                 auto model_set = set_shader_uniform(

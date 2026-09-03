@@ -12,8 +12,7 @@
 #include "vulkan/fence.h"
 #include "vulkan/buffer.h"
 
-// Shaders
-#include "vulkan/shaders/material_shader.h"
+#include "vulkan/shaders/vulkan_shader.h"
 
 namespace nk {
     class VulkanRenderer : public Renderer {
@@ -42,7 +41,8 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> apply_shader_globals(
             ShaderHandle shader) override;
         [[nodiscard]] virtual result<void, renderer_error> apply_shader_instance(
-            ShaderHandle shader) override;
+            ShaderHandle shader,
+            bool needs_update) override;
         [[nodiscard]] virtual result<u32, renderer_error>
         acquire_shader_instance(ShaderHandle shader) override;
         [[nodiscard]] virtual result<void, renderer_error>
@@ -52,7 +52,8 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> set_shader_sampler(
             ShaderHandle shader,
             ShaderUniformHandle uniform,
-            Texture* texture) override;
+            Texture* texture,
+            u32 array_index = 0) override;
 
         virtual result<void, renderer_error> init() override;
         virtual void shutdown() override;
@@ -132,12 +133,12 @@ namespace nk {
             const VulkanGeometryData& geometry) noexcept;
 
         struct VulkanShaderSlot {
-            MaterialShader* shader = nullptr;
+            VulkanShader* shader = nullptr;
             u16 generation = 0;
             RenderPassKind render_pass = RenderPassKind::world;
         };
 
-        [[nodiscard]] MaterialShader* resolve_shader(
+        [[nodiscard]] VulkanShader* resolve_shader(
             ShaderHandle handle) noexcept;
         void destroy_all_shaders() noexcept;
 

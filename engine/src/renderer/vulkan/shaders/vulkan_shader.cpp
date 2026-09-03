@@ -6,6 +6,7 @@
 #include "vulkan/command_buffer.h"
 #include "vulkan/device.h"
 #include "vulkan/render_pass.h"
+#include "vulkan/resources/texture_data.h"
 
 namespace nk {
     namespace {
@@ -134,6 +135,138 @@ namespace nk {
                 .native_code = static_cast<i32>(result),
             };
         }
+
+        renderer_error invalid_shader_state() noexcept {
+            return {renderer_error_code::shader_state_invalid, 0};
+        }
+
+        renderer_error invalid_uniform() noexcept {
+            return {renderer_error_code::shader_uniform_invalid, 0};
+        }
+    }
+
+    result<void, renderer_error> VulkanShader::init_descriptor_state(
+        DescriptorState& state) {
+        if (!state.generations.arr_init(m_allocator, m_image_count) ||
+            !state.ids.arr_init(m_allocator, m_image_count)) {
+            release_descriptor_state(state);
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        }
+        for (u32 image = 0; image < m_image_count; ++image) {
+            state.generations[image] = numeric::invalid_id;
+            state.ids[image] = numeric::invalid_id;
+        }
+        return ok();
+    }
+
+    void VulkanShader::release_descriptor_state(
+        DescriptorState& state) noexcept {
+        if (state.ids.allocator() != nullptr)
+            (void)state.ids.arr_shutdown();
+        if (state.generations.allocator() != nullptr)
+            (void)state.generations.arr_shutdown();
+    }
+
+    void VulkanShader::release_instance_state(InstanceState& state) noexcept {
+        for (DescriptorState& sampler : state.sampler_states)
+            release_descriptor_state(sampler);
+        if (state.sampler_states.allocator() != nullptr)
+            (void)state.sampler_states.arr_shutdown();
+        release_descriptor_state(state.uniform_state);
+        if (state.descriptor_sets.allocator() != nullptr)
+            (void)state.descriptor_sets.arr_shutdown();
+    }
+
+    result<void, renderer_error> VulkanShader::init_sampler_slots(
+        const ShaderConfig& config) {
+        u32 counts[2]{};
+        for (const ShaderDescriptorSetConfig& set : config.descriptor_sets) {
+            const u32 scope_index = set.scope == ShaderScope::global ? 0 : 1;
+            for (const ShaderDescriptorBindingConfig& binding : set.bindings) {
+                if (binding.type != ShaderDescriptorType::sampler)
+                    continue;
+                if (binding.count > max_sampler_count - counts[scope_index]) {
+                    return err(renderer_error{
+                        renderer_error_code::shader_config_invalid,
+                        static_cast<i32>(
+                            shader_config_error::metadata_limits_exceeded),
+                    });
+                }
+                counts[scope_index] += binding.count;
+            }
+        }
+
+        if (counts[0] != 0 &&
+            (!m_global_sampler_slots.arr_init(m_allocator, counts[0]) ||
+             !m_global_textures.arr_init(m_allocator, counts[0]) ||
+             !m_global_sampler_states.arr_init(m_allocator, counts[0]))) {
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        }
+
+        u64 instance_texture_count = 0;
+        if (!checked_multiply(
+                counts[1], m_max_instances, instance_texture_count)) {
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        }
+        if (counts[1] != 0 &&
+            (!m_instance_sampler_slots.arr_init(m_allocator, counts[1]) ||
+             !m_instance_textures.arr_init(
+                 m_allocator, instance_texture_count))) {
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        }
+
+        u32 next_slots[2]{};
+        for (const ShaderDescriptorSetConfig& set : config.descriptor_sets) {
+            const u32 scope_index = set.scope == ShaderScope::global ? 0 : 1;
+            cl::arr<SamplerSlot>& slots = scope_index == 0
+                ? m_global_sampler_slots
+                : m_instance_sampler_slots;
+            for (const ShaderDescriptorBindingConfig& binding : set.bindings) {
+                if (binding.type != ShaderDescriptorType::sampler)
+                    continue;
+                for (u32 element = 0; element < binding.count; ++element) {
+                    slots[next_slots[scope_index]++] = {
+                        binding.binding,
+                        element,
+                    };
+                }
+            }
+        }
+
+        for (Texture*& texture : m_global_textures)
+            texture = nullptr;
+        for (Texture*& texture : m_instance_textures)
+            texture = nullptr;
+        for (DescriptorState& state : m_global_sampler_states) {
+            auto initialized = init_descriptor_state(state);
+            if (!initialized)
+                return err(initialized.error());
+        }
+        return ok();
+    }
+
+    u32 VulkanShader::sampler_slot(
+        const ShaderScope scope,
+        const u32 binding,
+        const u32 array_element) const noexcept {
+        const cl::arr<SamplerSlot>& slots = scope == ShaderScope::global
+            ? m_global_sampler_slots
+            : m_instance_sampler_slots;
+        for (u32 index = 0; index < slots.length(); ++index) {
+            if (slots[index].binding == binding &&
+                slots[index].array_element == array_element) {
+                return index;
+            }
+        }
+        return numeric::invalid_id;
+    }
+
+    Texture* VulkanShader::valid_texture(Texture* texture) const noexcept {
+        if (texture != nullptr && texture->valid())
+            return texture;
+        if (m_default_texture != nullptr && m_default_texture->valid())
+            return m_default_texture;
+        return nullptr;
     }
 
     result<void, renderer_error> VulkanShader::init(
@@ -145,7 +278,8 @@ namespace nk {
         Device* device,
         mem::Allocator* allocator,
         ResourceSystem* resources,
-        VkAllocationCallbacks* vulkan_allocator) {
+        VkAllocationCallbacks* vulkan_allocator,
+        Texture* default_texture) {
         if (initialized() || width == 0 || height == 0 || image_count == 0 ||
             render_pass == nullptr || device == nullptr ||
             device->get() == nullptr || allocator == nullptr ||
@@ -171,6 +305,7 @@ namespace nk {
         m_device = device;
         m_allocator = allocator;
         m_vulkan_allocator = vulkan_allocator;
+        m_default_texture = default_texture;
         m_image_count = image_count;
         m_max_instances = config.max_instances;
 
@@ -179,6 +314,14 @@ namespace nk {
             shutdown();
             return err(error);
         };
+
+        auto metadata_initialized = m_metadata.init(allocator, config);
+        if (!metadata_initialized)
+            return fail(metadata_initialized.error());
+
+        auto sampler_slots_initialized = init_sampler_slots(config);
+        if (!sampler_slots_initialized)
+            return fail(sampler_slots_initialized.error());
 
         if (!m_stages.arr_init(m_allocator, config.stages.length()) ||
             !m_push_constants.arr_init(
@@ -288,9 +431,6 @@ namespace nk {
                         m_instance_uniform_binding = configured.binding;
                         m_instance_uniform_size = configured.element_size;
                     }
-                } else if (set.scope == ShaderScope::instance &&
-                           m_instance_sampler_binding == numeric::invalid_id) {
-                    m_instance_sampler_binding = configured.binding;
                 }
             }
 
@@ -323,19 +463,23 @@ namespace nk {
             };
         }
 
-        VkDescriptorPoolCreateInfo pool_info{};
-        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        pool_info.poolSizeCount = pool_size_count;
-        pool_info.pPoolSizes = pool_sizes;
-        pool_info.maxSets = static_cast<u32>(max_descriptor_set_count);
-        VkResult native_result = vkCreateDescriptorPool(
-            m_device->get(),
-            &pool_info,
-            m_vulkan_allocator,
-            &m_descriptor_pool);
-        if (native_result != VK_SUCCESS)
-            return fail(descriptor_error(native_result));
+        VkResult native_result = VK_SUCCESS;
+        if (max_descriptor_set_count != 0) {
+            VkDescriptorPoolCreateInfo pool_info{};
+            pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            pool_info.flags =
+                VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+            pool_info.poolSizeCount = pool_size_count;
+            pool_info.pPoolSizes = pool_sizes;
+            pool_info.maxSets = static_cast<u32>(max_descriptor_set_count);
+            native_result = vkCreateDescriptorPool(
+                m_device->get(),
+                &pool_info,
+                m_vulkan_allocator,
+                &m_descriptor_pool);
+            if (native_result != VK_SUCCESS)
+                return fail(descriptor_error(native_result));
+        }
 
         if (m_global_set_index != numeric::invalid_id) {
             cl::arr<VkDescriptorSetLayout> layouts;
@@ -379,6 +523,10 @@ namespace nk {
                 true);
             if (!initialized)
                 return fail(initialized.error());
+            if (!m_global_uniform_data.arr_init(
+                    allocator, m_global_uniform_size)) {
+                return fail({renderer_error_code::out_of_memory, 0});
+            }
         }
 
         if (m_instance_uniform_size != 0) {
@@ -407,6 +555,23 @@ namespace nk {
                 true);
             if (!initialized)
                 return fail(initialized.error());
+            u64 instance_data_size = 0;
+            if (!checked_multiply(
+                    m_instance_uniform_size,
+                    m_max_instances,
+                    instance_data_size)) {
+                return fail({renderer_error_code::out_of_memory, 0});
+            }
+            if (!m_instance_uniform_data.arr_init(
+                    allocator,
+                    instance_data_size)) {
+                return fail({renderer_error_code::out_of_memory, 0});
+            }
+        }
+
+        if (m_max_instances != 0 &&
+            !m_instance_states.arr_init(allocator, m_max_instances)) {
+            return fail({renderer_error_code::out_of_memory, 0});
         }
 
         cl::arr<VkVertexInputAttributeDescription> attributes;
@@ -475,6 +640,11 @@ namespace nk {
     }
 
     void VulkanShader::shutdown() {
+        for (InstanceState& state : m_instance_states)
+            release_instance_state(state);
+        for (DescriptorState& state : m_global_sampler_states)
+            release_descriptor_state(state);
+
         if (m_device != nullptr && m_device->get() != nullptr) {
             m_pipeline.shutdown();
             m_instance_uniform_buffer.shutdown();
@@ -506,13 +676,23 @@ namespace nk {
             }
         }
 
+        (void)m_instance_states.arr_shutdown();
+        (void)m_global_sampler_states.arr_shutdown();
+        (void)m_instance_textures.arr_shutdown();
+        (void)m_global_textures.arr_shutdown();
+        (void)m_instance_sampler_slots.arr_shutdown();
+        (void)m_global_sampler_slots.arr_shutdown();
+        (void)m_instance_uniform_data.arr_shutdown();
+        (void)m_global_uniform_data.arr_shutdown();
         (void)m_global_descriptor_sets.arr_shutdown();
         (void)m_descriptor_set_layouts.arr_shutdown();
         (void)m_push_constants.arr_shutdown();
         (void)m_stages.arr_shutdown();
+        m_metadata.shutdown();
         m_device = nullptr;
         m_allocator = nullptr;
         m_vulkan_allocator = nullptr;
+        m_default_texture = nullptr;
         m_name.clear();
         m_descriptor_pool = nullptr;
         m_image_count = 0;
@@ -521,47 +701,205 @@ namespace nk {
         m_instance_set_index = numeric::invalid_id;
         m_global_uniform_binding = numeric::invalid_id;
         m_instance_uniform_binding = numeric::invalid_id;
-        m_instance_sampler_binding = numeric::invalid_id;
         m_global_uniform_size = 0;
         m_instance_uniform_size = 0;
         m_instance_uniform_stride = 0;
+        m_bound_instance_id = numeric::invalid_id;
+        m_globals_bound = false;
     }
 
-    void VulkanShader::use(const CommandBuffer& command_buffer) {
+    result<void, renderer_error> VulkanShader::use(
+        const CommandBuffer& command_buffer) {
+        if (!initialized())
+            return err(invalid_shader_state());
         m_pipeline.bind(&command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+        m_globals_bound = false;
+        m_bound_instance_id = numeric::invalid_id;
+        return ok();
     }
 
-    result<void, renderer_error> VulkanShader::apply_global_uniform(
+    result<void, renderer_error> VulkanShader::bind_globals() {
+        if (!initialized())
+            return err(invalid_shader_state());
+        m_globals_bound = true;
+        m_bound_instance_id = numeric::invalid_id;
+        return ok();
+    }
+
+    result<void, renderer_error> VulkanShader::bind_instance(
+        const u32 instance_id) {
+        if (!initialized() || instance_id >= m_instance_states.length() ||
+            m_instance_states[instance_id].descriptor_sets.allocator() ==
+                nullptr) {
+            return err(invalid_shader_state());
+        }
+        m_bound_instance_id = instance_id;
+        return ok();
+    }
+
+    result<void, renderer_error> VulkanShader::set_uniform(
         const CommandBuffer& command_buffer,
-        const u32 image_index,
+        const ShaderUniformHandle uniform_handle,
+        const ShaderUniformType type,
         const void* data,
-        const u64 size) {
-        if (!initialized() || data == nullptr ||
-            image_index >= m_global_descriptor_sets.length() ||
-            m_global_uniform_binding == numeric::invalid_id ||
-            size != m_global_uniform_size) {
-            return err(initialization_error());
+        const u32 size) {
+        const ShaderUniformMetadata* uniform =
+            m_metadata.uniform(uniform_handle);
+        if (uniform == nullptr || data == nullptr || size == 0 ||
+            uniform->type != type || uniform->size != size ||
+            type == ShaderUniformType::sampler_2d) {
+            return err(invalid_uniform());
         }
 
-        auto loaded = m_global_uniform_buffer.load_data(0, size, 0, data);
-        if (!loaded)
-            return err(loaded.error());
+        switch (uniform->scope) {
+            case ShaderScope::global:
+                if (!m_globals_bound ||
+                    uniform->offset > m_global_uniform_data.length() ||
+                    uniform->size >
+                        m_global_uniform_data.length() - uniform->offset) {
+                    return err(invalid_shader_state());
+                }
+                std::memcpy(
+                    m_global_uniform_data.data() + uniform->offset,
+                    data,
+                    size);
+                return ok();
+            case ShaderScope::instance: {
+                if (m_bound_instance_id >= m_instance_states.length() ||
+                    uniform->offset > m_instance_uniform_size ||
+                    uniform->size >
+                        m_instance_uniform_size - uniform->offset) {
+                    return err(invalid_shader_state());
+                }
+                const u64 base =
+                    m_instance_uniform_size * m_bound_instance_id;
+                std::memcpy(
+                    m_instance_uniform_data.data() + base + uniform->offset,
+                    data,
+                    size);
+                return ok();
+            }
+            case ShaderScope::local:
+                return push_constant(
+                    command_buffer,
+                    uniform->offset,
+                    uniform->size,
+                    data);
+        }
+        return err(invalid_uniform());
+    }
+
+    result<void, renderer_error> VulkanShader::set_sampler(
+        const ShaderUniformHandle uniform_handle,
+        Texture* texture,
+        const u32 array_index) {
+        const ShaderUniformMetadata* uniform =
+            m_metadata.uniform(uniform_handle);
+        if (uniform == nullptr ||
+            uniform->type != ShaderUniformType::sampler_2d ||
+            uniform->scope == ShaderScope::local ||
+            array_index >= uniform->array_length) {
+            return err(invalid_uniform());
+        }
+
+        const u32 slot = sampler_slot(
+            uniform->scope,
+            uniform->binding,
+            static_cast<u32>(uniform->offset) + array_index);
+        if (slot == numeric::invalid_id)
+            return err(invalid_uniform());
+
+        if (uniform->scope == ShaderScope::global) {
+            m_global_textures[slot] = texture;
+            return ok();
+        }
+        if (m_bound_instance_id >= m_instance_states.length())
+            return err(invalid_shader_state());
+        m_instance_textures[
+            m_bound_instance_id * m_instance_sampler_slots.length() + slot] =
+            texture;
+        return ok();
+    }
+
+    result<void, renderer_error> VulkanShader::apply_globals(
+        const CommandBuffer& command_buffer,
+        const u32 image_index) {
+        if (!m_globals_bound || image_index >= m_image_count)
+            return err(invalid_shader_state());
+        if (m_global_set_index == numeric::invalid_id) {
+            if (m_global_uniform_size == 0 &&
+                m_global_sampler_slots.empty()) {
+                return ok();
+            }
+            return err(invalid_shader_state());
+        }
+        if (image_index >= m_global_descriptor_sets.length())
+            return err(invalid_shader_state());
 
         const VkDescriptorSet descriptor =
             m_global_descriptor_sets[image_index];
-        VkDescriptorBufferInfo buffer_info{
-            .buffer = m_global_uniform_buffer.get(),
-            .offset = 0,
-            .range = m_global_uniform_size,
-        };
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = descriptor;
-        write.dstBinding = m_global_uniform_binding;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo = &buffer_info;
-        vkUpdateDescriptorSets(m_device->get(), 1, &write, 0, nullptr);
+        VkWriteDescriptorSet writes[max_sampler_count + 1]{};
+        VkDescriptorImageInfo image_infos[max_sampler_count]{};
+        VkDescriptorBufferInfo buffer_info{};
+        u32 write_count = 0;
+
+        if (m_global_uniform_size != 0) {
+            auto loaded = m_global_uniform_buffer.load_data(
+                0,
+                m_global_uniform_size,
+                0,
+                m_global_uniform_data.data());
+            if (!loaded)
+                return err(loaded.error());
+
+            buffer_info = {
+                .buffer = m_global_uniform_buffer.get(),
+                .offset = 0,
+                .range = m_global_uniform_size,
+            };
+            VkWriteDescriptorSet& write = writes[write_count++];
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = descriptor;
+            write.dstBinding = m_global_uniform_binding;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            write.descriptorCount = 1;
+            write.pBufferInfo = &buffer_info;
+        }
+
+        u32 image_info_count = 0;
+        for (u32 slot = 0; slot < m_global_sampler_slots.length(); ++slot) {
+            Texture* texture = valid_texture(m_global_textures[slot]);
+            if (texture == nullptr)
+                return err(invalid_shader_state());
+
+            DescriptorState& state = m_global_sampler_states[slot];
+            if (state.generations[image_index] == texture->generation &&
+                state.ids[image_index] == texture->id) {
+                continue;
+            }
+            TextureData* texture_data =
+                static_cast<TextureData*>(texture->m_internal_data);
+            VkDescriptorImageInfo& image_info =
+                image_infos[image_info_count++];
+            image_info.imageLayout =
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageView = texture_data->image.get_view();
+            image_info.sampler = texture_data->sampler;
+
+            const SamplerSlot& configured = m_global_sampler_slots[slot];
+            VkWriteDescriptorSet& write = writes[write_count++];
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = descriptor;
+            write.dstBinding = configured.binding;
+            write.dstArrayElement = configured.array_element;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.descriptorCount = 1;
+            write.pImageInfo = &image_info;
+            state.generations[image_index] = texture->generation;
+            state.ids[image_index] = texture->id;
+        }
+
+        update_descriptors(write_count, writes);
 
         vkCmdBindDescriptorSets(
             command_buffer.get(),
@@ -575,20 +913,183 @@ namespace nk {
         return ok();
     }
 
-    result<void, renderer_error> VulkanShader::load_instance_uniform(
-        const u32 instance_id,
-        const void* data,
-        const u64 size) {
-        if (!initialized() || data == nullptr || instance_id >= m_max_instances ||
-            size != m_instance_uniform_size ||
-            m_instance_uniform_stride == 0) {
-            return err(initialization_error());
+    result<void, renderer_error> VulkanShader::apply_instance(
+        const CommandBuffer& command_buffer,
+        const u32 image_index,
+        const bool needs_update) {
+        if (m_bound_instance_id >= m_instance_states.length() ||
+            image_index >= m_image_count) {
+            return err(invalid_shader_state());
         }
-        return m_instance_uniform_buffer.load_data(
-            m_instance_uniform_stride * instance_id,
-            size,
-            0,
-            data);
+
+        InstanceState& instance = m_instance_states[m_bound_instance_id];
+        if (image_index >= instance.descriptor_sets.length())
+            return err(invalid_shader_state());
+
+        const VkDescriptorSet descriptor =
+            instance.descriptor_sets[image_index];
+        VkWriteDescriptorSet writes[max_sampler_count + 1]{};
+        VkDescriptorImageInfo image_infos[max_sampler_count]{};
+        VkDescriptorBufferInfo buffer_info{};
+        u32 write_count = 0;
+
+        if (m_instance_uniform_size != 0) {
+            u32& generation =
+                instance.uniform_state.generations[image_index];
+            if (needs_update || generation == numeric::invalid_id) {
+                auto loaded = m_instance_uniform_buffer.load_data(
+                    m_instance_uniform_stride * m_bound_instance_id,
+                    m_instance_uniform_size,
+                    0,
+                    m_instance_uniform_data.data() +
+                        m_instance_uniform_size * m_bound_instance_id);
+                if (!loaded)
+                    return err(loaded.error());
+            }
+            if (generation == numeric::invalid_id) {
+                buffer_info = {
+                    .buffer = m_instance_uniform_buffer.get(),
+                    .offset =
+                        m_instance_uniform_stride * m_bound_instance_id,
+                    .range = m_instance_uniform_size,
+                };
+                VkWriteDescriptorSet& write = writes[write_count++];
+                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = descriptor;
+                write.dstBinding = m_instance_uniform_binding;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                write.descriptorCount = 1;
+                write.pBufferInfo = &buffer_info;
+                generation = 0;
+            }
+        }
+
+        u32 image_info_count = 0;
+        for (u32 slot = 0; slot < m_instance_sampler_slots.length(); ++slot) {
+            Texture* texture = valid_texture(
+                m_instance_textures[
+                    m_bound_instance_id *
+                        m_instance_sampler_slots.length() +
+                    slot]);
+            if (texture == nullptr)
+                return err(invalid_shader_state());
+
+            DescriptorState& state = instance.sampler_states[slot];
+            if (state.generations[image_index] == texture->generation &&
+                state.ids[image_index] == texture->id) {
+                continue;
+            }
+            TextureData* texture_data =
+                static_cast<TextureData*>(texture->m_internal_data);
+            VkDescriptorImageInfo& image_info =
+                image_infos[image_info_count++];
+            image_info.imageLayout =
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageView = texture_data->image.get_view();
+            image_info.sampler = texture_data->sampler;
+
+            const SamplerSlot& configured = m_instance_sampler_slots[slot];
+            VkWriteDescriptorSet& write = writes[write_count++];
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = descriptor;
+            write.dstBinding = configured.binding;
+            write.dstArrayElement = configured.array_element;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.descriptorCount = 1;
+            write.pImageInfo = &image_info;
+            state.generations[image_index] = texture->generation;
+            state.ids[image_index] = texture->id;
+        }
+
+        update_descriptors(write_count, writes);
+        bind_instance_descriptor_set(command_buffer, descriptor);
+        return ok();
+    }
+
+    result<u32, renderer_error> VulkanShader::acquire_resources() {
+        u32 instance_id = numeric::invalid_id;
+        for (u32 index = 0; index < m_instance_states.length(); ++index) {
+            if (m_instance_states[index].descriptor_sets.allocator() ==
+                nullptr) {
+                instance_id = index;
+                break;
+            }
+        }
+        if (instance_id == numeric::invalid_id) {
+            return err(renderer_error{
+                renderer_error_code::object_resource_failed,
+                0,
+            });
+        }
+
+        InstanceState& instance = m_instance_states[instance_id];
+        auto sets_allocated =
+            allocate_instance_descriptor_sets(instance.descriptor_sets);
+        if (!sets_allocated)
+            return err(sets_allocated.error());
+
+        auto fail = [this, &instance](const renderer_error error)
+            -> result<u32, renderer_error> {
+            if (instance.descriptor_sets.allocator() != nullptr)
+                (void)release_instance_descriptor_sets(
+                    instance.descriptor_sets);
+            release_instance_state(instance);
+            return err(error);
+        };
+
+        if (m_instance_uniform_size != 0) {
+            auto initialized = init_descriptor_state(instance.uniform_state);
+            if (!initialized)
+                return fail(initialized.error());
+        }
+        if (!m_instance_sampler_slots.empty()) {
+            if (!instance.sampler_states.arr_init(
+                    m_allocator, m_instance_sampler_slots.length())) {
+                return fail({renderer_error_code::out_of_memory, 0});
+            }
+            for (DescriptorState& state : instance.sampler_states) {
+                auto initialized = init_descriptor_state(state);
+                if (!initialized)
+                    return fail(initialized.error());
+            }
+        }
+
+        if (m_instance_uniform_size != 0) {
+            std::memset(
+                m_instance_uniform_data.data() +
+                    m_instance_uniform_size * instance_id,
+                0,
+                m_instance_uniform_size);
+        }
+        for (u32 slot = 0; slot < m_instance_sampler_slots.length(); ++slot) {
+            m_instance_textures[
+                instance_id * m_instance_sampler_slots.length() + slot] =
+                nullptr;
+        }
+        return ok(instance_id);
+    }
+
+    result<void, renderer_error> VulkanShader::release_resources(
+        const u32 instance_id) {
+        if (instance_id >= m_instance_states.length())
+            return err(invalid_shader_state());
+        InstanceState& instance = m_instance_states[instance_id];
+        if (instance.descriptor_sets.allocator() == nullptr)
+            return err(invalid_shader_state());
+
+        auto released = release_instance_descriptor_sets(
+            instance.descriptor_sets);
+        if (!released)
+            return err(released.error());
+        release_instance_state(instance);
+        for (u32 slot = 0; slot < m_instance_sampler_slots.length(); ++slot) {
+            m_instance_textures[
+                instance_id * m_instance_sampler_slots.length() + slot] =
+                nullptr;
+        }
+        if (m_bound_instance_id == instance_id)
+            m_bound_instance_id = numeric::invalid_id;
+        return ok();
     }
 
     result<void, renderer_error> VulkanShader::push_constant(

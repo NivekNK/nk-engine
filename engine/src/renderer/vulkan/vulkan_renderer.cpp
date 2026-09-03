@@ -19,7 +19,7 @@ namespace nk {
         DebugLog("nk::VulkanRenderer::on_resized: {}, {}", width, height);
     }
 
-    MaterialShader* VulkanRenderer::resolve_shader(
+    VulkanShader* VulkanRenderer::resolve_shader(
         const ShaderHandle handle) noexcept {
         if (!handle.valid() || handle.index >= max_shader_count)
             return nullptr;
@@ -57,7 +57,7 @@ namespace nk {
             });
         }
 
-        MaterialShader* shader = m_allocator->construct_t(MaterialShader);
+        VulkanShader* shader = m_allocator->construct_t(VulkanShader);
         if (shader == nullptr) {
             return err(renderer_error{
                 renderer_error_code::out_of_memory,
@@ -81,7 +81,7 @@ namespace nk {
             m_vulkan_allocator,
             m_default_texture);
         if (!initialized) {
-            (void)m_allocator->deconstruct_t(MaterialShader, shader);
+            (void)m_allocator->deconstruct_t(VulkanShader, shader);
             return err(initialized.error());
         }
 
@@ -93,7 +93,7 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::destroy_shader(
         const ShaderHandle handle) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr)
             return err(renderer_error{
                 renderer_error_code::shader_handle_invalid,
@@ -114,7 +114,7 @@ namespace nk {
         }
 
         VulkanShaderSlot& slot = m_shaders[handle.index];
-        (void)m_allocator->deconstruct_t(MaterialShader, shader);
+        (void)m_allocator->deconstruct_t(VulkanShader, shader);
         slot.shader = nullptr;
         slot.generation = slot.generation + 1 == numeric::u16_max
             ? 0
@@ -132,7 +132,7 @@ namespace nk {
         for (VulkanShaderSlot& slot : m_shaders) {
             if (slot.shader == nullptr)
                 continue;
-            (void)m_allocator->deconstruct_t(MaterialShader, slot.shader);
+            (void)m_allocator->deconstruct_t(VulkanShader, slot.shader);
             slot.shader = nullptr;
             slot.generation = slot.generation + 1 == numeric::u16_max
                 ? 0
@@ -145,7 +145,7 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::use_shader(
         const ShaderHandle handle) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr)
             return err(renderer_error{
                 renderer_error_code::shader_handle_invalid,
@@ -168,7 +168,7 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::bind_shader_globals(
         const ShaderHandle handle) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr || handle != m_active_shader)
             return err(renderer_error{
                 shader == nullptr
@@ -182,7 +182,7 @@ namespace nk {
     result<void, renderer_error> VulkanRenderer::bind_shader_instance(
         const ShaderHandle handle,
         const u32 instance_id) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr || handle != m_active_shader)
             return err(renderer_error{
                 shader == nullptr
@@ -195,7 +195,7 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::apply_shader_globals(
         const ShaderHandle handle) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr || handle != m_active_shader ||
             m_image_index >= m_graphics_command_buffers.length()) {
             return err(renderer_error{
@@ -210,8 +210,9 @@ namespace nk {
     }
 
     result<void, renderer_error> VulkanRenderer::apply_shader_instance(
-        const ShaderHandle handle) {
-        MaterialShader* shader = resolve_shader(handle);
+        const ShaderHandle handle,
+        const bool needs_update) {
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr || handle != m_active_shader ||
             m_image_index >= m_graphics_command_buffers.length()) {
             return err(renderer_error{
@@ -222,12 +223,14 @@ namespace nk {
             });
         }
         return shader->apply_instance(
-            m_graphics_command_buffers[m_image_index], m_image_index);
+            m_graphics_command_buffers[m_image_index],
+            m_image_index,
+            needs_update);
     }
 
     result<u32, renderer_error> VulkanRenderer::acquire_shader_instance(
         const ShaderHandle handle) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr)
             return err(renderer_error{
                 renderer_error_code::shader_handle_invalid,
@@ -239,7 +242,7 @@ namespace nk {
     result<void, renderer_error> VulkanRenderer::release_shader_instance(
         const ShaderHandle handle,
         const u32 instance_id) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr)
             return err(renderer_error{
                 renderer_error_code::shader_handle_invalid,
@@ -254,7 +257,7 @@ namespace nk {
         const ShaderUniformType type,
         const void* data,
         const u32 size) {
-        MaterialShader* shader = resolve_shader(handle);
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr || handle != m_active_shader ||
             m_image_index >= m_graphics_command_buffers.length()) {
             return err(renderer_error{
@@ -275,8 +278,9 @@ namespace nk {
     result<void, renderer_error> VulkanRenderer::set_shader_sampler(
         const ShaderHandle handle,
         const ShaderUniformHandle uniform,
-        Texture* texture) {
-        MaterialShader* shader = resolve_shader(handle);
+        Texture* texture,
+        const u32 array_index) {
+        VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr || handle != m_active_shader)
             return err(renderer_error{
                 shader == nullptr
@@ -284,7 +288,7 @@ namespace nk {
                     : renderer_error_code::shader_state_invalid,
                 0,
             });
-        return shader->set_sampler(uniform, texture);
+        return shader->set_sampler(uniform, texture, array_index);
     }
 
     void VulkanRenderer::on_default_texture_changed(Texture* texture) {

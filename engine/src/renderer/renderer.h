@@ -55,7 +55,8 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> apply_shader_globals(
             ShaderHandle shader) = 0;
         [[nodiscard]] virtual result<void, renderer_error> apply_shader_instance(
-            ShaderHandle shader) = 0;
+            ShaderHandle shader,
+            bool needs_update) = 0;
         [[nodiscard]] virtual result<u32, renderer_error>
         acquire_shader_instance(ShaderHandle shader) = 0;
         [[nodiscard]] virtual result<void, renderer_error>
@@ -63,7 +64,8 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> set_shader_sampler(
             ShaderHandle shader,
             ShaderUniformHandle uniform,
-            Texture* texture) = 0;
+            Texture* texture,
+            u32 array_index = 0) = 0;
 
         template <ShaderUniformValue T>
         [[nodiscard]] result<void, renderer_error> set_shader_uniform(
