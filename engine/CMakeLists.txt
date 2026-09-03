@@ -65,6 +65,7 @@ set(SOURCES
     src/systems/logging_system.cpp
     src/systems/event_system.cpp
     src/systems/input_system.cpp
+    src/systems/shader_system.cpp
     src/systems/texture_system.cpp
     src/systems/material_system.cpp
     src/systems/geometry_system.cpp

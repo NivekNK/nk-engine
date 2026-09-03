@@ -6,10 +6,12 @@
 #include "renderer/renderer.h"
 #include "renderer/vulkan/swapchain.h"
 #include "renderer/vulkan/vulkan_renderer.h"
+#include "resources/shader_resource.h"
 #include "systems/texture_system.h"
 #include "systems/material_system.h"
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
+#include "systems/shader_system.h"
 
 namespace {
     class TestRenderer final : public nk::Renderer {
@@ -42,7 +44,10 @@ namespace {
         nk::u32 end_calls() const { return m_end_calls; }
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
+        void fail_shader_create(bool value) { m_fail_shader_create = value; }
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
+        nk::u32 created_shaders() const { return m_created_shaders; }
+        nk::u32 destroyed_shaders() const { return m_destroyed_shaders; }
         nk::u32 created_materials() const { return m_created_materials; }
         nk::u32 destroyed_materials() const { return m_destroyed_materials; }
         nk::u32 created_geometries() const { return m_created_geometries; }
@@ -54,11 +59,22 @@ namespace {
         nk::result<nk::ShaderHandle, nk::renderer_error> create_shader(
             const nk::ShaderConfig&,
             nk::RenderPassKind) override {
-            return nk::ok(nk::ShaderHandle{2, 0});
+            ++m_created_shaders;
+            if (m_fail_shader_create) {
+                return nk::err(nk::renderer_error{
+                    nk::renderer_error_code::pipeline_creation_failed,
+                    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                });
+            }
+            return nk::ok(nk::ShaderHandle{
+                static_cast<nk::u16>(m_next_shader_index++),
+                0,
+            });
         }
 
         nk::result<void, nk::renderer_error> destroy_shader(
             nk::ShaderHandle) override {
+            ++m_destroyed_shaders;
             return nk::ok();
         }
 
@@ -261,6 +277,10 @@ namespace {
         BeginMode m_begin_mode;
         bool m_fail_end = false;
         bool m_fail_texture_create = false;
+        bool m_fail_shader_create = false;
+        nk::u16 m_next_shader_index = 2;
+        nk::u32 m_created_shaders = 0;
+        nk::u32 m_destroyed_shaders = 0;
         nk::u32 m_world_global_updates = 0;
         nk::u32 m_ui_global_updates = 0;
         nk::u32 m_world_object_updates = 0;
@@ -503,6 +523,261 @@ TEST(RendererResult, TextureAllocationFailureDoesNotPublishPartialState) {
     EXPECT_EQ(output.has_transparency, before.has_transparency);
     EXPECT_EQ(output.generation, before.generation);
     EXPECT_EQ(output.m_internal_data, before.m_internal_data);
+}
+
+TEST(ShaderSystem, LoadsShadersAndResolvesNamesWithoutLookupAllocations) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto shaders_created = nk::ShaderSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        {.max_shader_count = 4});
+    ASSERT_TRUE(shaders_created);
+    nk::ShaderSystem* shaders = *shaders_created;
+
+    auto loaded = shaders->load("Builtin.MaterialShader");
+    ASSERT_TRUE(loaded);
+    EXPECT_EQ(shaders->loaded_count(), 1u);
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+
+    auto by_name = shaders->handle(nk::strview{"Builtin.MaterialShader"});
+    ASSERT_TRUE(by_name);
+    EXPECT_EQ(*by_name, *loaded);
+    auto projection = shaders->uniform(*loaded, "projection");
+    auto diffuse_texture = shaders->uniform(*loaded, "diffuse_texture");
+    auto model = shaders->uniform(*loaded, "model");
+    ASSERT_TRUE(projection);
+    ASSERT_TRUE(diffuse_texture);
+    ASSERT_TRUE(model);
+
+    auto projection_metadata = shaders->uniform_metadata(*loaded, *projection);
+    ASSERT_TRUE(projection_metadata);
+    EXPECT_EQ(projection_metadata->scope, nk::ShaderScope::global);
+    EXPECT_EQ(projection_metadata->type, nk::ShaderUniformType::mat4);
+    EXPECT_EQ(projection_metadata->offset, 0u);
+    EXPECT_EQ(projection_metadata->size, sizeof(glm::mat4));
+    auto texture_metadata =
+        shaders->uniform_metadata(*loaded, *diffuse_texture);
+    ASSERT_TRUE(texture_metadata);
+    EXPECT_EQ(texture_metadata->scope, nk::ShaderScope::instance);
+    EXPECT_EQ(texture_metadata->binding, 1u);
+    EXPECT_EQ(texture_metadata->offset, 0u);
+    EXPECT_EQ(texture_metadata->array_length, 1u);
+    auto model_metadata = shaders->uniform_metadata(*loaded, *model);
+    ASSERT_TRUE(model_metadata);
+    EXPECT_EQ(model_metadata->scope, nk::ShaderScope::local);
+
+    const nk::u64 allocations_before = allocator.get_active_allocation_count();
+    const nk::u64 bytes_before = allocator.get_used_bytes();
+    for (nk::u32 index = 0; index < 64; ++index) {
+        EXPECT_TRUE(shaders->handle(nk::strview{"Builtin.MaterialShader"}));
+        EXPECT_TRUE(shaders->uniform(*loaded, nk::strview{"projection"}));
+    }
+    EXPECT_EQ(allocator.get_active_allocation_count(), allocations_before);
+    EXPECT_EQ(allocator.get_used_bytes(), bytes_before);
+
+    nk::ShaderSystem::destroy(allocator, shaders);
+    EXPECT_EQ(renderer.destroyed_shaders(), 1u);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(ShaderSystem, RoutesTypedScopeOperationsThroughTheCurrentShader) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto shaders_created = nk::ShaderSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        {.max_shader_count = 2});
+    ASSERT_TRUE(shaders_created);
+    nk::ShaderSystem* shaders = *shaders_created;
+    auto shader = shaders->load("Builtin.MaterialShader");
+    ASSERT_TRUE(shader);
+
+    auto projection = shaders->uniform(*shader, "projection");
+    auto diffuse_color = shaders->uniform(*shader, "diffuse_color");
+    auto diffuse_texture = shaders->uniform(*shader, "diffuse_texture");
+    auto model = shaders->uniform(*shader, "model");
+    ASSERT_TRUE(projection);
+    ASSERT_TRUE(diffuse_color);
+    ASSERT_TRUE(diffuse_texture);
+    ASSERT_TRUE(model);
+
+    auto no_current = shaders->bind_globals();
+    ASSERT_FALSE(no_current);
+    EXPECT_EQ(
+        no_current.error().code,
+        nk::shader_system_error_code::shader_not_found);
+
+    ASSERT_TRUE(shaders->use("Builtin.MaterialShader"));
+    ASSERT_TRUE(shaders->bind_globals());
+    ASSERT_TRUE(shaders->set_uniform(*projection, glm::mat4{1.0f}));
+    auto wrong_type = shaders->set_uniform(*projection, nk::f32{1.0f});
+    ASSERT_FALSE(wrong_type);
+    EXPECT_EQ(
+        wrong_type.error().code,
+        nk::shader_system_error_code::invalid_uniform);
+    ASSERT_TRUE(shaders->apply_globals());
+    auto instance = shaders->acquire_instance(*shader);
+    ASSERT_TRUE(instance);
+    ASSERT_TRUE(shaders->bind_instance(*instance));
+    ASSERT_TRUE(shaders->set_uniform(*diffuse_color, glm::vec4{1.0f}));
+    ASSERT_TRUE(shaders->set_sampler(*diffuse_texture, nullptr));
+    ASSERT_TRUE(shaders->apply_instance());
+    ASSERT_TRUE(shaders->set_uniform(*model, glm::mat4{1.0f}));
+    ASSERT_TRUE(shaders->release_instance(*shader, *instance));
+
+    constexpr nk::u8 expected_trace[]{1, 2, 3, 4, 5, 6, 7, 8, 9};
+    ASSERT_EQ(renderer.shader_trace_length(), std::size(expected_trace));
+    for (nk::u32 index = 0; index < std::size(expected_trace); ++index)
+        EXPECT_EQ(renderer.shader_trace(index), expected_trace[index]);
+
+    nk::ShaderSystem::destroy(allocator, shaders);
+    nk::ResourceSystem::destroy(allocator, resources);
+}
+
+TEST(ShaderSystem, RejectsDuplicatesAndLimitsBeforeRendererPublication) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto shaders_created = nk::ShaderSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        {.max_shader_count = 1});
+    ASSERT_TRUE(shaders_created);
+    nk::ShaderSystem* shaders = *shaders_created;
+
+    auto first = shaders->load("Builtin.MaterialShader");
+    ASSERT_TRUE(first);
+    auto duplicate = shaders->load("Builtin.MaterialShader");
+    ASSERT_FALSE(duplicate);
+    EXPECT_EQ(
+        duplicate.error().code,
+        nk::shader_system_error_code::duplicate_shader);
+    auto full = shaders->load("Builtin.UIShader");
+    ASSERT_FALSE(full);
+    EXPECT_EQ(
+        full.error().code,
+        nk::shader_system_error_code::capacity_exceeded);
+    EXPECT_EQ(renderer.created_shaders(), 1u);
+    EXPECT_EQ(shaders->loaded_count(), 1u);
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+
+    ASSERT_TRUE(shaders->destroy(*first));
+    EXPECT_EQ(shaders->loaded_count(), 0u);
+    EXPECT_FALSE(shaders->handle("Builtin.MaterialShader"));
+    auto reused = shaders->load("Builtin.UIShader");
+    ASSERT_TRUE(reused);
+    EXPECT_NE(*reused, *first);
+    EXPECT_EQ(shaders->loaded_count(), 1u);
+    EXPECT_EQ(renderer.created_shaders(), 2u);
+    EXPECT_EQ(renderer.destroyed_shaders(), 1u);
+
+    nk::ShaderSystem::destroy(allocator, shaders);
+    EXPECT_EQ(renderer.destroyed_shaders(), 2u);
+    nk::ResourceSystem::destroy(allocator, resources);
+}
+
+TEST(ShaderSystem, RollsBackRendererAndResourceFailures) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto shaders_created = nk::ShaderSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        {.max_shader_count = 2});
+    ASSERT_TRUE(shaders_created);
+    nk::ShaderSystem* shaders = *shaders_created;
+
+    renderer.fail_shader_create(true);
+    auto renderer_failed = shaders->load("Builtin.MaterialShader");
+    ASSERT_FALSE(renderer_failed);
+    EXPECT_EQ(
+        renderer_failed.error().code,
+        nk::shader_system_error_code::renderer_failed);
+    EXPECT_EQ(
+        renderer_failed.error().native_code,
+        VK_ERROR_OUT_OF_DEVICE_MEMORY);
+    EXPECT_EQ(shaders->loaded_count(), 0u);
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+    EXPECT_FALSE(shaders->handle("Builtin.MaterialShader"));
+
+    auto missing = shaders->load("Missing.Shader");
+    ASSERT_FALSE(missing);
+    EXPECT_EQ(
+        missing.error().code,
+        nk::shader_system_error_code::resource_failed);
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+
+    nk::ShaderSystem::destroy(allocator, shaders);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(ShaderSystem, EnforcesUniformAndSamplerLimitsFromConfiguration) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_FIXTURE_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto shaders_created = nk::ShaderSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        {
+            .max_shader_count = 2,
+            .max_uniform_count = 8,
+            .max_global_samplers = 2,
+            .max_instance_samplers = 2,
+        });
+    ASSERT_TRUE(shaders_created);
+    nk::ShaderSystem* shaders = *shaders_created;
+
+    auto too_many_samplers = shaders->load("Test.Array");
+    ASSERT_FALSE(too_many_samplers);
+    EXPECT_EQ(
+        too_many_samplers.error().code,
+        nk::shader_system_error_code::capacity_exceeded);
+    EXPECT_EQ(renderer.created_shaders(), 0u);
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+
+    auto invalid = shaders->load("Test.Invalid");
+    ASSERT_FALSE(invalid);
+    EXPECT_EQ(
+        invalid.error().code,
+        nk::shader_system_error_code::invalid_config);
+    EXPECT_EQ(
+        invalid.error().native_code,
+        static_cast<nk::i32>(
+            nk::shader_resource_parse_error::invalid_uniform));
+
+    nk::ShaderSystem::destroy(allocator, shaders);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
 }
 
 TEST(TextureSystem, LoadsCachesAndAutoReleasesTextures) {

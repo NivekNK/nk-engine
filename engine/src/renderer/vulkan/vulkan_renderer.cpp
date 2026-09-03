@@ -99,7 +99,7 @@ namespace nk {
                 renderer_error_code::shader_handle_invalid,
                 0,
             });
-        if (m_active_shader == handle)
+        if (m_active_shader == handle && m_render_pass_active)
             return err(renderer_error{
                 renderer_error_code::shader_state_invalid,
                 0,
@@ -123,6 +123,8 @@ namespace nk {
             m_world_shader = {};
         if (m_ui_shader == handle)
             m_ui_shader = {};
+        if (m_active_shader == handle)
+            m_active_shader = {};
         return ok();
     }
 
