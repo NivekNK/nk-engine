@@ -16,6 +16,10 @@ namespace nk {
         "default_specular",
         16,
     };
+    inline constexpr strview default_normal_texture_name{
+        "default_normal",
+        14,
+    };
 
     enum class texture_error_code : u8 {
         invalid_name,
@@ -67,6 +71,12 @@ namespace nk {
         const Texture& default_specular_texture() const noexcept {
             return m_default_specular_texture;
         }
+        Texture& default_normal_texture() noexcept {
+            return m_default_normal_texture;
+        }
+        const Texture& default_normal_texture() const noexcept {
+            return m_default_normal_texture;
+        }
 
         u32 reference_count(strview name) const noexcept;
         u32 loaded_count() const noexcept { return m_loaded_count; }
@@ -97,6 +107,7 @@ namespace nk {
         cl::map<str, TextureReference> m_references;
         Texture m_default_texture{};
         Texture m_default_specular_texture{};
+        Texture m_default_normal_texture{};
         u32 m_loaded_count = 0;
         bool m_initialized = false;
     };

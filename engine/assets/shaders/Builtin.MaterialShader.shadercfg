@@ -26,3 +26,4 @@ uniform=mat4,local,normal_matrix
 uniform=sampler_2d,instance,specular_texture
 uniform=f32,instance,shininess
 uniform=f32_3,global,view_position
+uniform=sampler_2d,instance,normal_texture

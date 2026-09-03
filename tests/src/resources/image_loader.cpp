@@ -23,6 +23,12 @@ namespace {
         NK_TEST_ASSET_ROOT "/textures/paving2_SPEC.png";
     constexpr nk::cstr orange_lines_specular_path =
         NK_TEST_ASSET_ROOT "/textures/orange_lines_512_SPEC.png";
+    constexpr nk::cstr cobblestone_normal_path =
+        NK_TEST_ASSET_ROOT "/textures/cobblestone_NRM.png";
+    constexpr nk::cstr paving_normal_path =
+        NK_TEST_ASSET_ROOT "/textures/paving_NRM.png";
+    constexpr nk::cstr paving2_normal_path =
+        NK_TEST_ASSET_ROOT "/textures/paving2_NRM.png";
 }
 
 TEST(ImageLoader, DecodesChapterTexturesAsRgba) {
@@ -83,7 +89,26 @@ TEST(ImageLoader, DecodesChapterTexturesAsRgba) {
         EXPECT_EQ(orange_lines_specular->width, 512u);
         EXPECT_EQ(orange_lines_specular->height, 512u);
 
-        EXPECT_EQ(allocator.get_active_allocation_count(), 8u);
+        auto cobblestone_normal = nk::ImageLoader::load_png(
+            allocator, cobblestone_normal_path);
+        ASSERT_TRUE(cobblestone_normal);
+        EXPECT_EQ(cobblestone_normal->width, 512u);
+        EXPECT_EQ(cobblestone_normal->height, 512u);
+        EXPECT_FALSE(cobblestone_normal->has_transparency);
+
+        auto paving_normal = nk::ImageLoader::load_png(
+            allocator, paving_normal_path);
+        ASSERT_TRUE(paving_normal);
+        EXPECT_EQ(paving_normal->width, 480u);
+        EXPECT_EQ(paving_normal->height, 480u);
+
+        auto paving2_normal = nk::ImageLoader::load_png(
+            allocator, paving2_normal_path);
+        ASSERT_TRUE(paving2_normal);
+        EXPECT_EQ(paving2_normal->width, 480u);
+        EXPECT_EQ(paving2_normal->height, 480u);
+
+        EXPECT_EQ(allocator.get_active_allocation_count(), 11u);
     }
 
     EXPECT_EQ(allocator.get_active_allocation_count(), 0u);

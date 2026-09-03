@@ -54,6 +54,9 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(
         material->as<nk::MaterialConfig>()->specular_map_name.view(),
         nk::strview{"paving_SPEC"});
+    EXPECT_EQ(
+        material->as<nk::MaterialConfig>()->normal_map_name.view(),
+        nk::strview{"paving_NRM"});
     EXPECT_FLOAT_EQ(material->as<nk::MaterialConfig>()->shininess, 64.0f);
     EXPECT_EQ(
         material->as<nk::MaterialConfig>()->type,
@@ -97,8 +100,8 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(shader_config.descriptor_sets[0].bindings[0].element_size, 188u);
     ASSERT_EQ(shader_config.descriptor_sets[1].bindings.length(), 2u);
     EXPECT_EQ(shader_config.descriptor_sets[1].bindings[0].element_size, 20u);
-    EXPECT_EQ(shader_config.descriptor_sets[1].bindings[1].count, 2u);
-    ASSERT_EQ(shader_config.uniforms.length(), 12u);
+    EXPECT_EQ(shader_config.descriptor_sets[1].bindings[1].count, 3u);
+    ASSERT_EQ(shader_config.uniforms.length(), 13u);
     EXPECT_EQ(shader_config.uniforms[1].offset, 64u);
     EXPECT_EQ(shader_config.uniforms[3].type, nk::ShaderUniformType::sampler_2d);
     EXPECT_EQ(shader_config.uniforms[3].offset, 0u);
@@ -114,6 +117,10 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(shader_config.uniforms[9].offset, 1u);
     EXPECT_EQ(shader_config.uniforms[10].offset, 16u);
     EXPECT_EQ(shader_config.uniforms[11].offset, 176u);
+    EXPECT_EQ(
+        shader_config.uniforms[12].type,
+        nk::ShaderUniformType::sampler_2d);
+    EXPECT_EQ(shader_config.uniforms[12].offset, 2u);
     EXPECT_EQ(shader_config.push_constants[0].size, 128u);
     EXPECT_EQ(resources->active_resource_count(), 6u);
 

@@ -372,11 +372,13 @@ namespace nk {
         struct DebugTextureSet {
             strview diffuse;
             strview specular;
+            strview normal;
         };
         constexpr DebugTextureSet texture_sets[]{
-            {{"cobblestone", 11}, {"cobblestone_SPEC", 16}},
-            {{"paving", 6}, {"paving_SPEC", 11}},
-            {{"paving2", 7}, {"paving2_SPEC", 12}},
+            {{"cobblestone", 11}, {"cobblestone_SPEC", 16},
+             {"cobblestone_NRM", 15}},
+            {{"paving", 6}, {"paving_SPEC", 11}, {"paving_NRM", 10}},
+            {{"paving2", 7}, {"paving2_SPEC", 12}, {"paving2_NRM", 11}},
         };
         constexpr u8 texture_count =
             sizeof(texture_sets) / sizeof(texture_sets[0]);
@@ -385,7 +387,8 @@ namespace nk {
         auto changed = m_material_system->set_texture_maps(
             *m_test_material,
             next.diffuse,
-            next.specular);
+            next.specular,
+            next.normal);
         if (!changed) {
             const material_error error = changed.error();
             ErrorLog(

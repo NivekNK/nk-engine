@@ -347,6 +347,13 @@ namespace nk {
                         0,
                     });
                 }
+            } else if (key == strview{"normal_map_name", 15}) {
+                if (!parsed.normal_map_name.assign(value)) {
+                    return err(resource_error{
+                        resource_error_code::invalid_data,
+                        0,
+                    });
+                }
             } else if (key == strview{"shininess", 9}) {
                 if (!parse_f32(value, parsed.shininess) ||
                     parsed.shininess <= 0.0f) {

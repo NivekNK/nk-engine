@@ -21,10 +21,11 @@ ConstantBuffer<GlobalUniformObject> global_ubo;
 ConstantBuffer<LocalUniformObject> object_ubo;
 
 [[vk::binding(1, 1)]]
-Sampler2D material_samplers[2];
+Sampler2D material_samplers[3];
 
 static const uint diffuse_sampler_index = 0;
 static const uint specular_sampler_index = 1;
+static const uint normal_sampler_index = 2;
 
 struct dto
 {
@@ -57,7 +58,21 @@ float4 main(FragmentInput input) : SV_Target0 {
         input.in_dto.tex_coord);
     float4 surface_color = object_ubo.diffuse_color * sampled_color;
 
-    float3 normal = safe_normalize(input.in_dto.normal);
+    float3 geometric_normal = safe_normalize(input.in_dto.normal);
+    float3 tangent = input.in_dto.tangent.xyz - geometric_normal * dot(
+        geometric_normal,
+        input.in_dto.tangent.xyz);
+    tangent = safe_normalize(tangent);
+    float3 bitangent = safe_normalize(cross(geometric_normal, tangent)) *
+        input.in_dto.tangent.w;
+    float3 tangent_normal =
+        material_samplers[normal_sampler_index]
+            .Sample(input.in_dto.tex_coord)
+            .rgb * 2.0 - 1.0;
+    float3 normal = safe_normalize(
+        tangent * tangent_normal.x +
+        bitangent * tangent_normal.y +
+        geometric_normal * tangent_normal.z);
     float3 light_to_surface = safe_normalize(
         global_ubo.directional_light_direction);
     float diffuse_factor = max(dot(normal, -light_to_surface), 0.0);

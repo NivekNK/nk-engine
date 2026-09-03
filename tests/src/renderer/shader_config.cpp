@@ -20,7 +20,7 @@ namespace {
     const nk::ShaderDescriptorBindingConfig instance_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
          nk::ShaderStage::fragment, 64},
-        {1, nk::ShaderDescriptorType::sampler, 2,
+        {1, nk::ShaderDescriptorType::sampler, 3,
          nk::ShaderStage::fragment, 0},
     };
     const nk::ShaderDescriptorSetConfig descriptor_sets[] = {
@@ -52,6 +52,8 @@ namespace {
          nk::ShaderScope::instance, 0, 16, 0},
         {"view_position", nk::ShaderUniformType::f32_3,
          nk::ShaderScope::global, 0, 176, 0},
+        {"normal_texture", nk::ShaderUniformType::sampler_2d,
+         nk::ShaderScope::instance, 1, 2, 0},
     };
     const nk::ShaderPushConstantConfig push_constants[] = {
         {nk::ShaderStage::vertex, 0, 128},
