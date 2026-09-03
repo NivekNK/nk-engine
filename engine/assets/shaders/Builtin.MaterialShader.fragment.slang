@@ -31,6 +31,7 @@ struct dto
     float2 tex_coord;
     float3 normal;
     float3 world_position;
+    float4 tangent;
 };
 
 struct FragmentInput

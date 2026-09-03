@@ -2,6 +2,7 @@
 
 #include "systems/geometry_system.h"
 
+#include "core/math.h"
 #include "memory/allocator.h"
 #include "renderer/renderer.h"
 #include "systems/material_system.h"
@@ -109,26 +110,36 @@ namespace nk {
             .position = {-0.5f * scale, -0.5f * scale, 0.0f},
             .normal = {},
             .texcoord = {0.0f, 0.0f},
+            .tangent = {},
         };
         vertices[1] = {
             .position = {0.5f * scale, 0.5f * scale, 0.0f},
             .normal = {},
             .texcoord = {1.0f, 1.0f},
+            .tangent = {},
         };
         vertices[2] = {
             .position = {-0.5f * scale, 0.5f * scale, 0.0f},
             .normal = {},
             .texcoord = {0.0f, 1.0f},
+            .tangent = {},
         };
         vertices[3] = {
             .position = {0.5f * scale, -0.5f * scale, 0.0f},
             .normal = {},
             .texcoord = {1.0f, 0.0f},
+            .tangent = {},
         };
         const u32 indices[6]{0, 1, 2, 0, 3, 1};
         auto normals_generated = generate_normals(vertices, indices);
         if (!normals_generated)
             return err(normals_generated.error());
+        auto tangents_generated = generate_tangents(
+            *m_allocator,
+            vertices,
+            indices);
+        if (!tangents_generated)
+            return err(tangents_generated.error());
 
         Geometry world{};
         world.name.assign(default_geometry_name);
@@ -441,21 +452,25 @@ namespace nk {
                     .position = {min_x, min_y, 0.0f},
                     .normal = {},
                     .texcoord = {min_u, min_v},
+                    .tangent = {},
                 };
                 config.vertices[vertex_offset + 1] = {
                     .position = {max_x, max_y, 0.0f},
                     .normal = {},
                     .texcoord = {max_u, max_v},
+                    .tangent = {},
                 };
                 config.vertices[vertex_offset + 2] = {
                     .position = {min_x, max_y, 0.0f},
                     .normal = {},
                     .texcoord = {min_u, max_v},
+                    .tangent = {},
                 };
                 config.vertices[vertex_offset + 3] = {
                     .position = {max_x, min_y, 0.0f},
                     .normal = {},
                     .texcoord = {max_u, min_v},
+                    .tangent = {},
                 };
 
                 const u32 index_offset =
@@ -474,6 +489,12 @@ namespace nk {
             cl::slice<const u32>{config.indices});
         if (!normals_generated)
             return err(normals_generated.error());
+        auto tangents_generated = generate_tangents(
+            allocator,
+            cl::slice<glm::Vertex3D>{config.vertices},
+            cl::slice<const u32>{config.indices});
+        if (!tangents_generated)
+            return err(tangents_generated.error());
 
         config.name.assign(
             name.empty() ? default_geometry_name : name);
@@ -574,6 +595,7 @@ namespace nk {
                     .position = positions[vertex_offset + vertex],
                     .normal = {},
                     .texcoord = texcoords[vertex],
+                    .tangent = {},
                 };
             }
             config.indices[index_offset] = vertex_offset;
@@ -589,6 +611,12 @@ namespace nk {
             cl::slice<const u32>{config.indices});
         if (!normals_generated)
             return err(normals_generated.error());
+        auto tangents_generated = generate_tangents(
+            allocator,
+            cl::slice<glm::Vertex3D>{config.vertices},
+            cl::slice<const u32>{config.indices});
+        if (!tangents_generated)
+            return err(tangents_generated.error());
 
         config.name.assign(
             name.empty() ? default_geometry_name : name);
@@ -647,6 +675,108 @@ namespace nk {
                 continue;
             }
             vertex.normal *= 1.0f / std::sqrt(length_squared);
+        }
+        return ok();
+    }
+
+    result<void, geometry_error> GeometrySystem::generate_tangents(
+        mem::Allocator& allocator,
+        const cl::slice<glm::Vertex3D> vertices,
+        const cl::slice<const u32> indices) {
+        if (vertices.empty() || indices.empty() || indices.length() % 3 != 0) {
+            return err(geometry_error{
+                geometry_error_code::invalid_config,
+                0,
+            });
+        }
+        for (const u32 index : indices) {
+            if (index >= vertices.length()) {
+                return err(geometry_error{
+                    geometry_error_code::invalid_config,
+                    0,
+                });
+            }
+        }
+
+        cl::dyarr<glm::vec3> tangent_sums;
+        cl::dyarr<glm::vec3> bitangent_sums;
+        if (!tangent_sums.dyarr_init_len(
+                &allocator,
+                vertices.length(),
+                vertices.length()) ||
+            !bitangent_sums.dyarr_init_len(
+                &allocator,
+                vertices.length(),
+                vertices.length())) {
+            return err(geometry_error{geometry_error_code::out_of_memory, 0});
+        }
+
+        constexpr f32 minimum_uv_determinant = 1.0e-8f;
+        for (u64 index = 0; index < indices.length(); index += 3) {
+            const u32 first_index = indices[index];
+            const u32 second_index = indices[index + 1];
+            const u32 third_index = indices[index + 2];
+            const glm::Vertex3D& first = vertices[first_index];
+            const glm::Vertex3D& second = vertices[second_index];
+            const glm::Vertex3D& third = vertices[third_index];
+
+            const glm::vec3 first_edge = second.position - first.position;
+            const glm::vec3 second_edge = third.position - first.position;
+            const glm::vec2 first_uv_edge =
+                second.texcoord - first.texcoord;
+            const glm::vec2 second_uv_edge =
+                third.texcoord - first.texcoord;
+            const f32 determinant =
+                first_uv_edge.x * second_uv_edge.y -
+                second_uv_edge.x * first_uv_edge.y;
+            if (!std::isfinite(determinant) ||
+                std::abs(determinant) <= minimum_uv_determinant) {
+                continue;
+            }
+
+            const f32 inverse_determinant = 1.0f / determinant;
+            const glm::vec3 tangent =
+                (first_edge * second_uv_edge.y -
+                 second_edge * first_uv_edge.y) * inverse_determinant;
+            const glm::vec3 bitangent =
+                (second_edge * first_uv_edge.x -
+                 first_edge * second_uv_edge.x) * inverse_determinant;
+            const glm::vec3 safe_tangent = math::safe_normalize(tangent);
+            const glm::vec3 safe_bitangent = math::safe_normalize(bitangent);
+            if (safe_tangent == glm::vec3{0.0f} ||
+                safe_bitangent == glm::vec3{0.0f}) {
+                continue;
+            }
+
+            tangent_sums[first_index] += tangent;
+            tangent_sums[second_index] += tangent;
+            tangent_sums[third_index] += tangent;
+            bitangent_sums[first_index] += bitangent;
+            bitangent_sums[second_index] += bitangent;
+            bitangent_sums[third_index] += bitangent;
+        }
+
+        for (u64 index = 0; index < vertices.length(); ++index) {
+            const glm::vec3 normal = math::safe_normalize(
+                vertices[index].normal);
+            glm::vec3 tangent = tangent_sums[index] -
+                normal * glm::dot(normal, tangent_sums[index]);
+            tangent = math::safe_normalize(tangent);
+            if (tangent == glm::vec3{0.0f}) {
+                const glm::vec3 reference = std::abs(normal.z) < 0.999f
+                    ? glm::vec3{0.0f, 0.0f, 1.0f}
+                    : glm::vec3{0.0f, 1.0f, 0.0f};
+                tangent = math::safe_normalize(glm::cross(reference, normal));
+                if (tangent == glm::vec3{0.0f})
+                    tangent = glm::vec3{1.0f, 0.0f, 0.0f};
+            }
+
+            const f32 handedness = glm::dot(
+                glm::cross(normal, tangent),
+                bitangent_sums[index]) < 0.0f
+                ? -1.0f
+                : 1.0f;
+            vertices[index].tangent = glm::vec4{tangent, handedness};
         }
         return ok();
     }

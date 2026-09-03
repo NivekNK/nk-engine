@@ -92,6 +92,10 @@ namespace nk {
         [[nodiscard]] static result<void, geometry_error> generate_normals(
             cl::slice<glm::Vertex3D> vertices,
             cl::slice<const u32> indices);
+        [[nodiscard]] static result<void, geometry_error> generate_tangents(
+            mem::Allocator& allocator,
+            cl::slice<glm::Vertex3D> vertices,
+            cl::slice<const u32> indices);
 
         u32 loaded_count() const noexcept { return m_loaded_count; }
         u64 reference_count(u32 id) const noexcept;

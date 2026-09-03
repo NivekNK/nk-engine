@@ -12,6 +12,7 @@ stage=fragment,fragment,main
 attribute=f32_3,position
 attribute=f32_3,normal
 attribute=f32_2,texcoord
+attribute=f32_4,tangent
 
 uniform=mat4,global,projection
 uniform=mat4,global,view

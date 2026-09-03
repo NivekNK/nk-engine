@@ -11,6 +11,7 @@ namespace {
         {"position", nk::ShaderAttributeType::f32_3, 0, 0},
         {"normal", nk::ShaderAttributeType::f32_3, 1, 12},
         {"texcoord", nk::ShaderAttributeType::f32_2, 2, 24},
+        {"tangent", nk::ShaderAttributeType::f32_4, 3, 32},
     };
     const nk::ShaderDescriptorBindingConfig global_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
@@ -64,7 +65,7 @@ namespace {
             .descriptor_sets = descriptor_sets,
             .uniforms = uniforms,
             .push_constants = push_constants,
-            .vertex_stride = 32,
+            .vertex_stride = 48,
             .max_instances = 1024,
             .wireframe = false,
             .depth_test_enabled = true,

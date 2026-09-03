@@ -1481,6 +1481,7 @@ TEST(GeometrySystem, GeneratesSegmentedPlanesWithTiledCoordinates) {
     EXPECT_EQ(plane->vertices[0].position, glm::vec3(-5.0f, -3.0f, 0.0f));
     EXPECT_EQ(plane->vertices[0].normal, glm::vec3(0.0f, 0.0f, 1.0f));
     EXPECT_EQ(plane->vertices[0].texcoord, glm::vec2(0.0f, 0.0f));
+    EXPECT_EQ(plane->vertices[0].tangent, glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
     EXPECT_EQ(plane->vertices[21].position, glm::vec3(5.0f, 3.0f, 0.0f));
     EXPECT_EQ(plane->vertices[21].normal, glm::vec3(0.0f, 0.0f, 1.0f));
     EXPECT_EQ(plane->vertices[21].texcoord, glm::vec2(4.0f, 3.0f));
@@ -1512,6 +1513,12 @@ TEST(GeometrySystem, GeneratesCubeWithOutwardUnitNormals) {
             c.position - a.position);
         EXPECT_GT(glm::dot(winding_normal, a.normal), 0.0f);
         EXPECT_FLOAT_EQ(glm::dot(a.normal, a.normal), 1.0f);
+        EXPECT_NEAR(glm::dot(glm::vec3{a.tangent}, a.normal), 0.0f, 1.0e-6f);
+        EXPECT_NEAR(
+            glm::dot(glm::vec3{a.tangent}, glm::vec3{a.tangent}),
+            1.0f,
+            1.0e-6f);
+        EXPECT_TRUE(a.tangent.w == -1.0f || a.tangent.w == 1.0f);
         EXPECT_EQ(a.normal, b.normal);
         EXPECT_EQ(a.normal, c.normal);
     }
@@ -1519,10 +1526,14 @@ TEST(GeometrySystem, GeneratesCubeWithOutwardUnitNormals) {
 
 TEST(GeometrySystem, GeneratesNormalsWithoutNanForDegenerateTriangles) {
     glm::Vertex3D vertices[]{
-        {.position = {0.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
-        {.position = {1.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
-        {.position = {0.0f, 1.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
-        {.position = {2.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
+        {.position = {0.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f},
+         .texcoord = {}, .tangent = {}},
+        {.position = {1.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f},
+         .texcoord = {}, .tangent = {}},
+        {.position = {0.0f, 1.0f, 0.0f}, .normal = glm::vec3{9.0f},
+         .texcoord = {}, .tangent = {}},
+        {.position = {2.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f},
+         .texcoord = {}, .tangent = {}},
     };
     const nk::u32 indices[]{0, 1, 2, 1, 3, 3};
 
@@ -1542,8 +1553,10 @@ TEST(GeometrySystem, GeneratesNormalsWithoutNanForDegenerateTriangles) {
 
 TEST(GeometrySystem, RejectsInvalidTopologyWithoutChangingNormals) {
     glm::Vertex3D vertices[]{
-        {.position = {}, .normal = {1.0f, 2.0f, 3.0f}, .texcoord = {}},
-        {.position = {}, .normal = {4.0f, 5.0f, 6.0f}, .texcoord = {}},
+        {.position = {}, .normal = {1.0f, 2.0f, 3.0f}, .texcoord = {},
+         .tangent = {}},
+        {.position = {}, .normal = {4.0f, 5.0f, 6.0f}, .texcoord = {},
+         .tangent = {}},
     };
     const nk::u32 indices[]{0, 1, 2};
 
@@ -1555,10 +1568,106 @@ TEST(GeometrySystem, RejectsInvalidTopologyWithoutChangingNormals) {
     EXPECT_EQ(vertices[1].normal, glm::vec3(4.0f, 5.0f, 6.0f));
 }
 
-static_assert(sizeof(glm::Vertex3D) == 32);
+TEST(GeometrySystem, GeneratesFiniteTangentsForDegenerateUvs) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    glm::Vertex3D vertices[]{
+        {.position = {0.0f, 0.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {0.0f, 0.0f}, .tangent = glm::vec4{9.0f}},
+        {.position = {1.0f, 0.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {0.0f, 0.0f}, .tangent = glm::vec4{9.0f}},
+        {.position = {0.0f, 1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {0.0f, 0.0f}, .tangent = glm::vec4{9.0f}},
+    };
+    const nk::u32 indices[]{0, 1, 2};
+
+    auto generated = nk::GeometrySystem::generate_tangents(
+        allocator,
+        vertices,
+        indices);
+
+    ASSERT_TRUE(generated);
+    for (const glm::Vertex3D& vertex : vertices) {
+        EXPECT_EQ(vertex.tangent, glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+    }
+}
+
+TEST(GeometrySystem, PreservesMirroredUvHandedness) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    glm::Vertex3D vertices[]{
+        {.position = {0.0f, 0.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {0.0f, 0.0f}, .tangent = {}},
+        {.position = {1.0f, 0.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {0.0f, 1.0f}, .tangent = {}},
+        {.position = {0.0f, 1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {1.0f, 0.0f}, .tangent = {}},
+    };
+    const nk::u32 indices[]{0, 1, 2};
+
+    auto generated = nk::GeometrySystem::generate_tangents(
+        allocator,
+        vertices,
+        indices);
+
+    ASSERT_TRUE(generated);
+    for (const glm::Vertex3D& vertex : vertices) {
+        EXPECT_FLOAT_EQ(vertex.tangent.w, -1.0f);
+        EXPECT_NEAR(
+            glm::dot(glm::vec3{vertex.tangent}, vertex.normal),
+            0.0f,
+            1.0e-6f);
+    }
+}
+
+TEST(GeometrySystem, RejectsInvalidTopologyWithoutChangingTangents) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    glm::Vertex3D vertices[]{
+        {.position = {}, .normal = {0.0f, 0.0f, 1.0f}, .texcoord = {},
+         .tangent = {1.0f, 2.0f, 3.0f, 4.0f}},
+        {.position = {}, .normal = {0.0f, 0.0f, 1.0f}, .texcoord = {},
+         .tangent = {5.0f, 6.0f, 7.0f, 8.0f}},
+    };
+    const nk::u32 indices[]{0, 1, 2};
+
+    auto generated = nk::GeometrySystem::generate_tangents(
+        allocator,
+        vertices,
+        indices);
+
+    ASSERT_FALSE(generated);
+    EXPECT_EQ(generated.error().code, nk::geometry_error_code::invalid_config);
+    EXPECT_EQ(vertices[0].tangent, glm::vec4(1.0f, 2.0f, 3.0f, 4.0f));
+    EXPECT_EQ(vertices[1].tangent, glm::vec4(5.0f, 6.0f, 7.0f, 8.0f));
+}
+
+TEST(GeometrySystem, PreservesTangentsWhenScratchAllocationFails) {
+    FailingAllocator allocator;
+    glm::Vertex3D vertices[]{
+        {.position = {0.0f, 0.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {0.0f, 0.0f}, .tangent = {1.0f, 2.0f, 3.0f, 4.0f}},
+        {.position = {1.0f, 0.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {1.0f, 0.0f}, .tangent = {5.0f, 6.0f, 7.0f, 8.0f}},
+        {.position = {0.0f, 1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f},
+         .texcoord = {0.0f, 1.0f}, .tangent = {9.0f, 10.0f, 11.0f, 12.0f}},
+    };
+    const nk::u32 indices[]{0, 1, 2};
+
+    auto generated = nk::GeometrySystem::generate_tangents(
+        allocator,
+        vertices,
+        indices);
+
+    ASSERT_FALSE(generated);
+    EXPECT_EQ(generated.error().code, nk::geometry_error_code::out_of_memory);
+    EXPECT_EQ(vertices[0].tangent, glm::vec4(1.0f, 2.0f, 3.0f, 4.0f));
+    EXPECT_EQ(vertices[1].tangent, glm::vec4(5.0f, 6.0f, 7.0f, 8.0f));
+    EXPECT_EQ(vertices[2].tangent, glm::vec4(9.0f, 10.0f, 11.0f, 12.0f));
+}
+
+static_assert(sizeof(glm::Vertex3D) == 48);
 static_assert(offsetof(glm::Vertex3D, position) == 0);
 static_assert(offsetof(glm::Vertex3D, normal) == 12);
 static_assert(offsetof(glm::Vertex3D, texcoord) == 24);
+static_assert(offsetof(glm::Vertex3D, tangent) == 32);
 
 TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};

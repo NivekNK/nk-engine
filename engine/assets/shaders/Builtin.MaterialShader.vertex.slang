@@ -25,6 +25,7 @@ struct VertexInput
     [[vk::location(0)]] float3 position : POSITION;
     [[vk::location(1)]] float3 normal : NORMAL;
     [[vk::location(2)]] float2 texcoord : TEXCOORD;
+    [[vk::location(3)]] float4 tangent : TANGENT;
 };
 
 struct dto 
@@ -32,6 +33,7 @@ struct dto
     float2 tex_coord;
     float3 normal;
     float3 world_position;
+    float4 tangent;
 };
 
 struct VertexOutput
@@ -63,6 +65,18 @@ VertexOutput main(VertexInput input)
         (float3x3)u_push_constants.normal_matrix,
         input.normal);
     output.out_dto.normal = safe_normalize(transformed_normal);
+
+    float3 transformed_tangent = mul(
+        (float3x3)u_push_constants.model,
+        input.tangent.xyz);
+    transformed_tangent -= output.out_dto.normal * dot(
+        output.out_dto.normal,
+        transformed_tangent);
+    float model_orientation = determinant(
+        (float3x3)u_push_constants.model) < 0.0 ? -1.0 : 1.0;
+    output.out_dto.tangent = float4(
+        safe_normalize(transformed_tangent),
+        input.tangent.w * model_orientation);
 
     float4 world_position = mul(
         u_push_constants.model,
