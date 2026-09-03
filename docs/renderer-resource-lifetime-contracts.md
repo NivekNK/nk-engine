@@ -199,8 +199,10 @@ release.
 
 ## Requirements for the next roadmap items
 
-- Chapters 42–44 may add CPU and GPU suballocators, but must inject metadata
-  allocators explicitly and preserve the high-level shutdown order above.
+- Chapter 42 introduced the renderer-neutral `FreeList` described in
+  [`memory-allocation-contracts.md`](memory-allocation-contracts.md). Chapters
+  43–44 may layer CPU and GPU suballocators on it, but must preserve its explicit
+  metadata dependency and the high-level shutdown order above.
 - Chapters 45–48 must decide whether `ShaderSystem` is owned by `Renderer` or by
   `Engine` before exposing it. In either case it must outlive materials and die
   before `ResourceSystem` and the renderer resources on which it depends.

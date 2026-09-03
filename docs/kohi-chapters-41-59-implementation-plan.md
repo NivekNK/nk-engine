@@ -169,31 +169,47 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 - Fix temprano: [`185ae02`](https://github.com/travisvroman/kohi/commit/185ae02c2be3ecdd728128ab385c9dcfa84d41fb)
 - Fix tardío obligatorio: [`5f910b6`](https://github.com/travisvroman/kohi/commit/5f910b6811b5c1e50f6961df30a6e3c5a1ad4506)
 - Merge de procedencia: [`a89c2df`](https://github.com/travisvroman/kohi/commit/a89c2df7b5ce6dc99b8d8d025c9237b0119fb1a2)
+- Estado NK: completado en `cfcd45e` y documentado en
+  [`memory-allocation-contracts.md`](memory-allocation-contracts.md).
 
 ### Diseño NK
 
-- [ ] Crear `nk::mem::FreeList` como administrador de rangos contiguos, no como
+- [x] Crear `nk::mem::FreeList` como administrador de rangos contiguos, no como
   contenedor público dentro de `nk::cl`.
-- [ ] Modelar cada rango con `u64 offset` y `u64 size`; usar aritmética comprobada
+- [x] Modelar cada rango con `u64 offset` y `u64 size`; usar aritmética comprobada
   en toda suma, resta y alineación.
-- [ ] Recibir el allocator de metadata explícitamente al inicializar. No depender
+- [x] Recibir el allocator de metadata explícitamente al inicializar. No depender
   de `MemorySystem` global ni reservar memoria durante `reserve`/`release`.
-- [ ] Ofrecer `reserve(size, alignment) -> result<MemoryRange, free_list_error>`,
+- [x] Ofrecer `reserve(size, alignment) -> result<MemoryRange, free_list_error>`,
   `release(range)`, `resize(new_size)` y consultas de espacio libre/usado.
-- [ ] Mantener rangos ordenados por offset, fusionar vecinos por ambos lados,
+- [x] Mantener rangos ordenados por offset, fusionar vecinos por ambos lados,
   rechazar double-free, solapamientos, rangos cero y rangos fuera de límites.
-- [ ] No copiar la fórmula defectuosa de metadata de Kohi. La capacidad mínima
+- [x] No copiar la fórmula defectuosa de metadata de Kohi. La capacidad mínima
   para regiones pequeñas debe derivarse y probarse expresamente; el fix tardío
   de Kohi que fuerza 20 entradas se trata como caso de regresión, no como número
   mágico obligatorio.
 
 ### Validación y commits
 
-- [ ] Tests: primera/mejor región disponible según política elegida, fragmentación,
+- [x] Tests: primera/mejor región disponible según política elegida, fragmentación,
   coalescing, alineación, región completa, OOM, overflow, resize grow/shrink,
   metadata mínima, double-free y secuencias aleatorias contra un modelo simple.
-- [ ] Commit sugerido: `feat(memory): add contiguous free-range management`.
-- [ ] Commit de tests si merece separación: `test(memory): cover free-range fragmentation and resize`.
+- [x] Commit funcional y de regresión:
+  `feat(memory): add contiguous free-range management`.
+
+### Resultado
+
+- La metadata tiene capacidad fija, se obtiene en una sola reserva desde el
+  allocator explícito y no depende del estado global de `MemorySystem`.
+- La política implementada es first-fit por offset entre candidatos que pueden
+  representarse con la metadata disponible. Las operaciones fallidas no mutan
+  rangos ni contadores.
+- Se cubrieron 16 escenarios específicos, incluida la región mínima de un byte,
+  fragmentación, fusión bilateral, alineación, agotamiento de metadata y 2.000
+  operaciones deterministas contrastadas con un modelo byte a byte.
+- La suite completa pasó 146/146 tanto en Debug como con ASan/UBSan; LeakSanitizer
+  se desactivó para la suite instrumentada porque el entorno de ejecución usa
+  `ptrace`.
 
 ## Capítulo 43 — Dynamic Allocator
 
