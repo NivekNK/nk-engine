@@ -445,24 +445,44 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Crear `ShaderResourceLoader` sobre la interfaz virtual actual de
+- [x] Crear `ShaderResourceLoader` sobre la interfaz virtual actual de
   `ResourceLoader`.
-- [ ] Definir un formato de configuración de shader propio, con versión y errores
+- [x] Definir un formato de configuración de shader propio, con versión y errores
   de parseo tipados. Puede conservar el concepto `.shadercfg`, no su parser C.
-- [ ] Crear `ShaderSystem` con lookup por nombre e ID usando `nk::cl::map<str, ...>`
+- [x] Crear `ShaderSystem` con lookup por nombre e ID usando `nk::cl::map<str, ...>`
   y storage estable; definir ownership y límites desde config.
-- [ ] Implementar create/use/bind/apply y lookup de uniformes sin construir `str`
+- [x] Implementar create/use/bind/apply y lookup de uniformes sin construir `str`
   temporales durante cada draw; aceptar `strview`.
-- [ ] Resolver scopes global, instance y local, junto con ubicación, tamaño,
+- [x] Resolver scopes global, instance y local, junto con ubicación, tamaño,
   offset, array length y sampler index.
-- [ ] Toda carga fallida debe devolver `result` y liberar shader/recursos parciales.
+- [x] Toda carga fallida debe devolver `result` y liberar shader/recursos parciales.
 
 ### Validación y commit
 
-- [ ] Tests del loader, nombres duplicados, límites, scopes, tipos inválidos,
+- [x] Tests del loader, nombres duplicados, límites, scopes, tipos inválidos,
   lookup heterogéneo y shutdown.
-- [ ] Commits sugeridos: `feat(resources): load declarative shader configs` y
+- [x] Commits sugeridos: `feat(resources): load declarative shader configs` y
   `feat(renderer): add managed shader resources`.
+
+### Estado NK
+
+- El commit `3449782` añadió el loader integrado a `ResourceSystem`, un formato
+  `.shadercfg` estricto y versionado, errores de parseo tipados, arrays de
+  uniformes y los configs declarativos world/UI. El backend ya crea ambos
+  pipelines desde estos recursos y descarga siempre el payload temporal.
+- El commit `a2bc13d` añadió `ShaderSystem` con capacidad fija, handles estables,
+  lookup por nombre con `nk::cl::map`, metadata compacta propia y la ruta
+  create/load/destroy/use/bind/apply/uniform/sampler. Los límites y fallos del
+  loader o renderer hacen rollback antes de publicar estado.
+- `ShaderSystem` queda por ahora como componente explícitamente caller-owned que
+  toma prestados `Renderer` y `ResourceSystem`. Integrarlo en `Engine`, transferir
+  los shaders built-in y migrar `MaterialSystem` se mantiene como trabajo del
+  capítulo 48; así no conviven prematuramente dos dueños del mismo shader.
+- Pasaron 185/185 tests en Debug y en Debug con ASan/UBSan, y 176/176 en Release.
+  El smoke nativo Wayland/xdg-shell bajo niri renderizó 5 frames con Validation
+  Layers, cero allocations en los 4 frames estables y cero fugas al cerrar.
+- No se añadieron librerías ni assets externos; los únicos assets nuevos son las
+  configuraciones declarativas propias de los dos shaders integrados.
 
 ## Capítulo 48 — Finalizing the Shader System
 
