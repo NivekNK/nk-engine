@@ -40,6 +40,7 @@ namespace nk {
         texture_file_failed,
         texture_decode_failed,
         texture_limits_exceeded,
+        material_failed,
     };
 
     struct renderer_error {

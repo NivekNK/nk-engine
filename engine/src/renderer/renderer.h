@@ -15,6 +15,7 @@ namespace nk {
     namespace mem { class Allocator; }
     class Platform;
     class ResourceSystem;
+    class MaterialSystem;
 
     struct RenderPacket {
         f64 delta_time;
@@ -36,6 +37,7 @@ namespace nk {
         static void destroy(mem::Allocator* allocator, Renderer* renderer);
 
         [[nodiscard]] virtual result<frame_outcome, renderer_error> draw_frame(
+            MaterialSystem& materials,
             const RenderPacket& packet);
 
         void resize(u32 width, u32 height);
@@ -106,9 +108,6 @@ namespace nk {
             bool has_transparency,
             Texture* out_texture) = 0;
         virtual void destroy_texture(Texture* texture) = 0;
-        [[nodiscard]] virtual result<void, renderer_error> create_material(
-            Material& material) = 0;
-        virtual void destroy_material(Material& material) = 0;
         [[nodiscard]] virtual result<void, renderer_error> create_geometry(
             Geometry& geometry,
             cl::slice<const glm::Vertex3D> vertices,
@@ -166,12 +165,10 @@ namespace nk {
         f32 m_far_clip = 0.0f;
 
         Texture* m_default_texture = nullptr;
-        ShaderHandle m_world_shader;
-        ShaderHandle m_ui_shader;
     private:
         [[nodiscard]] result<void, renderer_error> draw_render_pass(
+            MaterialSystem& materials,
             RenderPassKind pass,
-            ShaderHandle shader,
             const glm::mat4& projection,
             const glm::mat4& view,
             u32 geometry_count,

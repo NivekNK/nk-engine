@@ -293,6 +293,13 @@ namespace nk {
                         0,
                     });
                 }
+            } else if (key == strview{"shader", 6}) {
+                if (!parsed.shader_name.assign(value)) {
+                    return err(resource_error{
+                        resource_error_code::invalid_data,
+                        0,
+                    });
+                }
             } else if (key == strview{"type", 4}) {
                 if (value == strview{"world", 5}) {
                     parsed.type = MaterialType::world;
@@ -323,6 +330,13 @@ namespace nk {
         auto closed = file.close();
         if (!closed)
             return err(file_failure(closed.error()));
+
+        if (parsed.shader_name.empty()) {
+            parsed.shader_name.assign(
+                parsed.type == MaterialType::world
+                    ? strview{"Builtin.MaterialShader", 22}
+                    : strview{"Builtin.UIShader", 16});
+        }
 
         MaterialConfig* config = allocator.construct_t(MaterialConfig, parsed);
         if (config == nullptr)

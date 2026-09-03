@@ -6,9 +6,11 @@
 #include "core/str.h"
 #include "resources/material.h"
 
+#include <glm/ext/matrix_float4x4.hpp>
+
 namespace nk {
-    class Renderer;
     class ResourceSystem;
+    class ShaderSystem;
     class TextureSystem;
     namespace mem { class Allocator; }
 
@@ -24,7 +26,7 @@ namespace nk {
         invalid_config,
         resource_failed,
         texture_failed,
-        renderer_failed,
+        shader_failed,
     };
 
     struct material_error {
@@ -46,7 +48,7 @@ namespace nk {
 
         [[nodiscard]] static result<MaterialSystem*, material_error> create(
             mem::Allocator& allocator,
-            Renderer& renderer,
+            ShaderSystem& shaders,
             TextureSystem& textures,
             ResourceSystem& resources,
             u32 max_material_count = default_max_material_count);
@@ -60,6 +62,20 @@ namespace nk {
         [[nodiscard]] result<void, material_error> set_diffuse_texture(
             Material& material,
             strview texture_name);
+        [[nodiscard]] result<void, material_error> set_diffuse_color(
+            Material& material,
+            const glm::vec4& color);
+
+        [[nodiscard]] result<void, material_error> apply_global(
+            MaterialType type,
+            const glm::mat4& projection,
+            const glm::mat4& view);
+        [[nodiscard]] result<void, material_error> apply_instance(
+            Material& material,
+            u64 frame_number);
+        [[nodiscard]] result<void, material_error> apply_local(
+            const Material& material,
+            const glm::mat4& model);
 
         Material& default_material() noexcept { return m_default_material; }
         const Material& default_material() const noexcept {
@@ -82,14 +98,33 @@ namespace nk {
             bool auto_release = false;
         };
 
+        struct UniformBindings {
+            ShaderHandle shader{};
+            ShaderUniformHandle projection{};
+            ShaderUniformHandle view{};
+            ShaderUniformHandle diffuse_color{};
+            ShaderUniformHandle diffuse_texture{};
+            ShaderUniformHandle model{};
+
+            [[nodiscard]] bool valid() const noexcept {
+                return shader.valid() && projection.valid() && view.valid() &&
+                    diffuse_color.valid() && diffuse_texture.valid() &&
+                    model.valid();
+            }
+        };
+
         [[nodiscard]] result<void, material_error> init(
             mem::Allocator& allocator,
-            Renderer& renderer,
+            ShaderSystem& shaders,
             TextureSystem& textures,
             ResourceSystem& resources,
             u32 max_material_count);
         void shutdown();
         [[nodiscard]] result<void, material_error> create_default_materials();
+        [[nodiscard]] result<UniformBindings, material_error>
+        resolve_bindings(strview shader_name);
+        [[nodiscard]] const UniformBindings* bindings(
+            MaterialType type) const noexcept;
         [[nodiscard]] result<void, material_error> load_material(
             const MaterialConfig& config,
             Material& material);
@@ -97,13 +132,15 @@ namespace nk {
         u32 find_free_slot() const noexcept;
 
         mem::Allocator* m_allocator = nullptr;
-        Renderer* m_renderer = nullptr;
+        ShaderSystem* m_shaders = nullptr;
         TextureSystem* m_textures = nullptr;
         ResourceSystem* m_resources = nullptr;
         cl::arr<Material> m_materials;
         cl::map<str, MaterialReference> m_references;
         Material m_default_material{};
         Material m_default_ui_material{};
+        UniformBindings m_world_bindings{};
+        UniformBindings m_ui_bindings{};
         u32 m_loaded_count = 0;
         bool m_initialized = false;
     };

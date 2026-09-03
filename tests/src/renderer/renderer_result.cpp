@@ -25,8 +25,6 @@ namespace {
         TestRenderer(nk::mem::Allocator& allocator, BeginMode begin_mode)
             : Renderer{allocator, nullptr, "test"}, m_begin_mode{begin_mode} {
             m_allocator = &allocator;
-            m_world_shader = {0, 0};
-            m_ui_shader = {1, 0};
         }
 
         nk::u64 frame_number() const { return m_frame_number; }
@@ -45,12 +43,19 @@ namespace {
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
         void fail_shader_create(bool value) { m_fail_shader_create = value; }
+        void fail_instance_acquire_on_call(nk::u32 call) {
+            m_failed_instance_acquire_call = call;
+        }
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
         nk::u32 created_shaders() const { return m_created_shaders; }
         nk::u32 destroyed_shaders() const { return m_destroyed_shaders; }
         nk::u32 sampler_array_index() const { return m_sampler_array_index; }
-        nk::u32 created_materials() const { return m_created_materials; }
-        nk::u32 destroyed_materials() const { return m_destroyed_materials; }
+        nk::u32 acquired_instances() const { return m_acquired_instances; }
+        nk::u32 released_instances() const { return m_released_instances; }
+        nk::u32 instance_apply_count() const { return m_instance_apply_count; }
+        nk::u32 instance_update_count() const {
+            return m_instance_update_count;
+        }
         nk::u32 created_geometries() const { return m_created_geometries; }
         nk::u32 destroyed_geometries() const { return m_destroyed_geometries; }
         nk::u32 shader_trace_length() const { return m_shader_trace_length; }
@@ -59,7 +64,7 @@ namespace {
         }
         nk::result<nk::ShaderHandle, nk::renderer_error> create_shader(
             const nk::ShaderConfig&,
-            nk::RenderPassKind) override {
+            const nk::RenderPassKind pass) override {
             ++m_created_shaders;
             if (m_fail_shader_create) {
                 return nk::err(nk::renderer_error{
@@ -67,10 +72,15 @@ namespace {
                     VK_ERROR_OUT_OF_DEVICE_MEMORY,
                 });
             }
-            return nk::ok(nk::ShaderHandle{
+            const nk::ShaderHandle handle{
                 static_cast<nk::u16>(m_next_shader_index++),
                 0,
-            });
+            };
+            if (pass == nk::RenderPassKind::world)
+                m_world_test_shader = handle;
+            else
+                m_ui_test_shader = handle;
+            return nk::ok(handle);
         }
 
         nk::result<void, nk::renderer_error> destroy_shader(
@@ -101,7 +111,7 @@ namespace {
         nk::result<void, nk::renderer_error> apply_shader_globals(
             const nk::ShaderHandle shader) override {
             append_shader_trace(4);
-            if (shader == m_world_shader)
+            if (shader == m_world_test_shader)
                 ++m_world_global_updates;
             else
                 ++m_ui_global_updates;
@@ -110,19 +120,31 @@ namespace {
 
         nk::result<void, nk::renderer_error> apply_shader_instance(
             nk::ShaderHandle,
-            bool) override {
+            const bool needs_update) override {
+            ++m_instance_apply_count;
+            if (needs_update)
+                ++m_instance_update_count;
             append_shader_trace(8);
             return nk::ok();
         }
 
         nk::result<nk::u32, nk::renderer_error> acquire_shader_instance(
-            nk::ShaderHandle) override {
-            return nk::ok(0u);
+            const nk::ShaderHandle shader) override {
+            ++m_instance_acquire_attempts;
+            if (m_instance_acquire_attempts == m_failed_instance_acquire_call) {
+                return nk::err(nk::renderer_error{
+                    nk::renderer_error_code::out_of_memory,
+                    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                });
+            }
+            ++m_acquired_instances;
+            return nk::ok(m_next_instance_id[shader.index]++);
         }
 
         nk::result<void, nk::renderer_error> release_shader_instance(
             nk::ShaderHandle,
             nk::u32) override {
+            ++m_released_instances;
             return nk::ok();
         }
 
@@ -163,17 +185,6 @@ namespace {
         void destroy_texture(nk::Texture* texture) override {
             ++m_destroyed_textures;
             *texture = {};
-        }
-
-        nk::result<void, nk::renderer_error> create_material(
-            nk::Material& material) override {
-            material.internal_id = m_created_materials++;
-            return nk::ok();
-        }
-
-        void destroy_material(nk::Material& material) override {
-            ++m_destroyed_materials;
-            material.internal_id = nk::numeric::invalid_id;
         }
 
         nk::result<void, nk::renderer_error> create_geometry(
@@ -282,7 +293,10 @@ namespace {
         bool m_fail_end = false;
         bool m_fail_texture_create = false;
         bool m_fail_shader_create = false;
-        nk::u16 m_next_shader_index = 2;
+        nk::u16 m_next_shader_index = 0;
+        nk::ShaderHandle m_world_test_shader{};
+        nk::ShaderHandle m_ui_test_shader{};
+        nk::u32 m_next_instance_id[16]{};
         nk::u32 m_created_shaders = 0;
         nk::u32 m_destroyed_shaders = 0;
         nk::u32 m_sampler_array_index = 0;
@@ -293,8 +307,12 @@ namespace {
         nk::u32 m_pass_trace = 0;
         nk::u32 m_end_calls = 0;
         nk::u32 m_destroyed_textures = 0;
-        nk::u32 m_created_materials = 0;
-        nk::u32 m_destroyed_materials = 0;
+        nk::u32 m_failed_instance_acquire_call = 0;
+        nk::u32 m_instance_acquire_attempts = 0;
+        nk::u32 m_acquired_instances = 0;
+        nk::u32 m_released_instances = 0;
+        nk::u32 m_instance_apply_count = 0;
+        nk::u32 m_instance_update_count = 0;
         nk::u32 m_created_geometries = 0;
         nk::u32 m_destroyed_geometries = 0;
         nk::u8 m_shader_trace[32]{};
@@ -318,6 +336,78 @@ namespace {
 
         void use_runtime_allocator(nk::mem::Allocator* allocator) {
             m_allocator = allocator;
+        }
+    };
+
+    struct TestRenderSystems {
+        nk::mem::Allocator& allocator;
+        TestRenderer& renderer;
+        nk::ResourceSystem* resources = nullptr;
+        nk::TextureSystem* textures = nullptr;
+        nk::ShaderSystem* shaders = nullptr;
+        nk::MaterialSystem* materials = nullptr;
+
+        ~TestRenderSystems() { shutdown(); }
+
+        bool init(const nk::u32 material_capacity = 8) {
+            auto resources_created = nk::ResourceSystem::create(
+                allocator,
+                NK_TEST_ASSET_ROOT);
+            if (!resources_created)
+                return false;
+            resources = *resources_created;
+
+            auto textures_created = nk::TextureSystem::create(
+                allocator,
+                renderer,
+                *resources,
+                8);
+            if (!textures_created)
+                return false;
+            textures = *textures_created;
+
+            auto shaders_created = nk::ShaderSystem::create(
+                allocator,
+                renderer,
+                *resources,
+                {.max_shader_count = 4});
+            if (!shaders_created)
+                return false;
+            shaders = *shaders_created;
+            if (!shaders->load(nk::builtin_material_shader_name) ||
+                !shaders->load(nk::builtin_ui_shader_name)) {
+                return false;
+            }
+
+            auto materials_created = nk::MaterialSystem::create(
+                allocator,
+                *shaders,
+                *textures,
+                *resources,
+                material_capacity);
+            if (!materials_created)
+                return false;
+            materials = *materials_created;
+            return true;
+        }
+
+        void shutdown() {
+            if (materials != nullptr) {
+                nk::MaterialSystem::destroy(allocator, materials);
+                materials = nullptr;
+            }
+            if (shaders != nullptr) {
+                nk::ShaderSystem::destroy(allocator, shaders);
+                shaders = nullptr;
+            }
+            if (textures != nullptr) {
+                nk::TextureSystem::destroy(allocator, textures);
+                textures = nullptr;
+            }
+            if (resources != nullptr) {
+                nk::ResourceSystem::destroy(allocator, resources);
+                resources = nullptr;
+            }
         }
     };
 }
@@ -357,8 +447,12 @@ TEST(RendererResult, SeparatesSwapchainStatusesFromFailures) {
 TEST(RendererResult, SkippedFrameDoesNotRunOrAdvanceRenderWork) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::skip};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init());
 
-    auto frame = renderer.draw_frame({.delta_time = 1.0 / 60.0});
+    auto frame = renderer.draw_frame(
+        *systems.materials,
+        {.delta_time = 1.0 / 60.0});
 
     ASSERT_TRUE(frame);
     EXPECT_EQ(*frame, nk::frame_outcome::skipped_swapchain_recreation);
@@ -371,17 +465,23 @@ TEST(RendererResult, SkippedFrameDoesNotRunOrAdvanceRenderWork) {
 TEST(RendererResult, PreservesBeginAndEndFailuresWithoutAdvancingFrame) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer begin_failure{allocator, TestRenderer::BeginMode::fail};
+    TestRenderSystems begin_systems{allocator, begin_failure};
+    ASSERT_TRUE(begin_systems.init());
 
-    auto begun = begin_failure.draw_frame({.delta_time = 1.0 / 60.0});
+    auto begun = begin_failure.draw_frame(
+        *begin_systems.materials,
+        {.delta_time = 1.0 / 60.0});
     ASSERT_FALSE(begun);
     EXPECT_EQ(begun.error().code, nk::renderer_error_code::fence_wait_failed);
     EXPECT_EQ(begun.error().native_code, VK_ERROR_DEVICE_LOST);
     EXPECT_EQ(begin_failure.frame_number(), 0);
 
     TestRenderer end_failure{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems end_systems{allocator, end_failure};
+    ASSERT_TRUE(end_systems.init());
     end_failure.fail_end(true);
     nk::GeometryRenderData geometry{};
-    auto ended = end_failure.draw_frame({
+    auto ended = end_failure.draw_frame(*end_systems.materials, {
         .delta_time = 1.0 / 60.0,
         .geometry_count = 1,
         .geometries = &geometry,
@@ -398,10 +498,12 @@ TEST(RendererResult, PreservesBeginAndEndFailuresWithoutAdvancingFrame) {
 TEST(RendererResult, RunsWorldAndUiPassesInOrder) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init());
     nk::GeometryRenderData world_geometry{};
     nk::GeometryRenderData ui_geometry{};
 
-    auto frame = renderer.draw_frame({
+    auto frame = renderer.draw_frame(*systems.materials, {
         .delta_time = 1.0 / 60.0,
         .geometry_count = 1,
         .geometries = &world_geometry,
@@ -421,30 +523,24 @@ TEST(RendererResult, RunsWorldAndUiPassesInOrder) {
 TEST(RendererResult, UsesTheSameShaderProtocolForWorldAndUiGeometry) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init());
 
-    nk::Material world_material{};
-    world_material.generation = 0;
-    world_material.internal_id = 4;
-    world_material.type = nk::MaterialType::world;
     nk::Geometry world_geometry{};
-    world_geometry.material = &world_material;
+    world_geometry.material = &systems.materials->default_material();
     const nk::GeometryRenderData world_data{
         .model = glm::mat4{1.0f},
         .geometry = &world_geometry,
     };
 
-    nk::Material ui_material{};
-    ui_material.generation = 0;
-    ui_material.internal_id = 9;
-    ui_material.type = nk::MaterialType::ui;
     nk::Geometry ui_geometry{};
-    ui_geometry.material = &ui_material;
+    ui_geometry.material = &systems.materials->default_ui_material();
     const nk::GeometryRenderData ui_data{
         .model = glm::mat4{1.0f},
         .geometry = &ui_geometry,
     };
 
-    auto frame = renderer.draw_frame({
+    auto frame = renderer.draw_frame(*systems.materials, {
         .delta_time = 1.0 / 60.0,
         .geometry_count = 1,
         .geometries = &world_data,
@@ -477,8 +573,12 @@ TEST(RendererResult, UsesTheSameShaderProtocolForWorldAndUiGeometry) {
 TEST(RendererResult, AdvancesFrameOnlyAfterSuccessfulPresentation) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init());
 
-    auto frame = renderer.draw_frame({.delta_time = 1.0 / 60.0});
+    auto frame = renderer.draw_frame(
+        *systems.materials,
+        {.delta_time = 1.0 / 60.0});
 
     ASSERT_TRUE(frame);
     EXPECT_EQ(*frame, nk::frame_outcome::rendered);
@@ -925,19 +1025,10 @@ TEST(TextureSystem, EnforcesCapacityAndReusesReleasedSlots) {
 TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    auto resources_created = nk::ResourceSystem::create(
-        allocator, NK_TEST_ASSET_ROOT);
-    ASSERT_TRUE(resources_created);
-    nk::ResourceSystem* resources = *resources_created;
-    auto textures_created =
-        nk::TextureSystem::create(allocator, renderer, *resources, 4);
-    ASSERT_TRUE(textures_created);
-    nk::TextureSystem* textures = *textures_created;
-    auto materials_created =
-        nk::MaterialSystem::create(
-            allocator, renderer, *textures, *resources, 4);
-    ASSERT_TRUE(materials_created);
-    nk::MaterialSystem* materials = *materials_created;
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    nk::TextureSystem* textures = systems.textures;
+    nk::MaterialSystem* materials = systems.materials;
     EXPECT_EQ(
         materials->default_material().type,
         nk::MaterialType::world);
@@ -971,30 +1062,19 @@ TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
     materials->release("test_material");
     EXPECT_EQ(materials->loaded_count(), 0u);
     EXPECT_EQ(textures->loaded_count(), 0u);
-    EXPECT_EQ(renderer.destroyed_materials(), 2u);
+    EXPECT_EQ(renderer.released_instances(), 2u);
 
-    nk::MaterialSystem::destroy(allocator, materials);
-    nk::TextureSystem::destroy(allocator, textures);
-    nk::ResourceSystem::destroy(allocator, resources);
-    EXPECT_EQ(renderer.destroyed_materials(), 4u);
+    systems.shutdown();
+    EXPECT_EQ(renderer.released_instances(), 4u);
 }
 
 TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    auto resources_created = nk::ResourceSystem::create(
-        allocator, NK_TEST_ASSET_ROOT);
-    ASSERT_TRUE(resources_created);
-    nk::ResourceSystem* resources = *resources_created;
-    auto textures_created =
-        nk::TextureSystem::create(allocator, renderer, *resources, 4);
-    ASSERT_TRUE(textures_created);
-    nk::TextureSystem* textures = *textures_created;
-    auto materials_created =
-        nk::MaterialSystem::create(
-            allocator, renderer, *textures, *resources, 4);
-    ASSERT_TRUE(materials_created);
-    nk::MaterialSystem* materials = *materials_created;
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    nk::TextureSystem* textures = systems.textures;
+    nk::MaterialSystem* materials = systems.materials;
     auto material = materials->acquire("test_material");
     ASSERT_TRUE(material);
 
@@ -1009,9 +1089,128 @@ TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
     EXPECT_EQ(textures->reference_count("cobblestone"), 0u);
     EXPECT_EQ(textures->reference_count("paving2"), 1u);
 
-    nk::MaterialSystem::destroy(allocator, materials);
+    systems.shutdown();
+}
+
+TEST(MaterialSystem, UpdatesInstanceDataOncePerFrameAndInvalidatesChanges) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+
+    auto material = systems.materials->acquire("test_material");
+    ASSERT_TRUE(material);
+    ASSERT_TRUE(systems.materials->apply_global(
+        nk::MaterialType::world,
+        glm::mat4{1.0f},
+        glm::mat4{1.0f}));
+
+    ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));
+    ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));
+    EXPECT_EQ(renderer.instance_apply_count(), 2u);
+    EXPECT_EQ(renderer.instance_update_count(), 1u);
+
+    ASSERT_TRUE(systems.materials->set_diffuse_color(
+        *(*material),
+        glm::vec4{0.5f}));
+    ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));
+    EXPECT_EQ(renderer.instance_update_count(), 2u);
+
+    ASSERT_TRUE(systems.materials->set_diffuse_texture(
+        *(*material),
+        "cobblestone"));
+    ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));
+    EXPECT_EQ(renderer.instance_update_count(), 3u);
+
+    const nk::u32 instance_id = (*material)->internal_id;
+    (*material)->internal_id = instance_id + 1;
+    ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));
+    EXPECT_EQ(renderer.instance_update_count(), 4u);
+    (*material)->internal_id = instance_id;
+
+    ASSERT_TRUE(systems.materials->apply_instance(*(*material), 8));
+    EXPECT_EQ(renderer.instance_apply_count(), 6u);
+    EXPECT_EQ(renderer.instance_update_count(), 5u);
+
+    systems.materials->release("test_material");
+    systems.shutdown();
+}
+
+TEST(MaterialSystem, RollsBackDefaultInstancesWhenInitializationFails) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+
+    auto resources_created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto textures_created = nk::TextureSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        8);
+    ASSERT_TRUE(textures_created);
+    nk::TextureSystem* textures = *textures_created;
+    auto shaders_created = nk::ShaderSystem::create(
+        allocator,
+        renderer,
+        *resources,
+        {.max_shader_count = 4});
+    ASSERT_TRUE(shaders_created);
+    nk::ShaderSystem* shaders = *shaders_created;
+    ASSERT_TRUE(shaders->load(nk::builtin_material_shader_name));
+    ASSERT_TRUE(shaders->load(nk::builtin_ui_shader_name));
+
+    const nk::u64 allocations_before =
+        allocator.get_active_allocation_count();
+    renderer.fail_instance_acquire_on_call(2);
+    auto materials = nk::MaterialSystem::create(
+        allocator,
+        *shaders,
+        *textures,
+        *resources,
+        4);
+    ASSERT_FALSE(materials);
+    EXPECT_EQ(
+        materials.error().code,
+        nk::material_error_code::out_of_memory);
+    EXPECT_EQ(renderer.acquired_instances(), 1u);
+    EXPECT_EQ(renderer.released_instances(), 1u);
+    EXPECT_EQ(
+        allocator.get_active_allocation_count(),
+        allocations_before);
+
+    nk::ShaderSystem::destroy(allocator, shaders);
     nk::TextureSystem::destroy(allocator, textures);
     nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(MaterialSystem, RejectsShadersThatDoNotMatchTheMaterialType) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+
+    nk::MaterialConfig config{};
+    ASSERT_TRUE(config.name.assign("mismatched_shader"));
+    ASSERT_TRUE(config.shader_name.assign(nk::builtin_ui_shader_name));
+    ASSERT_TRUE(config.diffuse_map_name.assign("paving"));
+    config.type = nk::MaterialType::world;
+    const nk::u32 acquired_before = renderer.acquired_instances();
+
+    auto material = systems.materials->acquire(config);
+    ASSERT_FALSE(material);
+    EXPECT_EQ(
+        material.error().code,
+        nk::material_error_code::invalid_config);
+    EXPECT_EQ(renderer.acquired_instances(), acquired_before);
+    EXPECT_EQ(systems.materials->loaded_count(), 0u);
+    EXPECT_EQ(systems.textures->loaded_count(), 0u);
+
+    systems.shutdown();
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
 }
 
 TEST(GeometrySystem, GeneratesSegmentedPlanesWithTiledCoordinates) {
@@ -1038,19 +1237,9 @@ TEST(GeometrySystem, GeneratesSegmentedPlanesWithTiledCoordinates) {
 TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
-    auto resources_created = nk::ResourceSystem::create(
-        allocator, NK_TEST_ASSET_ROOT);
-    ASSERT_TRUE(resources_created);
-    nk::ResourceSystem* resources = *resources_created;
-    auto textures_created =
-        nk::TextureSystem::create(allocator, renderer, *resources, 4);
-    ASSERT_TRUE(textures_created);
-    nk::TextureSystem* textures = *textures_created;
-    auto materials_created =
-        nk::MaterialSystem::create(
-            allocator, renderer, *textures, *resources, 4);
-    ASSERT_TRUE(materials_created);
-    nk::MaterialSystem* materials = *materials_created;
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    nk::MaterialSystem* materials = systems.materials;
     auto geometries_created =
         nk::GeometrySystem::create(allocator, renderer, *materials, 2);
     ASSERT_TRUE(geometries_created);
@@ -1132,8 +1321,6 @@ TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     EXPECT_EQ(materials->loaded_count(), 0u);
 
     nk::GeometrySystem::destroy(allocator, geometries);
-    nk::MaterialSystem::destroy(allocator, materials);
-    nk::TextureSystem::destroy(allocator, textures);
-    nk::ResourceSystem::destroy(allocator, resources);
+    systems.shutdown();
     EXPECT_EQ(renderer.destroyed_geometries(), 5u);
 }

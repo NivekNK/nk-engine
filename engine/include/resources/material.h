@@ -3,11 +3,13 @@
 #include <glm/ext/vector_float4.hpp>
 
 #include "core/strbuf.h"
+#include "renderer/shader.h"
 #include "resources/texture.h"
 
 namespace nk {
     inline constexpr u64 material_name_capacity = 255;
     inline constexpr u64 texture_name_capacity = 255;
+    inline constexpr u64 shader_name_capacity = 127;
 
     enum class TextureUse : u8 {
         unknown,
@@ -26,10 +28,20 @@ namespace nk {
 
     struct MaterialConfig {
         strbuf<material_name_capacity> name;
+        strbuf<shader_name_capacity> shader_name;
         bool auto_release = true;
         MaterialType type = MaterialType::world;
         glm::vec4 diffuse_color{1.0f};
         strbuf<texture_name_capacity> diffuse_map_name;
+    };
+
+    struct MaterialApplyState {
+        u64 frame_number = numeric::u64_max;
+        u32 material_generation = numeric::invalid_id;
+        u32 texture_id = numeric::invalid_id;
+        u32 texture_generation = numeric::invalid_id;
+        u32 instance_id = numeric::invalid_id;
+        ShaderHandle shader{};
     };
 
     struct Material {
@@ -37,14 +49,16 @@ namespace nk {
         u32 generation = numeric::invalid_id;
         u32 internal_id = numeric::invalid_id;
         strbuf<material_name_capacity> name;
+        ShaderHandle shader{};
         MaterialType type = MaterialType::world;
         glm::vec4 diffuse_color{1.0f};
         TextureMap diffuse_map{};
         strbuf<texture_name_capacity> diffuse_map_name;
+        MaterialApplyState apply_state{};
 
         bool valid() const noexcept {
             return generation != numeric::invalid_id &&
-                   internal_id != numeric::invalid_id;
+                   internal_id != numeric::invalid_id && shader.valid();
         }
     };
 }

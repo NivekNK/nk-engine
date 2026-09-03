@@ -76,9 +76,6 @@ namespace nk {
             bool has_transparency,
             Texture* out_texture) override;
         virtual void destroy_texture(Texture* texture) override;
-        virtual result<void, renderer_error> create_material(
-            Material& material) override;
-        virtual void destroy_material(Material& material) override;
         virtual result<void, renderer_error> create_geometry(
             Geometry& geometry,
             cl::slice<const glm::Vertex3D> vertices,

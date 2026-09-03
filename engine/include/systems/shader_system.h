@@ -10,6 +10,15 @@
 namespace nk {
     class ResourceSystem;
 
+    inline constexpr strview builtin_material_shader_name{
+        "Builtin.MaterialShader",
+        22,
+    };
+    inline constexpr strview builtin_ui_shader_name{
+        "Builtin.UIShader",
+        16,
+    };
+
     struct ShaderSystemConfig {
         u16 max_shader_count = 16;
         u16 max_uniform_count = 64;

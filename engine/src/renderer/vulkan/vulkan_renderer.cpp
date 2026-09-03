@@ -3,7 +3,6 @@
 #include "vulkan/vulkan_renderer.h"
 
 #include "platform/platform.h"
-#include "resources/shader_resource.h"
 #include "systems/resource_system.h"
 #include "vulkan/utils.h"
 #include "vulkan/resources/texture_data.h"
@@ -119,10 +118,6 @@ namespace nk {
         slot.generation = slot.generation + 1 == numeric::u16_max
             ? 0
             : static_cast<u16>(slot.generation + 1);
-        if (m_world_shader == handle)
-            m_world_shader = {};
-        if (m_ui_shader == handle)
-            m_ui_shader = {};
         if (m_active_shader == handle)
             m_active_shader = {};
         return ok();
@@ -138,8 +133,6 @@ namespace nk {
                 ? 0
                 : static_cast<u16>(slot.generation + 1);
         }
-        m_world_shader = {};
-        m_ui_shader = {};
         m_active_shader = {};
     }
 
@@ -422,63 +415,6 @@ namespace nk {
             return err(sync_created.error());
         InfoLog("Vulkan Sync Objects created.");
 
-        auto create_builtin_shader = [this](
-                                         const strview resource_name,
-                                         const RenderPassKind expected_pass)
-            -> result<ShaderHandle, renderer_error> {
-            auto resource = m_resources->load(
-                resource_name,
-                ResourceType::shader);
-            if (!resource) {
-                return err(renderer_error{
-                    renderer_error_code::shader_file_failed,
-                    static_cast<i32>(resource.error().code),
-                });
-            }
-
-            const ShaderResourceConfig* shader_resource =
-                resource->as<ShaderResourceConfig>();
-            if (shader_resource == nullptr ||
-                shader_resource->render_pass() != expected_pass) {
-                (void)m_resources->unload(*resource);
-                return err(renderer_error{
-                    renderer_error_code::shader_config_invalid,
-                    static_cast<i32>(shader_config_error::unsupported_layout),
-                });
-            }
-
-            auto created = create_shader(
-                shader_resource->config(),
-                expected_pass);
-            auto unloaded = m_resources->unload(*resource);
-            if (!created)
-                return err(created.error());
-            if (!unloaded) {
-                (void)destroy_shader(*created);
-                return err(renderer_error{
-                    renderer_error_code::shader_file_failed,
-                    static_cast<i32>(unloaded.error().code),
-                });
-            }
-            return created;
-        };
-
-        auto shader_created = create_builtin_shader(
-            "Builtin.MaterialShader",
-            RenderPassKind::world);
-        if (!shader_created)
-            return err(shader_created.error());
-        m_world_shader = *shader_created;
-        InfoLog("Vulkan Material Shader created.");
-
-        auto ui_shader_created = create_builtin_shader(
-            "Builtin.UIShader",
-            RenderPassKind::ui);
-        if (!ui_shader_created)
-            return err(ui_shader_created.error());
-        m_ui_shader = *ui_shader_created;
-        InfoLog("Vulkan UI Shader created.");
-
         auto buffers_created = create_buffers();
         if (!buffers_created)
             return err(buffers_created.error());
@@ -497,7 +433,7 @@ namespace nk {
         InfoLog("Vulkan Object Buffers shutdown.");
 
         destroy_all_shaders();
-        InfoLog("Vulkan Material/UI Shaders shutdown.");
+        InfoLog("Vulkan shaders shutdown.");
 
         // Clean up per-frame semaphores
         const u64 max_frames_in_flight = m_image_available_semaphores.length();
@@ -957,35 +893,6 @@ namespace nk {
 
         m_allocator->deconstruct_t(TextureData, texture_data);
         *texture = {};
-    }
-
-    result<void, renderer_error> VulkanRenderer::create_material(
-        Material& material) {
-        const ShaderHandle shader = material.type == MaterialType::world
-            ? m_world_shader
-            : m_ui_shader;
-        auto acquired = acquire_shader_instance(shader);
-        if (!acquired)
-            return err(acquired.error());
-        material.internal_id = *acquired;
-        return ok();
-    }
-
-    void VulkanRenderer::destroy_material(Material& material) {
-        if (material.internal_id == numeric::invalid_id)
-            return;
-        const ShaderHandle shader = material.type == MaterialType::world
-            ? m_world_shader
-            : m_ui_shader;
-        auto released = release_shader_instance(shader, material.internal_id);
-        if (!released) {
-            ErrorLog(
-                "Failed to release shader instance: renderer_error={}, native_code={}.",
-                static_cast<u32>(released.error().code),
-                released.error().native_code);
-            return;
-        }
-        material.internal_id = numeric::invalid_id;
     }
 
     result<void, renderer_error> VulkanRenderer::create_geometry(

@@ -10,6 +10,7 @@ namespace nk {
     class Renderer;
     class ResourceSystem;
     class TextureSystem;
+    class ShaderSystem;
     class MaterialSystem;
     class GeometrySystem;
     struct Material;
@@ -51,6 +52,7 @@ namespace nk {
         Renderer* m_renderer = nullptr;
         ResourceSystem* m_resource_system = nullptr;
         TextureSystem* m_texture_system = nullptr;
+        ShaderSystem* m_shader_system = nullptr;
         MaterialSystem* m_material_system = nullptr;
         GeometrySystem* m_geometry_system = nullptr;
         Geometry* m_test_geometry = nullptr;

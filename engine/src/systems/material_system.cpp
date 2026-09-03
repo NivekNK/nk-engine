@@ -3,8 +3,8 @@
 #include "systems/material_system.h"
 
 #include "memory/allocator.h"
-#include "renderer/renderer.h"
 #include "systems/resource_system.h"
+#include "systems/shader_system.h"
 #include "systems/texture_system.h"
 
 namespace nk {
@@ -24,6 +24,36 @@ namespace nk {
                     return {material_error_code::resource_failed, error.native_code};
             }
         }
+
+        material_error translate_shader_error(
+            const shader_system_error& error) noexcept {
+            switch (error.code) {
+                case shader_system_error_code::invalid_name:
+                    return {material_error_code::invalid_name, error.native_code};
+                case shader_system_error_code::capacity_exceeded:
+                    return {
+                        material_error_code::capacity_exceeded,
+                        error.native_code,
+                    };
+                case shader_system_error_code::out_of_memory:
+                    return {
+                        material_error_code::out_of_memory,
+                        error.native_code,
+                    };
+                case shader_system_error_code::invalid_config:
+                case shader_system_error_code::invalid_uniform:
+                case shader_system_error_code::uniform_not_found:
+                    return {
+                        material_error_code::invalid_config,
+                        error.native_code,
+                    };
+                default:
+                    return {
+                        material_error_code::shader_failed,
+                        error.native_code,
+                    };
+            }
+        }
     }
 
     MaterialSystem::~MaterialSystem() {
@@ -32,7 +62,7 @@ namespace nk {
 
     result<MaterialSystem*, material_error> MaterialSystem::create(
         mem::Allocator& allocator,
-        Renderer& renderer,
+        ShaderSystem& shaders,
         TextureSystem& textures,
         ResourceSystem& resources,
         const u32 max_material_count) {
@@ -42,7 +72,7 @@ namespace nk {
 
         auto initialized = system->init(
             allocator,
-            renderer,
+            shaders,
             textures,
             resources,
             max_material_count);
@@ -63,7 +93,7 @@ namespace nk {
 
     result<void, material_error> MaterialSystem::init(
         mem::Allocator& allocator,
-        Renderer& renderer,
+        ShaderSystem& shaders,
         TextureSystem& textures,
         ResourceSystem& resources,
         const u32 max_material_count) {
@@ -71,7 +101,7 @@ namespace nk {
             return err(material_error{material_error_code::capacity_exceeded, 0});
 
         m_allocator = &allocator;
-        m_renderer = &renderer;
+        m_shaders = &shaders;
         m_textures = &textures;
         m_resources = &resources;
         if (!m_materials.arr_init(&allocator, max_material_count)) {
@@ -86,6 +116,22 @@ namespace nk {
             shutdown();
             return err(material_error{material_error_code::out_of_memory, 0});
         }
+
+        auto world_bindings = resolve_bindings(builtin_material_shader_name);
+        if (!world_bindings) {
+            const material_error error = world_bindings.error();
+            shutdown();
+            return err(error);
+        }
+        m_world_bindings = *world_bindings;
+
+        auto ui_bindings = resolve_bindings(builtin_ui_shader_name);
+        if (!ui_bindings) {
+            const material_error error = ui_bindings.error();
+            shutdown();
+            return err(error);
+        }
+        m_ui_bindings = *ui_bindings;
 
         auto default_created = create_default_materials();
         if (!default_created) {
@@ -102,7 +148,7 @@ namespace nk {
     }
 
     void MaterialSystem::shutdown() {
-        if (m_renderer != nullptr) {
+        if (m_shaders != nullptr) {
             for (Material& material : m_materials) {
                 if (material.valid())
                     destroy_material(material);
@@ -120,17 +166,60 @@ namespace nk {
 
         m_default_material = {};
         m_default_ui_material = {};
+        m_world_bindings = {};
+        m_ui_bindings = {};
         m_loaded_count = 0;
         m_initialized = false;
         m_textures = nullptr;
         m_resources = nullptr;
-        m_renderer = nullptr;
+        m_shaders = nullptr;
         m_allocator = nullptr;
+    }
+
+    result<MaterialSystem::UniformBindings, material_error>
+    MaterialSystem::resolve_bindings(const strview shader_name) {
+        auto shader = m_shaders->handle(shader_name);
+        if (!shader)
+            return err(translate_shader_error(shader.error()));
+
+        UniformBindings resolved{};
+        resolved.shader = *shader;
+        auto projection = m_shaders->uniform(*shader, "projection");
+        if (!projection)
+            return err(translate_shader_error(projection.error()));
+        resolved.projection = *projection;
+        auto view = m_shaders->uniform(*shader, "view");
+        if (!view)
+            return err(translate_shader_error(view.error()));
+        resolved.view = *view;
+        auto diffuse_color = m_shaders->uniform(*shader, "diffuse_color");
+        if (!diffuse_color)
+            return err(translate_shader_error(diffuse_color.error()));
+        resolved.diffuse_color = *diffuse_color;
+        auto diffuse_texture =
+            m_shaders->uniform(*shader, "diffuse_texture");
+        if (!diffuse_texture)
+            return err(translate_shader_error(diffuse_texture.error()));
+        resolved.diffuse_texture = *diffuse_texture;
+        auto model = m_shaders->uniform(*shader, "model");
+        if (!model)
+            return err(translate_shader_error(model.error()));
+        resolved.model = *model;
+        return ok(resolved);
+    }
+
+    const MaterialSystem::UniformBindings* MaterialSystem::bindings(
+        const MaterialType type) const noexcept {
+        const UniformBindings* resolved = type == MaterialType::world
+            ? &m_world_bindings
+            : &m_ui_bindings;
+        return resolved->valid() ? resolved : nullptr;
     }
 
     result<void, material_error> MaterialSystem::create_default_materials() {
         Material world{};
         world.name.assign(default_material_name);
+        world.shader = m_world_bindings.shader;
         world.type = MaterialType::world;
         world.diffuse_color = glm::vec4{1.0f};
         world.diffuse_map = {
@@ -140,16 +229,15 @@ namespace nk {
         world.diffuse_map_name.assign(default_texture_name);
         world.generation = 0;
 
-        auto world_created = m_renderer->create_material(world);
+        auto world_created = m_shaders->acquire_instance(world.shader);
         if (!world_created) {
-            return err(material_error{
-                material_error_code::renderer_failed,
-                world_created.error().native_code,
-            });
+            return err(translate_shader_error(world_created.error()));
         }
+        world.internal_id = *world_created;
 
         Material ui{};
         ui.name.assign(default_ui_material_name);
+        ui.shader = m_ui_bindings.shader;
         ui.type = MaterialType::ui;
         ui.diffuse_color = glm::vec4{1.0f};
         ui.diffuse_map = {
@@ -159,14 +247,14 @@ namespace nk {
         ui.diffuse_map_name.assign(default_texture_name);
         ui.generation = 0;
 
-        auto ui_created = m_renderer->create_material(ui);
+        auto ui_created = m_shaders->acquire_instance(ui.shader);
         if (!ui_created) {
-            m_renderer->destroy_material(world);
-            return err(material_error{
-                material_error_code::renderer_failed,
-                ui_created.error().native_code,
-            });
+            (void)m_shaders->release_instance(
+                world.shader,
+                world.internal_id);
+            return err(translate_shader_error(ui_created.error()));
         }
+        ui.internal_id = *ui_created;
 
         m_default_material = world;
         m_default_ui_material = ui;
@@ -328,6 +416,128 @@ namespace nk {
         return ok();
     }
 
+    result<void, material_error> MaterialSystem::set_diffuse_color(
+        Material& material,
+        const glm::vec4& color) {
+        if (!m_initialized)
+            return err(material_error{material_error_code::not_initialized, 0});
+        if (!material.valid())
+            return err(material_error{material_error_code::invalid_name, 0});
+        if (material.diffuse_color == color)
+            return ok();
+        material.diffuse_color = color;
+        ++material.generation;
+        if (material.generation == numeric::invalid_id)
+            material.generation = 0;
+        return ok();
+    }
+
+    result<void, material_error> MaterialSystem::apply_global(
+        const MaterialType type,
+        const glm::mat4& projection,
+        const glm::mat4& view) {
+        if (!m_initialized)
+            return err(material_error{material_error_code::not_initialized, 0});
+        const UniformBindings* uniform = bindings(type);
+        if (uniform == nullptr)
+            return err(material_error{material_error_code::invalid_config, 0});
+
+        auto used = m_shaders->use(uniform->shader);
+        if (!used)
+            return err(translate_shader_error(used.error()));
+        auto globals_bound = m_shaders->bind_globals();
+        if (!globals_bound)
+            return err(translate_shader_error(globals_bound.error()));
+        auto projection_set = m_shaders->set_uniform(
+            uniform->projection,
+            projection);
+        if (!projection_set)
+            return err(translate_shader_error(projection_set.error()));
+        auto view_set = m_shaders->set_uniform(uniform->view, view);
+        if (!view_set)
+            return err(translate_shader_error(view_set.error()));
+        auto applied = m_shaders->apply_globals();
+        if (!applied)
+            return err(translate_shader_error(applied.error()));
+        return ok();
+    }
+
+    result<void, material_error> MaterialSystem::apply_instance(
+        Material& material,
+        const u64 frame_number) {
+        if (!m_initialized)
+            return err(material_error{material_error_code::not_initialized, 0});
+        if (!material.valid())
+            return err(material_error{material_error_code::invalid_config, 0});
+        const UniformBindings* uniform = bindings(material.type);
+        if (uniform == nullptr || material.shader != uniform->shader ||
+            m_shaders->current_shader() != material.shader) {
+            return err(material_error{material_error_code::invalid_config, 0});
+        }
+
+        Texture* texture = material.diffuse_map.texture;
+        const u32 texture_id = texture == nullptr
+            ? numeric::invalid_id
+            : texture->id;
+        const u32 texture_generation = texture == nullptr
+            ? numeric::invalid_id
+            : texture->generation;
+        const bool needs_update =
+            material.apply_state.frame_number != frame_number ||
+            material.apply_state.material_generation != material.generation ||
+            material.apply_state.texture_id != texture_id ||
+            material.apply_state.texture_generation != texture_generation ||
+            material.apply_state.instance_id != material.internal_id ||
+            material.apply_state.shader != material.shader;
+
+        auto instance_bound =
+            m_shaders->bind_instance(material.internal_id);
+        if (!instance_bound)
+            return err(translate_shader_error(instance_bound.error()));
+        if (needs_update) {
+            auto color_set = m_shaders->set_uniform(
+                uniform->diffuse_color,
+                material.diffuse_color);
+            if (!color_set)
+                return err(translate_shader_error(color_set.error()));
+            auto texture_set = m_shaders->set_sampler(
+                uniform->diffuse_texture,
+                texture);
+            if (!texture_set)
+                return err(translate_shader_error(texture_set.error()));
+        }
+        auto applied = m_shaders->apply_instance(needs_update);
+        if (!applied)
+            return err(translate_shader_error(applied.error()));
+
+        material.apply_state = {
+            .frame_number = frame_number,
+            .material_generation = material.generation,
+            .texture_id = texture_id,
+            .texture_generation = texture_generation,
+            .instance_id = material.internal_id,
+            .shader = material.shader,
+        };
+        return ok();
+    }
+
+    result<void, material_error> MaterialSystem::apply_local(
+        const Material& material,
+        const glm::mat4& model) {
+        if (!m_initialized)
+            return err(material_error{material_error_code::not_initialized, 0});
+        const UniformBindings* uniform = bindings(material.type);
+        if (!material.valid() || uniform == nullptr ||
+            material.shader != uniform->shader ||
+            m_shaders->current_shader() != material.shader) {
+            return err(material_error{material_error_code::invalid_config, 0});
+        }
+        auto set = m_shaders->set_uniform(uniform->model, model);
+        if (!set)
+            return err(translate_shader_error(set.error()));
+        return ok();
+    }
+
     result<void, material_error> MaterialSystem::load_material(
         const MaterialConfig& config,
         Material& material) {
@@ -336,6 +546,19 @@ namespace nk {
         material.diffuse_color = config.diffuse_color;
         material.diffuse_map.use = TextureUse::diffuse;
         material.diffuse_map_name.assign(config.diffuse_map_name.view());
+
+        const strview shader_name = config.shader_name.empty()
+            ? (config.type == MaterialType::world
+                ? builtin_material_shader_name
+                : builtin_ui_shader_name)
+            : config.shader_name.view();
+        auto shader = m_shaders->handle(shader_name);
+        if (!shader)
+            return err(translate_shader_error(shader.error()));
+        const UniformBindings* expected = bindings(config.type);
+        if (expected == nullptr || *shader != expected->shader)
+            return err(material_error{material_error_code::invalid_config, 0});
+        material.shader = *shader;
 
         if (config.diffuse_map_name.empty() ||
             config.diffuse_map_name.view() == default_texture_name) {
@@ -358,23 +581,32 @@ namespace nk {
         }
 
         material.generation = 0;
-        auto created = m_renderer->create_material(material);
+        auto created = m_shaders->acquire_instance(material.shader);
         if (!created) {
             if (material.diffuse_map_name.view() != default_texture_name)
                 m_textures->release(material.diffuse_map_name.view());
             material = {};
-            return err(material_error{
-                material_error_code::renderer_failed,
-                created.error().native_code,
-            });
+            return err(translate_shader_error(created.error()));
         }
+        material.internal_id = *created;
         return ok();
     }
 
     void MaterialSystem::destroy_material(Material& material) {
         const strbuf<texture_name_capacity> texture_name =
             material.diffuse_map_name;
-        m_renderer->destroy_material(material);
+        if (material.shader.valid() &&
+            material.internal_id != numeric::invalid_id) {
+            auto released = m_shaders->release_instance(
+                material.shader,
+                material.internal_id);
+            if (!released) {
+                ErrorLog(
+                    "Failed to release material shader instance: shader_error={}, native_code={}.",
+                    static_cast<u32>(released.error().code),
+                    released.error().native_code);
+            }
+        }
         if (!texture_name.empty() &&
             texture_name.view() != default_texture_name) {
             m_textures->release(texture_name.view());

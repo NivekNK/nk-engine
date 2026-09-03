@@ -6,6 +6,7 @@
 #include "memory/malloc_allocator.h"
 #include "vulkan/vulkan_renderer.h"
 #include "platform/platform.h"
+#include "systems/material_system.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -91,6 +92,7 @@ namespace nk {
     }
 
     result<frame_outcome, renderer_error> Renderer::draw_frame(
+        MaterialSystem& materials,
         const RenderPacket& packet) {
         auto begun = begin_frame(packet.delta_time);
         if (!begun)
@@ -99,8 +101,8 @@ namespace nk {
             return ok(frame_outcome::skipped_swapchain_recreation);
 
         auto world_drawn = draw_render_pass(
+            materials,
             RenderPassKind::world,
-            m_world_shader,
             m_projection,
             m_view,
             packet.geometry_count,
@@ -109,8 +111,8 @@ namespace nk {
             return err(world_drawn.error());
 
         auto ui_drawn = draw_render_pass(
+            materials,
             RenderPassKind::ui,
-            m_ui_shader,
             m_ui_projection,
             m_ui_view,
             packet.ui_geometry_count,
@@ -122,8 +124,8 @@ namespace nk {
     }
 
     result<void, renderer_error> Renderer::draw_render_pass(
+        MaterialSystem& materials,
         const RenderPassKind pass,
-        const ShaderHandle shader,
         const glm::mat4& projection,
         const glm::mat4& view,
         const u32 geometry_count,
@@ -135,60 +137,47 @@ namespace nk {
             return err(error);
         };
 
-        auto used = use_shader(shader);
-        if (!used)
-            return fail(used.error());
-        auto globals_bound = bind_shader_globals(shader);
-        if (!globals_bound)
-            return fail(globals_bound.error());
-        auto projection_set = set_shader_uniform(
-            shader, builtin_shader_uniform::projection, projection);
-        if (!projection_set)
-            return fail(projection_set.error());
-        auto view_set = set_shader_uniform(
-            shader, builtin_shader_uniform::view, view);
-        if (!view_set)
-            return fail(view_set.error());
-        auto globals_applied = apply_shader_globals(shader);
+        const MaterialType expected_material_type =
+            pass == RenderPassKind::world
+                ? MaterialType::world
+                : MaterialType::ui;
+        auto globals_applied = materials.apply_global(
+            expected_material_type,
+            projection,
+            view);
         if (!globals_applied)
-            return fail(globals_applied.error());
+            return fail({
+                renderer_error_code::material_failed,
+                globals_applied.error().native_code,
+            });
 
         for (u32 index = 0; index < geometry_count; ++index) {
             const GeometryRenderData& data = geometries[index];
             Material* material = data.geometry == nullptr
                 ? nullptr
                 : data.geometry->material;
-            const MaterialType expected_material_type =
-                pass == RenderPassKind::world
-                    ? MaterialType::world
-                    : MaterialType::ui;
-            if (material != nullptr && material->valid() &&
-                material->type == expected_material_type) {
-                auto instance_bound = bind_shader_instance(
-                    shader, material->internal_id);
-                if (!instance_bound)
-                    return fail(instance_bound.error());
-                auto color_set = set_shader_uniform(
-                    shader,
-                    builtin_shader_uniform::diffuse_color,
-                    material->diffuse_color);
-                if (!color_set)
-                    return fail(color_set.error());
-                auto texture_set = set_shader_sampler(
-                    shader,
-                    builtin_shader_uniform::diffuse_texture,
-                    material->diffuse_map.texture);
-                if (!texture_set)
-                    return fail(texture_set.error());
-                auto instance_applied = apply_shader_instance(shader, true);
-                if (!instance_applied)
-                    return fail(instance_applied.error());
-                auto model_set = set_shader_uniform(
-                    shader,
-                    builtin_shader_uniform::model,
-                    data.model);
-                if (!model_set)
-                    return fail(model_set.error());
+            if (material == nullptr || !material->valid() ||
+                material->type != expected_material_type) {
+                material = expected_material_type == MaterialType::world
+                    ? &materials.default_material()
+                    : &materials.default_ui_material();
+            }
+
+            auto instance_applied = materials.apply_instance(
+                *material,
+                m_frame_number);
+            if (!instance_applied) {
+                return fail({
+                    renderer_error_code::material_failed,
+                    instance_applied.error().native_code,
+                });
+            }
+            auto local_applied = materials.apply_local(*material, data.model);
+            if (!local_applied) {
+                return fail({
+                    renderer_error_code::material_failed,
+                    local_applied.error().native_code,
+                });
             }
             draw_geometry(pass, data);
         }

@@ -9,6 +9,7 @@
 #include "renderer/renderer.h"
 #include "systems/input_system.h"
 #include "systems/texture_system.h"
+#include "systems/shader_system.h"
 #include "systems/material_system.h"
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
@@ -174,9 +175,46 @@ namespace nk {
         }
         m_texture_system = *texture_system;
 
-        auto material_system = MaterialSystem::create(
+        auto shader_system = ShaderSystem::create(
             *m_allocator,
             *m_renderer,
+            *m_resource_system);
+        if (!shader_system) {
+            const shader_system_error error = shader_system.error();
+            ErrorLog(
+                "Shader system initialization failed: shader_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_shader_system = *shader_system;
+
+        auto material_shader =
+            m_shader_system->load(builtin_material_shader_name);
+        if (!material_shader) {
+            const shader_system_error error = material_shader.error();
+            ErrorLog(
+                "Built-in material shader failed: shader_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        auto ui_shader = m_shader_system->load(builtin_ui_shader_name);
+        if (!ui_shader) {
+            const shader_system_error error = ui_shader.error();
+            ErrorLog(
+                "Built-in UI shader failed: shader_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+
+        auto material_system = MaterialSystem::create(
+            *m_allocator,
+            *m_shader_system,
             *m_texture_system,
             *m_resource_system);
         if (!material_system) {
@@ -295,6 +333,10 @@ namespace nk {
             MaterialSystem::destroy(*m_allocator, m_material_system);
             m_material_system = nullptr;
         }
+        if (m_shader_system != nullptr) {
+            ShaderSystem::destroy(*m_allocator, m_shader_system);
+            m_shader_system = nullptr;
+        }
         if (m_texture_system != nullptr) {
             TextureSystem::destroy(*m_allocator, m_texture_system);
             m_texture_system = nullptr;
@@ -412,7 +454,7 @@ namespace nk {
                     .model = glm::mat4{1.0f},
                     .geometry = m_test_ui_geometry,
                 };
-                auto frame = m_renderer->draw_frame({
+                auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
                     .geometry_count = m_test_geometry == nullptr ? 0u : 1u,
                     .geometries = &geometry,

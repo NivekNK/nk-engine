@@ -54,6 +54,9 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(
         material->as<nk::MaterialConfig>()->type,
         nk::MaterialType::world);
+    EXPECT_EQ(
+        material->as<nk::MaterialConfig>()->shader_name.view(),
+        nk::strview{"Builtin.MaterialShader"});
 
     auto ui_material = resources->load(
         "test_ui_material",
@@ -65,6 +68,9 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(
         ui_material->as<nk::MaterialConfig>()->diffuse_map_name.view(),
         nk::strview{"orange_lines_512"});
+    EXPECT_EQ(
+        ui_material->as<nk::MaterialConfig>()->shader_name.view(),
+        nk::strview{"Builtin.UIShader"});
 
     auto shader = resources->load(
         "Builtin.MaterialShader",
