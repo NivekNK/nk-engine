@@ -279,30 +279,54 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 - Referencia principal: [`86e0dcf`](https://github.com/travisvroman/kohi/commit/86e0dcf64808e609bb244f5d90298b9640704344)
 - Merges de procedencia: [`50c4ba6`](https://github.com/travisvroman/kohi/commit/50c4ba60e8e52dce10e1a76ebaaa443f4c8aaf25) y
   [`d64730b`](https://github.com/travisvroman/kohi/commit/d64730bc775c5ffc391eefee47d49cc59f838f7e)
+- Estado NK: completado en `585733a`, `dc3c988` y `7b328ca`.
 
 ### Plan
 
-- [ ] Integrar una `FreeList` en cada `Buffer` que admita subasignación; no hacer
+- [x] Integrar una `FreeList` en cada `Buffer` que admita subasignación; no hacer
   que `Buffer` herede del allocator de CPU.
-- [ ] Sustituir `m_geometry_vertex_offset` y `m_geometry_index_offset` por rangos
+- [x] Sustituir `m_geometry_vertex_offset` y `m_geometry_index_offset` por rangos
   reservados con alineación comprobada.
-- [ ] Añadir `reserve`, `release` y `resize` fallibles al buffer, preservando datos
+- [x] Añadir `reserve`, `release` y `resize` fallibles al buffer, preservando datos
   y offsets durante crecimiento.
-- [ ] Hacer la carga de geometría transaccional: si falla índices, staging o copy,
+- [x] Hacer la carga de geometría transaccional: si falla índices, staging o copy,
   devolver también el rango de vértices y dejar el slot de geometría intacto.
-- [ ] Liberar ambos rangos al destruir o reemplazar geometría. Evitar
+- [x] Liberar ambos rangos al destruir o reemplazar geometría. Evitar
   `vkDeviceWaitIdle` como solución general; documentar la sincronización necesaria
   antes de reutilizar rangos todavía en vuelo.
-- [ ] Absorber los fixes retroactivos de image count, fences, queue families y
+- [x] Absorber los fixes retroactivos de image count, fences, queue families y
   resize antes de dar por estable la nueva ruta.
 
 ### Validación y commits
 
-- [ ] Unit tests del suballocator sin Vulkan y test de integración de ciclos
-  create/destroy/recreate que demuestre reutilización de offsets.
-- [ ] Smoke test con Validation Layers y resize repetido bajo niri.
-- [ ] Commits sugeridos: `feat(renderer): suballocate Vulkan buffer ranges` y
-  `fix(renderer): recycle geometry buffer ranges safely`.
+- [x] Unit tests sin Vulkan para lifecycle, alineación, espacios independientes,
+  resize, ausencia de allocations tras init y 256 ciclos de reservas/liberaciones
+  que vuelven a reutilizar los mismos offsets.
+- [x] Smoke test con Validation Layers y resize repetido bajo niri.
+- [x] Commits: `585733a feat(renderer): add buffer range suballocation`,
+  `dc3c988 feat(renderer): recycle geometry buffer ranges` y
+  `7b328ca test(renderer): isolate stable frame allocation checks`.
+
+### Resultado
+
+- `BufferSuballocator` mantiene la política de offsets fuera de Vulkan, recibe
+  explícitamente su allocator de metadata y sólo se activa en los buffers de
+  vértices e índices que la necesitan. Staging y UBO no reservan esa metadata.
+- `Buffer::resize` prepara, enlaza y copia el nuevo almacenamiento antes de
+  modificar la free list o destruir el buffer anterior. Los errores devuelven
+  `renderer_error` y preservan el estado previo.
+- La geometría ya no consume offsets monotónicos: reserva rangos independientes,
+  publica el slot sólo tras cargar vértices e índices, revierte fallos y recicla
+  los rangos al reemplazar o destruir después de sincronizar la cola gráfica.
+- Los fixes asociados ya estaban representados por el diseño NK y se auditaron:
+  descriptor sets, command buffers, framebuffers, fences por imagen y sus arrays
+  usan el image count real; las familias de cola se deduplican; las áreas world y
+  UI se actualizan al recrear el swapchain.
+- Se añadieron 6 tests y la suite completa pasó 166/166 en Debug y con
+  ASan/UBSan, y 157/157 en Release. El smoke nativo Wayland/xdg-shell bajo niri
+  completó cuatro recreaciones de swapchain con Validation Layers, cero
+  allocations en 25.652 frames renderizados estables y cero fugas al cerrar.
+- No se añadieron dependencias externas.
 
 ## Capítulo 45 — Shader System, parte 1
 

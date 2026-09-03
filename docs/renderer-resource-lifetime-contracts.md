@@ -77,6 +77,8 @@ These orderings are invariants:
 | `Resource` payload | Its selected `ResourceLoader`, allocated from the ResourceSystem allocator | Owning `ResourceSystem` and loader | `ResourceSystem::unload` delegates to the same loader |
 | `Renderer` | `Engine` through the root allocator | `Platform`, `ResourceSystem`, default texture | `Renderer::destroy` |
 | Vulkan backend objects | Active `Renderer` | Platform surface and renderer resources | The Vulkan renderer during resource destruction or shutdown |
+| Vulkan object vertex/index buffers | Vulkan renderer | Device plus renderer allocator for range metadata | Vulkan renderer after all geometry ranges are released |
+| `VulkanGeometryData` ranges | Vulkan geometry slot | Suballocators of the object vertex/index buffers | Vulkan renderer after graphics work using the ranges completes |
 | `Texture` slot | `TextureSystem` | No high-level resource; opaque backend data belongs to `Renderer` | `TextureSystem`, through `Renderer::destroy_texture` |
 | `TextureMap::texture` | Borrowed by its `Material` | `TextureSystem` slot or default texture | Never by `TextureMap`; its material releases the acquired texture reference |
 | `Material` slot | `MaterialSystem` | `TextureSystem`, `Renderer`, texture maps | `MaterialSystem`, through `Renderer::destroy_material` and texture release |
@@ -155,6 +157,17 @@ identity alone does not make a stale handle valid.
 - `GeometryConfig` and `Geometry2DConfig` own their temporary `dyarr` data. The
   renderer copies/uploads it during `acquire`; callers may destroy the configs
   after the call returns.
+- Renderer-side geometry owns one aligned vertex range and, when indexed, one
+  aligned index range. The containing Vulkan buffers own the native memory;
+  geometry owns only its reservations within those independent address spaces.
+- Geometry creation reserves all required ranges, uploads both payloads and only
+  then publishes the slot. A failure releases every newly reserved range in
+  reverse order. Replacement preserves the previous slot and ranges until the
+  new upload succeeds.
+- Geometry destruction waits for the graphics queue before returning its ranges
+  to the suballocators. This is a conservative synchronization point: a future
+  deferred-destruction queue may replace the wait, but a range must never be
+  reused while submitted commands can still read it.
 
 ## Renderer and frame contract
 
@@ -172,6 +185,9 @@ identity alone does not make a stale handle valid.
   `frame_outcome` instead of treating every non-rendered frame as failure.
 - Resize changes projection state and delegates backend resource recreation. A
   zero-sized/minimized surface may defer rendering until valid dimensions return.
+- The stable-frame allocation smoke check measures rendered frames individually.
+  Frames skipped for swapchain recreation are intentionally excluded because
+  rebuilding swapchain-sized resources is not steady-state frame work.
 
 ## Error and rollback contract
 
@@ -199,11 +215,11 @@ release.
 
 ## Requirements for the next roadmap items
 
-- Chapter 42 introduced the renderer-neutral `FreeList` described in
-  [`memory-allocation-contracts.md`](memory-allocation-contracts.md). Chapter 43
-  now layers `FreeListAllocator` over it for explicit CPU heaps. Chapter 44 may
-  use `FreeList` directly for GPU buffer offsets, but must preserve its explicit
-  metadata dependency and the high-level shutdown order above.
+- Chapters 42–44 introduced the renderer-neutral `FreeList`, the CPU
+  `FreeListAllocator` and the renderer-neutral `BufferSuballocator` described in
+  [`memory-allocation-contracts.md`](memory-allocation-contracts.md). Vulkan
+  object buffers now use the last of these directly for GPU offsets while
+  preserving explicit metadata ownership and the shutdown order above.
 - Chapters 45–48 must decide whether `ShaderSystem` is owned by `Renderer` or by
   `Engine` before exposing it. In either case it must outlive materials and die
   before `ResourceSystem` and the renderer resources on which it depends.

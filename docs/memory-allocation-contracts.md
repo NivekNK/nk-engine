@@ -120,6 +120,34 @@ dependency, and measurements show that neither implementation wins for every
 allocation size. Vulkan buffer suballocation continues to use `FreeList`
 directly because those offsets describe GPU buffers rather than CPU pointers.
 
+## BufferSuballocator ownership and lifetime
+
+`nk::BufferSuballocator` is the renderer-neutral adapter between a logical GPU
+buffer address space and `FreeList`. It owns only the range metadata obtained
+from its explicitly injected allocator. It neither owns GPU bytes nor depends
+on Vulkan objects, so its allocation policy and failure paths can be tested
+without a device.
+
+Vulkan `Buffer` instances opt into suballocation by receiving both a metadata
+allocator and a range capacity at initialization. Supplying one without the
+other is invalid. Object vertex and index buffers opt in; staging and uniform
+buffers do not pay for unused range metadata. The metadata allocator must
+outlive the `Buffer`, and `Buffer::shutdown` destroys native storage before
+releasing that metadata.
+
+`reserve`, `release` and `resize` preserve the `FreeList` invariants above and
+translate `free_list_error` into a typed `renderer_error`, retaining the
+original value in `native_code`. Offset zero is a valid reservation. Vertex and
+index buffers have independent address spaces, and every reservation uses the
+alignment required by its stored element type.
+
+A Vulkan buffer resize is transactional with respect to both native storage and
+logical ranges: it creates and binds replacement storage, copies the preserved
+prefix and waits for completion before committing the logical resize. Failure
+destroys the replacement and leaves the old buffer, offsets and suballocator
+unchanged. Shrinking remains valid only when every live range fits before the
+new end.
+
 ## Concurrency and complexity
 
 The current implementation is single-threaded and requires external
