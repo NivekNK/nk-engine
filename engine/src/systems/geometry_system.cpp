@@ -60,7 +60,7 @@ namespace nk {
             return err(geometry_error{geometry_error_code::out_of_memory, 0});
         }
 
-        auto default_created = create_default_geometry();
+        auto default_created = create_default_geometries();
         if (!default_created) {
             const geometry_error error = default_created.error();
             shutdown();
@@ -80,6 +80,8 @@ namespace nk {
                 if (reference.geometry.valid())
                     destroy_geometry(reference.geometry);
             }
+            if (m_default_ui_geometry.valid())
+                destroy_geometry(m_default_ui_geometry);
             if (m_default_geometry.valid())
                 destroy_geometry(m_default_geometry);
         }
@@ -88,6 +90,7 @@ namespace nk {
             (void)m_geometries.arr_shutdown();
 
         m_default_geometry = {};
+        m_default_ui_geometry = {};
         m_loaded_count = 0;
         m_initialized = false;
         m_materials = nullptr;
@@ -95,7 +98,7 @@ namespace nk {
         m_allocator = nullptr;
     }
 
-    result<void, geometry_error> GeometrySystem::create_default_geometry() {
+    result<void, geometry_error> GeometrySystem::create_default_geometries() {
         glm::Vertex3D vertices[4]{};
         constexpr f32 scale = 10.0f;
         vertices[0] = {
@@ -116,22 +119,59 @@ namespace nk {
         };
         const u32 indices[6]{0, 1, 2, 0, 3, 1};
 
-        Geometry geometry{};
-        geometry.name.assign(default_geometry_name);
-        geometry.material = &m_materials->default_material();
-        auto created = m_renderer->create_geometry(
-            geometry,
+        Geometry world{};
+        world.name.assign(default_geometry_name);
+        world.material = &m_materials->default_material();
+        auto world_created = m_renderer->create_geometry(
+            world,
             cl::slice<const glm::Vertex3D>{vertices},
             cl::slice<const u32>{indices});
-        if (!created) {
+        if (!world_created) {
             return err(geometry_error{
                 geometry_error_code::renderer_failed,
-                created.error().native_code,
+                world_created.error().native_code,
             });
         }
-        geometry.id = numeric::invalid_id;
-        geometry.generation = 0;
-        m_default_geometry = geometry;
+        world.id = numeric::invalid_id;
+        world.generation = 0;
+
+        glm::Vertex2D ui_vertices[4]{};
+        ui_vertices[0] = {
+            .position = {-0.5f * scale, -0.5f * scale},
+            .texcoord = {0.0f, 0.0f},
+        };
+        ui_vertices[1] = {
+            .position = {0.5f * scale, 0.5f * scale},
+            .texcoord = {1.0f, 1.0f},
+        };
+        ui_vertices[2] = {
+            .position = {-0.5f * scale, 0.5f * scale},
+            .texcoord = {0.0f, 1.0f},
+        };
+        ui_vertices[3] = {
+            .position = {0.5f * scale, -0.5f * scale},
+            .texcoord = {1.0f, 0.0f},
+        };
+
+        Geometry ui{};
+        ui.name.assign(default_ui_geometry_name);
+        ui.material = &m_materials->default_ui_material();
+        auto ui_created = m_renderer->create_geometry(
+            ui,
+            cl::slice<const glm::Vertex2D>{ui_vertices},
+            cl::slice<const u32>{indices});
+        if (!ui_created) {
+            m_renderer->destroy_geometry(world);
+            return err(geometry_error{
+                geometry_error_code::renderer_failed,
+                ui_created.error().native_code,
+            });
+        }
+        ui.id = numeric::invalid_id;
+        ui.generation = 0;
+
+        m_default_geometry = world;
+        m_default_ui_geometry = ui;
         return ok();
     }
 
@@ -150,9 +190,38 @@ namespace nk {
     result<Geometry*, geometry_error> GeometrySystem::acquire(
         const GeometryConfig& config,
         const bool auto_release) {
+        return acquire_geometry(
+            cl::slice<const glm::Vertex3D>{config.vertices},
+            cl::slice<const u32>{config.indices},
+            config.name.view(),
+            config.material_name.view(),
+            MaterialType::world,
+            auto_release);
+    }
+
+    result<Geometry*, geometry_error> GeometrySystem::acquire(
+        const Geometry2DConfig& config,
+        const bool auto_release) {
+        return acquire_geometry(
+            cl::slice<const glm::Vertex2D>{config.vertices},
+            cl::slice<const u32>{config.indices},
+            config.name.view(),
+            config.material_name.view(),
+            MaterialType::ui,
+            auto_release);
+    }
+
+    template<typename Vertex>
+    result<Geometry*, geometry_error> GeometrySystem::acquire_geometry(
+        const cl::slice<const Vertex> vertices,
+        const cl::slice<const u32> indices,
+        const strview name,
+        const strview material_name,
+        const MaterialType material_type,
+        const bool auto_release) {
         if (!m_initialized)
             return err(geometry_error{geometry_error_code::not_initialized, 0});
-        if (config.vertices.empty()) {
+        if (vertices.empty()) {
             return err(geometry_error{
                 geometry_error_code::invalid_config,
                 0,
@@ -169,7 +238,13 @@ namespace nk {
 
         Geometry geometry{};
         geometry.id = slot;
-        auto created = create_geometry(config, geometry);
+        auto created = create_geometry(
+            vertices,
+            indices,
+            name,
+            material_name,
+            material_type,
+            geometry);
         if (!created)
             return err(created.error());
 
@@ -202,16 +277,24 @@ namespace nk {
         }
     }
 
+    template<typename Vertex>
     result<void, geometry_error> GeometrySystem::create_geometry(
-        const GeometryConfig& config,
+        const cl::slice<const Vertex> vertices,
+        const cl::slice<const u32> indices,
+        const strview name,
+        const strview material_name,
+        const MaterialType material_type,
         Geometry& geometry) {
-        geometry.name.assign(
-            config.name.empty() ? default_geometry_name : config.name.view());
+        const strview fallback_geometry_name =
+            material_type == MaterialType::world
+                ? default_geometry_name
+                : default_ui_geometry_name;
+        geometry.name.assign(name.empty() ? fallback_geometry_name : name);
 
         auto uploaded = m_renderer->create_geometry(
             geometry,
-            cl::slice<const glm::Vertex3D>{config.vertices},
-            cl::slice<const u32>{config.indices});
+            vertices,
+            indices);
         if (!uploaded) {
             geometry = {};
             return err(geometry_error{
@@ -220,17 +303,29 @@ namespace nk {
             });
         }
 
-        if (config.material_name.empty() ||
-            config.material_name.view() == default_material_name) {
-            geometry.material = &m_materials->default_material();
+        Material* default_material = material_type == MaterialType::world
+            ? &m_materials->default_material()
+            : &m_materials->default_ui_material();
+        if (material_name.empty() ||
+            material_name == default_material_name ||
+            material_name == default_material->name.view()) {
+            geometry.material = default_material;
         } else {
-            auto material = m_materials->acquire(config.material_name.view());
+            auto material = m_materials->acquire(material_name);
             if (!material) {
                 WarnLog(
                     "Unable to acquire material '{}' for geometry '{}'; using default.",
-                    config.material_name.view(),
+                    material_name,
                     geometry.name.view());
-                geometry.material = &m_materials->default_material();
+                geometry.material = default_material;
+            } else if ((*material)->type != material_type) {
+                m_materials->release((*material)->name.view());
+                m_renderer->destroy_geometry(geometry);
+                geometry = {};
+                return err(geometry_error{
+                    geometry_error_code::invalid_config,
+                    0,
+                });
             } else {
                 geometry.material = *material;
             }
@@ -243,7 +338,8 @@ namespace nk {
         Material* material = geometry.material;
         m_renderer->destroy_geometry(geometry);
         if (material != nullptr &&
-            material != &m_materials->default_material()) {
+            material != &m_materials->default_material() &&
+            material != &m_materials->default_ui_material()) {
             m_materials->release(material->name.view());
         }
         geometry = {};

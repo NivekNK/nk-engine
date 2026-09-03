@@ -10,6 +10,7 @@ namespace nk {
     namespace mem { class Allocator; }
 
     inline constexpr strview default_geometry_name{"default", 7};
+    inline constexpr strview default_ui_geometry_name{"default_ui", 10};
 
     enum class geometry_error_code : u8 {
         invalid_config,
@@ -49,11 +50,20 @@ namespace nk {
         [[nodiscard]] result<Geometry*, geometry_error> acquire(
             const GeometryConfig& config,
             bool auto_release);
+        [[nodiscard]] result<Geometry*, geometry_error> acquire(
+            const Geometry2DConfig& config,
+            bool auto_release);
         void release(Geometry* geometry);
 
         Geometry& default_geometry() noexcept { return m_default_geometry; }
         const Geometry& default_geometry() const noexcept {
             return m_default_geometry;
+        }
+        Geometry& default_ui_geometry() noexcept {
+            return m_default_ui_geometry;
+        }
+        const Geometry& default_ui_geometry() const noexcept {
+            return m_default_ui_geometry;
         }
 
         [[nodiscard]] static result<GeometryConfig, geometry_error>
@@ -84,9 +94,22 @@ namespace nk {
             MaterialSystem& materials,
             u32 max_geometry_count);
         void shutdown();
-        [[nodiscard]] result<void, geometry_error> create_default_geometry();
+        [[nodiscard]] result<void, geometry_error> create_default_geometries();
+        template<typename Vertex>
+        [[nodiscard]] result<Geometry*, geometry_error> acquire_geometry(
+            cl::slice<const Vertex> vertices,
+            cl::slice<const u32> indices,
+            strview name,
+            strview material_name,
+            MaterialType material_type,
+            bool auto_release);
+        template<typename Vertex>
         [[nodiscard]] result<void, geometry_error> create_geometry(
-            const GeometryConfig& config,
+            cl::slice<const Vertex> vertices,
+            cl::slice<const u32> indices,
+            strview name,
+            strview material_name,
+            MaterialType material_type,
             Geometry& geometry);
         void destroy_geometry(Geometry& geometry);
         u32 find_free_slot() const noexcept;
@@ -96,6 +119,7 @@ namespace nk {
         MaterialSystem* m_materials = nullptr;
         cl::arr<GeometryReference> m_geometries;
         Geometry m_default_geometry{};
+        Geometry m_default_ui_geometry{};
         u32 m_loaded_count = 0;
         bool m_initialized = false;
     };

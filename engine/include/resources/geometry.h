@@ -3,6 +3,7 @@
 #include "collections/dyarr.h"
 #include "core/strbuf.h"
 #include "resources/material.h"
+#include "vendor/glm/vertex_2d.h"
 #include "vendor/glm/vertex_3d.h"
 
 namespace nk {
@@ -10,6 +11,13 @@ namespace nk {
 
     struct GeometryConfig {
         cl::dyarr<glm::Vertex3D> vertices;
+        cl::dyarr<u32> indices;
+        strbuf<geometry_name_capacity> name;
+        strbuf<material_name_capacity> material_name;
+    };
+
+    struct Geometry2DConfig {
+        cl::dyarr<glm::Vertex2D> vertices;
         cl::dyarr<u32> indices;
         strbuf<geometry_name_capacity> name;
         strbuf<material_name_capacity> material_name;

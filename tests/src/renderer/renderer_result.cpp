@@ -600,6 +600,12 @@ TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
         nk::GeometrySystem::create(allocator, renderer, *materials, 2);
     ASSERT_TRUE(geometries_created);
     nk::GeometrySystem* geometries = *geometries_created;
+    EXPECT_EQ(
+        geometries->default_geometry().material->type,
+        nk::MaterialType::world);
+    EXPECT_EQ(
+        geometries->default_ui_geometry().material->type,
+        nk::MaterialType::ui);
 
     auto plane = nk::GeometrySystem::generate_plane(
         allocator,
@@ -638,9 +644,41 @@ TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     materials->release((*reacquired_material)->name.view());
     EXPECT_EQ(materials->loaded_count(), 0u);
 
+    nk::Geometry2DConfig ui_config{};
+    ASSERT_TRUE(ui_config.vertices.dyarr_init_list(
+        &allocator,
+        {
+            {{0.0f, 0.0f}, {0.0f, 0.0f}},
+            {{64.0f, 64.0f}, {1.0f, 1.0f}},
+            {{0.0f, 64.0f}, {0.0f, 1.0f}},
+            {{64.0f, 0.0f}, {1.0f, 0.0f}},
+        }));
+    ASSERT_TRUE(ui_config.indices.dyarr_init_list(
+        &allocator,
+        {0u, 1u, 2u, 0u, 3u, 1u}));
+    ui_config.name.assign("ui_quad");
+    ui_config.material_name.assign("test_ui_material");
+
+    auto ui_geometry = geometries->acquire(ui_config, true);
+    ASSERT_TRUE(ui_geometry);
+    EXPECT_EQ((*ui_geometry)->material->type, nk::MaterialType::ui);
+    EXPECT_EQ(
+        materials->reference_count("test_ui_material"),
+        1u);
+    geometries->release(*ui_geometry);
+    EXPECT_EQ(materials->loaded_count(), 0u);
+
+    ui_config.material_name.assign("test_material");
+    auto mismatched = geometries->acquire(ui_config, true);
+    ASSERT_FALSE(mismatched);
+    EXPECT_EQ(
+        mismatched.error().code,
+        nk::geometry_error_code::invalid_config);
+    EXPECT_EQ(materials->loaded_count(), 0u);
+
     nk::GeometrySystem::destroy(allocator, geometries);
     nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
     nk::ResourceSystem::destroy(allocator, resources);
-    EXPECT_EQ(renderer.destroyed_geometries(), 2u);
+    EXPECT_EQ(renderer.destroyed_geometries(), 5u);
 }
