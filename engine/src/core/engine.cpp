@@ -243,21 +243,20 @@ namespace nk {
         }
         m_geometry_system = *geometry_system;
 
-        auto plane = GeometrySystem::generate_plane(
+        auto cube = GeometrySystem::generate_cube(
             *m_allocator,
             10.0f,
-            5.0f,
-            5,
-            5,
-            5.0f,
-            2.0f,
+            10.0f,
+            10.0f,
+            1.0f,
+            1.0f,
             "test geometry",
             "test_material");
-        if (!plane) {
+        if (!cube) {
             shutdown_impl();
             return false;
         }
-        auto test_geometry = m_geometry_system->acquire(*plane, true);
+        auto test_geometry = m_geometry_system->acquire(*cube, true);
         if (!test_geometry) {
             const geometry_error error = test_geometry.error();
             ErrorLog(

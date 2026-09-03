@@ -6,6 +6,10 @@
 #include "renderer/renderer.h"
 #include "systems/material_system.h"
 
+#include <cmath>
+
+#include <glm/geometric.hpp>
+
 namespace nk {
     GeometrySystem::~GeometrySystem() {
         shutdown();
@@ -103,21 +107,28 @@ namespace nk {
         constexpr f32 scale = 10.0f;
         vertices[0] = {
             .position = {-0.5f * scale, -0.5f * scale, 0.0f},
+            .normal = {},
             .texcoord = {0.0f, 0.0f},
         };
         vertices[1] = {
             .position = {0.5f * scale, 0.5f * scale, 0.0f},
+            .normal = {},
             .texcoord = {1.0f, 1.0f},
         };
         vertices[2] = {
             .position = {-0.5f * scale, 0.5f * scale, 0.0f},
+            .normal = {},
             .texcoord = {0.0f, 1.0f},
         };
         vertices[3] = {
             .position = {0.5f * scale, -0.5f * scale, 0.0f},
+            .normal = {},
             .texcoord = {1.0f, 0.0f},
         };
         const u32 indices[6]{0, 1, 2, 0, 3, 1};
+        auto normals_generated = generate_normals(vertices, indices);
+        if (!normals_generated)
+            return err(normals_generated.error());
 
         Geometry world{};
         world.name.assign(default_geometry_name);
@@ -428,18 +439,22 @@ namespace nk {
                     (y * x_segment_count + x) * 4;
                 config.vertices[vertex_offset] = {
                     .position = {min_x, min_y, 0.0f},
+                    .normal = {},
                     .texcoord = {min_u, min_v},
                 };
                 config.vertices[vertex_offset + 1] = {
                     .position = {max_x, max_y, 0.0f},
+                    .normal = {},
                     .texcoord = {max_u, max_v},
                 };
                 config.vertices[vertex_offset + 2] = {
                     .position = {min_x, max_y, 0.0f},
+                    .normal = {},
                     .texcoord = {min_u, max_v},
                 };
                 config.vertices[vertex_offset + 3] = {
                     .position = {max_x, min_y, 0.0f},
+                    .normal = {},
                     .texcoord = {max_u, min_v},
                 };
 
@@ -454,10 +469,185 @@ namespace nk {
             }
         }
 
+        auto normals_generated = generate_normals(
+            cl::slice<glm::Vertex3D>{config.vertices},
+            cl::slice<const u32>{config.indices});
+        if (!normals_generated)
+            return err(normals_generated.error());
+
         config.name.assign(
             name.empty() ? default_geometry_name : name);
         config.material_name.assign(
             material_name.empty() ? default_material_name : material_name);
         return ok(std::move(config));
+    }
+
+    result<GeometryConfig, geometry_error> GeometrySystem::generate_cube(
+        mem::Allocator& allocator,
+        f32 width,
+        f32 height,
+        f32 depth,
+        f32 tile_x,
+        f32 tile_y,
+        const strview name,
+        const strview material_name) {
+        if (width == 0.0f)
+            width = 1.0f;
+        if (height == 0.0f)
+            height = 1.0f;
+        if (depth == 0.0f)
+            depth = 1.0f;
+        if (tile_x == 0.0f)
+            tile_x = 1.0f;
+        if (tile_y == 0.0f)
+            tile_y = 1.0f;
+
+        constexpr u32 face_count = 6;
+        constexpr u32 vertices_per_face = 4;
+        constexpr u32 indices_per_face = 6;
+        constexpr u32 vertex_count = face_count * vertices_per_face;
+        constexpr u32 index_count = face_count * indices_per_face;
+
+        GeometryConfig config{};
+        if (!config.vertices.dyarr_init_len(
+                &allocator,
+                vertex_count,
+                vertex_count) ||
+            !config.indices.dyarr_init_len(
+                &allocator,
+                index_count,
+                index_count)) {
+            return err(geometry_error{geometry_error_code::out_of_memory, 0});
+        }
+
+        const f32 min_x = width * -0.5f;
+        const f32 min_y = height * -0.5f;
+        const f32 min_z = depth * -0.5f;
+        const f32 max_x = width * 0.5f;
+        const f32 max_y = height * 0.5f;
+        const f32 max_z = depth * 0.5f;
+
+        const glm::vec3 positions[vertex_count]{
+            // Front (+Z).
+            {min_x, min_y, max_z},
+            {max_x, max_y, max_z},
+            {min_x, max_y, max_z},
+            {max_x, min_y, max_z},
+            // Back (-Z).
+            {max_x, min_y, min_z},
+            {min_x, max_y, min_z},
+            {max_x, max_y, min_z},
+            {min_x, min_y, min_z},
+            // Left (-X).
+            {min_x, min_y, min_z},
+            {min_x, max_y, max_z},
+            {min_x, max_y, min_z},
+            {min_x, min_y, max_z},
+            // Right (+X).
+            {max_x, min_y, max_z},
+            {max_x, max_y, min_z},
+            {max_x, max_y, max_z},
+            {max_x, min_y, min_z},
+            // Bottom (-Y).
+            {max_x, min_y, max_z},
+            {min_x, min_y, min_z},
+            {max_x, min_y, min_z},
+            {min_x, min_y, max_z},
+            // Top (+Y).
+            {min_x, max_y, max_z},
+            {max_x, max_y, min_z},
+            {min_x, max_y, min_z},
+            {max_x, max_y, max_z},
+        };
+        const glm::vec2 texcoords[vertices_per_face]{
+            {0.0f, 0.0f},
+            {tile_x, tile_y},
+            {0.0f, tile_y},
+            {tile_x, 0.0f},
+        };
+
+        for (u32 face = 0; face < face_count; ++face) {
+            const u32 vertex_offset = face * vertices_per_face;
+            const u32 index_offset = face * indices_per_face;
+            for (u32 vertex = 0; vertex < vertices_per_face; ++vertex) {
+                config.vertices[vertex_offset + vertex] = {
+                    .position = positions[vertex_offset + vertex],
+                    .normal = {},
+                    .texcoord = texcoords[vertex],
+                };
+            }
+            config.indices[index_offset] = vertex_offset;
+            config.indices[index_offset + 1] = vertex_offset + 1;
+            config.indices[index_offset + 2] = vertex_offset + 2;
+            config.indices[index_offset + 3] = vertex_offset;
+            config.indices[index_offset + 4] = vertex_offset + 3;
+            config.indices[index_offset + 5] = vertex_offset + 1;
+        }
+
+        auto normals_generated = generate_normals(
+            cl::slice<glm::Vertex3D>{config.vertices},
+            cl::slice<const u32>{config.indices});
+        if (!normals_generated)
+            return err(normals_generated.error());
+
+        config.name.assign(
+            name.empty() ? default_geometry_name : name);
+        config.material_name.assign(
+            material_name.empty() ? default_material_name : material_name);
+        return ok(std::move(config));
+    }
+
+    result<void, geometry_error> GeometrySystem::generate_normals(
+        const cl::slice<glm::Vertex3D> vertices,
+        const cl::slice<const u32> indices) {
+        if (vertices.empty() || indices.empty() || indices.length() % 3 != 0) {
+            return err(geometry_error{
+                geometry_error_code::invalid_config,
+                0,
+            });
+        }
+
+        // Validate first so malformed topology never leaves partially updated
+        // vertex data behind.
+        for (const u32 index : indices) {
+            if (index >= vertices.length()) {
+                return err(geometry_error{
+                    geometry_error_code::invalid_config,
+                    0,
+                });
+            }
+        }
+
+        for (glm::Vertex3D& vertex : vertices)
+            vertex.normal = glm::vec3{0.0f};
+
+        constexpr f32 minimum_normal_length_squared = 1.0e-20f;
+        for (u64 index = 0; index < indices.length(); index += 3) {
+            glm::Vertex3D& a = vertices[indices[index]];
+            glm::Vertex3D& b = vertices[indices[index + 1]];
+            glm::Vertex3D& c = vertices[indices[index + 2]];
+            const glm::vec3 face_normal = glm::cross(
+                b.position - a.position,
+                c.position - a.position);
+            const f32 length_squared = glm::dot(face_normal, face_normal);
+            if (!std::isfinite(length_squared) ||
+                length_squared <= minimum_normal_length_squared) {
+                continue;
+            }
+            a.normal += face_normal;
+            b.normal += face_normal;
+            c.normal += face_normal;
+        }
+
+        for (glm::Vertex3D& vertex : vertices) {
+            const f32 length_squared = glm::dot(vertex.normal, vertex.normal);
+            if (!std::isfinite(length_squared) ||
+                length_squared <= minimum_normal_length_squared) {
+                vertex.normal = glm::vec3{0.0f};
+                continue;
+            }
+            vertex.normal *= 1.0f / std::sqrt(length_squared);
+        }
+        return ok();
     }
 }

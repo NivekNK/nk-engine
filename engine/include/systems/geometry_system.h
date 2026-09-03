@@ -78,6 +78,21 @@ namespace nk {
             strview name,
             strview material_name);
 
+        [[nodiscard]] static result<GeometryConfig, geometry_error>
+        generate_cube(
+            mem::Allocator& allocator,
+            f32 width,
+            f32 height,
+            f32 depth,
+            f32 tile_x,
+            f32 tile_y,
+            strview name,
+            strview material_name);
+
+        [[nodiscard]] static result<void, geometry_error> generate_normals(
+            cl::slice<glm::Vertex3D> vertices,
+            cl::slice<const u32> indices);
+
         u32 loaded_count() const noexcept { return m_loaded_count; }
         u64 reference_count(u32 id) const noexcept;
 

@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstddef>
+
 #include <type_traits>
 
 #include "memory/malloc_allocator.h"
@@ -1229,10 +1232,86 @@ TEST(GeometrySystem, GeneratesSegmentedPlanesWithTiledCoordinates) {
     EXPECT_EQ(plane->vertices.length(), 24u);
     EXPECT_EQ(plane->indices.length(), 36u);
     EXPECT_EQ(plane->vertices[0].position, glm::vec3(-5.0f, -3.0f, 0.0f));
+    EXPECT_EQ(plane->vertices[0].normal, glm::vec3(0.0f, 0.0f, 1.0f));
     EXPECT_EQ(plane->vertices[0].texcoord, glm::vec2(0.0f, 0.0f));
     EXPECT_EQ(plane->vertices[21].position, glm::vec3(5.0f, 3.0f, 0.0f));
+    EXPECT_EQ(plane->vertices[21].normal, glm::vec3(0.0f, 0.0f, 1.0f));
     EXPECT_EQ(plane->vertices[21].texcoord, glm::vec2(4.0f, 3.0f));
 }
+
+TEST(GeometrySystem, GeneratesCubeWithOutwardUnitNormals) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    auto cube = nk::GeometrySystem::generate_cube(
+        allocator,
+        4.0f,
+        6.0f,
+        8.0f,
+        2.0f,
+        3.0f,
+        "cube",
+        "test_material");
+    ASSERT_TRUE(cube);
+    ASSERT_EQ(cube->vertices.length(), 24u);
+    ASSERT_EQ(cube->indices.length(), 36u);
+    EXPECT_EQ(cube->vertices[0].position, glm::vec3(-2.0f, -3.0f, 4.0f));
+    EXPECT_EQ(cube->vertices[1].texcoord, glm::vec2(2.0f, 3.0f));
+
+    for (nk::u64 index = 0; index < cube->indices.length(); index += 3) {
+        const glm::Vertex3D& a = cube->vertices[cube->indices[index]];
+        const glm::Vertex3D& b = cube->vertices[cube->indices[index + 1]];
+        const glm::Vertex3D& c = cube->vertices[cube->indices[index + 2]];
+        const glm::vec3 winding_normal = glm::cross(
+            b.position - a.position,
+            c.position - a.position);
+        EXPECT_GT(glm::dot(winding_normal, a.normal), 0.0f);
+        EXPECT_FLOAT_EQ(glm::dot(a.normal, a.normal), 1.0f);
+        EXPECT_EQ(a.normal, b.normal);
+        EXPECT_EQ(a.normal, c.normal);
+    }
+}
+
+TEST(GeometrySystem, GeneratesNormalsWithoutNanForDegenerateTriangles) {
+    glm::Vertex3D vertices[]{
+        {.position = {0.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
+        {.position = {1.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
+        {.position = {0.0f, 1.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
+        {.position = {2.0f, 0.0f, 0.0f}, .normal = glm::vec3{9.0f}, .texcoord = {}},
+    };
+    const nk::u32 indices[]{0, 1, 2, 1, 3, 3};
+
+    auto generated = nk::GeometrySystem::generate_normals(vertices, indices);
+
+    ASSERT_TRUE(generated);
+    EXPECT_EQ(vertices[0].normal, glm::vec3(0.0f, 0.0f, 1.0f));
+    EXPECT_EQ(vertices[1].normal, glm::vec3(0.0f, 0.0f, 1.0f));
+    EXPECT_EQ(vertices[2].normal, glm::vec3(0.0f, 0.0f, 1.0f));
+    EXPECT_EQ(vertices[3].normal, glm::vec3(0.0f));
+    for (const glm::Vertex3D& vertex : vertices) {
+        EXPECT_TRUE(std::isfinite(vertex.normal.x));
+        EXPECT_TRUE(std::isfinite(vertex.normal.y));
+        EXPECT_TRUE(std::isfinite(vertex.normal.z));
+    }
+}
+
+TEST(GeometrySystem, RejectsInvalidTopologyWithoutChangingNormals) {
+    glm::Vertex3D vertices[]{
+        {.position = {}, .normal = {1.0f, 2.0f, 3.0f}, .texcoord = {}},
+        {.position = {}, .normal = {4.0f, 5.0f, 6.0f}, .texcoord = {}},
+    };
+    const nk::u32 indices[]{0, 1, 2};
+
+    auto generated = nk::GeometrySystem::generate_normals(vertices, indices);
+
+    ASSERT_FALSE(generated);
+    EXPECT_EQ(generated.error().code, nk::geometry_error_code::invalid_config);
+    EXPECT_EQ(vertices[0].normal, glm::vec3(1.0f, 2.0f, 3.0f));
+    EXPECT_EQ(vertices[1].normal, glm::vec3(4.0f, 5.0f, 6.0f));
+}
+
+static_assert(sizeof(glm::Vertex3D) == 32);
+static_assert(offsetof(glm::Vertex3D, position) == 0);
+static_assert(offsetof(glm::Vertex3D, normal) == 12);
+static_assert(offsetof(glm::Vertex3D, texcoord) == 24);
 
 TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};

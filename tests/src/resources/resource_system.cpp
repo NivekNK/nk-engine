@@ -83,8 +83,10 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     const nk::ShaderConfig shader_config = shader_resource->config();
     EXPECT_EQ(shader_config.name, nk::strview{"Builtin.MaterialShader"});
     ASSERT_EQ(shader_config.stages.length(), 2u);
-    EXPECT_EQ(shader_config.attributes.length(), 2u);
-    EXPECT_EQ(shader_config.vertex_stride, 20u);
+    ASSERT_EQ(shader_config.attributes.length(), 3u);
+    EXPECT_EQ(shader_config.attributes[1].offset, 12u);
+    EXPECT_EQ(shader_config.attributes[2].offset, 24u);
+    EXPECT_EQ(shader_config.vertex_stride, 32u);
     ASSERT_EQ(shader_config.descriptor_sets.length(), 2u);
     ASSERT_EQ(shader_config.descriptor_sets[0].bindings.length(), 1u);
     EXPECT_EQ(shader_config.descriptor_sets[0].bindings[0].element_size, 128u);

@@ -10,6 +10,7 @@ stage=vertex,vertex,main
 stage=fragment,fragment,main
 
 attribute=f32_3,position
+attribute=f32_3,normal
 attribute=f32_2,texcoord
 
 uniform=mat4,global,projection

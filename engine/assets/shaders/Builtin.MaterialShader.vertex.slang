@@ -18,7 +18,8 @@ PushConstants u_push_constants;
 struct VertexInput
 {
     [[vk::location(0)]] float3 position : POSITION;
-    [[vk::location(1)]] float2 texcoord : TEXCOORD;
+    [[vk::location(1)]] float3 normal : NORMAL;
+    [[vk::location(2)]] float2 texcoord : TEXCOORD;
 };
 
 struct dto 
