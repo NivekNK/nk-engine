@@ -94,7 +94,7 @@ namespace nk {
             return err(texture_error{texture_error_code::out_of_memory, 0});
         }
 
-        auto default_created = create_default_texture();
+        auto default_created = create_default_textures();
         if (!default_created) {
             const texture_error error = default_created.error();
             shutdown();
@@ -118,6 +118,8 @@ namespace nk {
             }
             if (m_default_texture.m_internal_data != nullptr)
                 m_renderer->destroy_texture(&m_default_texture);
+            if (m_default_specular_texture.m_internal_data != nullptr)
+                m_renderer->destroy_texture(&m_default_specular_texture);
         }
 
         if (m_references.allocator() != nullptr)
@@ -126,6 +128,7 @@ namespace nk {
             (void)m_textures.arr_shutdown();
 
         m_default_texture = {};
+        m_default_specular_texture = {};
         m_loaded_count = 0;
         m_initialized = false;
         m_renderer = nullptr;
@@ -133,7 +136,7 @@ namespace nk {
         m_allocator = nullptr;
     }
 
-    result<void, texture_error> TextureSystem::create_default_texture() {
+    result<void, texture_error> TextureSystem::create_default_textures() {
         constexpr u32 dimension = 256;
         constexpr u32 channels = 4;
         constexpr u64 byte_count =
@@ -171,6 +174,25 @@ namespace nk {
         }
         m_default_texture.id = numeric::invalid_id;
         m_default_texture.generation = 0;
+
+        constexpr u8 specular_pixel[]{0, 0, 0, 255};
+        created = m_renderer->create_texture(
+            default_specular_texture_name,
+            1,
+            1,
+            4,
+            specular_pixel,
+            false,
+            &m_default_specular_texture);
+        if (!created) {
+            m_renderer->destroy_texture(&m_default_texture);
+            return err(texture_error{
+                texture_error_code::renderer_failed,
+                created.error().native_code,
+            });
+        }
+        m_default_specular_texture.id = numeric::invalid_id;
+        m_default_specular_texture.generation = 0;
         return ok();
     }
 
@@ -183,6 +205,8 @@ namespace nk {
             return err(texture_error{texture_error_code::invalid_name, 0});
         if (name == default_texture_name)
             return ok(&m_default_texture);
+        if (name == default_specular_texture_name)
+            return ok(&m_default_specular_texture);
 
         if (TextureReference* reference = m_references.find(name);
             reference != nullptr) {
@@ -231,8 +255,10 @@ namespace nk {
     }
 
     void TextureSystem::release(const strview name) {
-        if (!m_initialized || name.empty() || name == default_texture_name)
+        if (!m_initialized || name.empty() || name == default_texture_name ||
+            name == default_specular_texture_name) {
             return;
+        }
 
         TextureReference* reference = m_references.find(name);
         if (reference == nullptr || reference->reference_count == 0) {
@@ -252,8 +278,10 @@ namespace nk {
     }
 
     u32 TextureSystem::reference_count(const strview name) const noexcept {
-        if (!m_initialized || name.empty() || name == default_texture_name)
+        if (!m_initialized || name.empty() || name == default_texture_name ||
+            name == default_specular_texture_name) {
             return 0;
+        }
         const TextureReference* reference = m_references.find(name);
         return reference == nullptr
             ? 0

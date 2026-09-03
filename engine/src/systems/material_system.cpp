@@ -234,6 +234,15 @@ namespace nk {
             if (!normal_matrix)
                 return err(translate_shader_error(normal_matrix.error()));
             resolved.normal_matrix = *normal_matrix;
+            auto specular_texture =
+                m_shaders->uniform(*shader, "specular_texture");
+            if (!specular_texture)
+                return err(translate_shader_error(specular_texture.error()));
+            resolved.specular_texture = *specular_texture;
+            auto shininess = m_shaders->uniform(*shader, "shininess");
+            if (!shininess)
+                return err(translate_shader_error(shininess.error()));
+            resolved.shininess = *shininess;
         }
         return ok(resolved);
     }
@@ -257,6 +266,12 @@ namespace nk {
             .use = TextureUse::diffuse,
         };
         world.diffuse_map_name.assign(default_texture_name);
+        world.specular_map = {
+            .texture = &m_textures->default_specular_texture(),
+            .use = TextureUse::specular,
+        };
+        world.specular_map_name.assign(default_specular_texture_name);
+        world.shininess = 32.0f;
         world.generation = 0;
 
         auto world_created = m_shaders->acquire_instance(world.shader);
@@ -462,6 +477,66 @@ namespace nk {
         return ok();
     }
 
+    result<void, material_error> MaterialSystem::set_specular_texture(
+        Material& material,
+        const strview texture_name) {
+        if (!m_initialized)
+            return err(material_error{material_error_code::not_initialized, 0});
+        if (!material.valid() || material.type != MaterialType::world ||
+            texture_name.empty()) {
+            return err(material_error{material_error_code::invalid_name, 0});
+        }
+        if (material.specular_map_name.view() == texture_name)
+            return ok();
+
+        Texture* replacement = nullptr;
+        if (texture_name == default_specular_texture_name) {
+            replacement = &m_textures->default_specular_texture();
+        } else {
+            auto acquired = m_textures->acquire(texture_name, true);
+            if (!acquired) {
+                return err(material_error{
+                    material_error_code::texture_failed,
+                    acquired.error().native_code,
+                });
+            }
+            replacement = *acquired;
+        }
+
+        const strbuf<texture_name_capacity> previous_name =
+            material.specular_map_name;
+        material.specular_map.texture = replacement;
+        material.specular_map.use = TextureUse::specular;
+        material.specular_map_name.assign(texture_name);
+        ++material.generation;
+        if (material.generation == numeric::invalid_id)
+            material.generation = 0;
+
+        if (!previous_name.empty() &&
+            previous_name.view() != default_specular_texture_name) {
+            m_textures->release(previous_name.view());
+        }
+        return ok();
+    }
+
+    result<void, material_error> MaterialSystem::set_shininess(
+        Material& material,
+        const f32 shininess) {
+        if (!m_initialized)
+            return err(material_error{material_error_code::not_initialized, 0});
+        if (!material.valid() || material.type != MaterialType::world ||
+            !std::isfinite(shininess) || shininess <= 0.0f) {
+            return err(material_error{material_error_code::invalid_config, 0});
+        }
+        if (material.shininess == shininess)
+            return ok();
+        material.shininess = shininess;
+        ++material.generation;
+        if (material.generation == numeric::invalid_id)
+            material.generation = 0;
+        return ok();
+    }
+
     result<void, material_error> MaterialSystem::apply_global(
         const MaterialType type,
         const glm::mat4& projection,
@@ -523,18 +598,31 @@ namespace nk {
             return err(material_error{material_error_code::invalid_config, 0});
         }
 
-        Texture* texture = material.diffuse_map.texture;
-        const u32 texture_id = texture == nullptr
+        Texture* diffuse_texture = material.diffuse_map.texture;
+        const u32 diffuse_texture_id = diffuse_texture == nullptr
             ? numeric::invalid_id
-            : texture->id;
-        const u32 texture_generation = texture == nullptr
+            : diffuse_texture->id;
+        const u32 diffuse_texture_generation = diffuse_texture == nullptr
             ? numeric::invalid_id
-            : texture->generation;
+            : diffuse_texture->generation;
+        Texture* specular_texture = material.type == MaterialType::world
+            ? material.specular_map.texture
+            : nullptr;
+        const u32 specular_texture_id = specular_texture == nullptr
+            ? numeric::invalid_id
+            : specular_texture->id;
+        const u32 specular_texture_generation = specular_texture == nullptr
+            ? numeric::invalid_id
+            : specular_texture->generation;
         const bool needs_update =
             material.apply_state.frame_number != frame_number ||
             material.apply_state.material_generation != material.generation ||
-            material.apply_state.texture_id != texture_id ||
-            material.apply_state.texture_generation != texture_generation ||
+            material.apply_state.diffuse_texture_id != diffuse_texture_id ||
+            material.apply_state.diffuse_texture_generation !=
+                diffuse_texture_generation ||
+            material.apply_state.specular_texture_id != specular_texture_id ||
+            material.apply_state.specular_texture_generation !=
+                specular_texture_generation ||
             material.apply_state.instance_id != material.internal_id ||
             material.apply_state.shader != material.shader;
 
@@ -550,9 +638,21 @@ namespace nk {
                 return err(translate_shader_error(color_set.error()));
             auto texture_set = m_shaders->set_sampler(
                 uniform->diffuse_texture,
-                texture);
+                diffuse_texture);
             if (!texture_set)
                 return err(translate_shader_error(texture_set.error()));
+            if (material.type == MaterialType::world) {
+                auto specular_set = m_shaders->set_sampler(
+                    uniform->specular_texture,
+                    specular_texture);
+                if (!specular_set)
+                    return err(translate_shader_error(specular_set.error()));
+                auto shininess_set = m_shaders->set_uniform(
+                    uniform->shininess,
+                    material.shininess);
+                if (!shininess_set)
+                    return err(translate_shader_error(shininess_set.error()));
+            }
         }
         auto applied = m_shaders->apply_instance(needs_update);
         if (!applied)
@@ -561,8 +661,10 @@ namespace nk {
         material.apply_state = {
             .frame_number = frame_number,
             .material_generation = material.generation,
-            .texture_id = texture_id,
-            .texture_generation = texture_generation,
+            .diffuse_texture_id = diffuse_texture_id,
+            .diffuse_texture_generation = diffuse_texture_generation,
+            .specular_texture_id = specular_texture_id,
+            .specular_texture_generation = specular_texture_generation,
             .instance_id = material.internal_id,
             .shader = material.shader,
         };
@@ -602,6 +704,13 @@ namespace nk {
         material.diffuse_color = config.diffuse_color;
         material.diffuse_map.use = TextureUse::diffuse;
         material.diffuse_map_name.assign(config.diffuse_map_name.view());
+        material.shininess = config.shininess;
+        if (!std::isfinite(material.shininess) || material.shininess <= 0.0f)
+            return err(material_error{material_error_code::invalid_config, 0});
+        if (config.type == MaterialType::world) {
+            material.specular_map.use = TextureUse::specular;
+            material.specular_map_name.assign(config.specular_map_name.view());
+        }
 
         const strview shader_name = config.shader_name.empty()
             ? (config.type == MaterialType::world
@@ -616,6 +725,8 @@ namespace nk {
             return err(material_error{material_error_code::invalid_config, 0});
         material.shader = *shader;
 
+        bool diffuse_acquired = false;
+        bool specular_acquired = false;
         if (config.diffuse_map_name.empty() ||
             config.diffuse_map_name.view() == default_texture_name) {
             material.diffuse_map.texture = &m_textures->default_texture();
@@ -625,21 +736,50 @@ namespace nk {
                 config.diffuse_map_name.view(),
                 true);
             if (!texture) {
-                WarnLog(
-                    "Unable to load texture '{}' for material '{}'; using default.",
-                    config.diffuse_map_name.view(),
-                    config.name.view());
-                material.diffuse_map.texture = &m_textures->default_texture();
-                material.diffuse_map_name.assign(default_texture_name);
+                material = {};
+                return err(material_error{
+                    material_error_code::texture_failed,
+                    texture.error().native_code,
+                });
+            }
+            material.diffuse_map.texture = *texture;
+            diffuse_acquired = true;
+        }
+
+        if (config.type == MaterialType::world) {
+            if (config.specular_map_name.empty() ||
+                config.specular_map_name.view() ==
+                    default_specular_texture_name) {
+                material.specular_map.texture =
+                    &m_textures->default_specular_texture();
+                material.specular_map_name.assign(
+                    default_specular_texture_name);
             } else {
-                material.diffuse_map.texture = *texture;
+                auto texture = m_textures->acquire(
+                    config.specular_map_name.view(),
+                    true);
+                if (!texture) {
+                    if (diffuse_acquired) {
+                        m_textures->release(
+                            material.diffuse_map_name.view());
+                    }
+                    material = {};
+                    return err(material_error{
+                        material_error_code::texture_failed,
+                        texture.error().native_code,
+                    });
+                }
+                material.specular_map.texture = *texture;
+                specular_acquired = true;
             }
         }
 
         material.generation = 0;
         auto created = m_shaders->acquire_instance(material.shader);
         if (!created) {
-            if (material.diffuse_map_name.view() != default_texture_name)
+            if (specular_acquired)
+                m_textures->release(material.specular_map_name.view());
+            if (diffuse_acquired)
                 m_textures->release(material.diffuse_map_name.view());
             material = {};
             return err(translate_shader_error(created.error()));
@@ -651,6 +791,8 @@ namespace nk {
     void MaterialSystem::destroy_material(Material& material) {
         const strbuf<texture_name_capacity> texture_name =
             material.diffuse_map_name;
+        const strbuf<texture_name_capacity> specular_texture_name =
+            material.specular_map_name;
         if (material.shader.valid() &&
             material.internal_id != numeric::invalid_id) {
             auto released = m_shaders->release_instance(
@@ -666,6 +808,10 @@ namespace nk {
         if (!texture_name.empty() &&
             texture_name.view() != default_texture_name) {
             m_textures->release(texture_name.view());
+        }
+        if (!specular_texture_name.empty() &&
+            specular_texture_name.view() != default_specular_texture_name) {
+            m_textures->release(specular_texture_name.view());
         }
         material = {};
     }

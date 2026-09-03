@@ -12,6 +12,10 @@ namespace nk {
     namespace mem { class Allocator; }
 
     inline constexpr strview default_texture_name{"default", 7};
+    inline constexpr strview default_specular_texture_name{
+        "default_specular",
+        16,
+    };
 
     enum class texture_error_code : u8 {
         invalid_name,
@@ -57,6 +61,12 @@ namespace nk {
         const Texture& default_texture() const noexcept {
             return m_default_texture;
         }
+        Texture& default_specular_texture() noexcept {
+            return m_default_specular_texture;
+        }
+        const Texture& default_specular_texture() const noexcept {
+            return m_default_specular_texture;
+        }
 
         u32 reference_count(strview name) const noexcept;
         u32 loaded_count() const noexcept { return m_loaded_count; }
@@ -74,7 +84,7 @@ namespace nk {
             ResourceSystem& resources,
             u32 max_texture_count);
         void shutdown();
-        [[nodiscard]] result<void, texture_error> create_default_texture();
+        [[nodiscard]] result<void, texture_error> create_default_textures();
         [[nodiscard]] result<void, texture_error> load_texture(
             strview name,
             Texture& texture);
@@ -86,6 +96,7 @@ namespace nk {
         cl::arr<Texture> m_textures;
         cl::map<str, TextureReference> m_references;
         Texture m_default_texture{};
+        Texture m_default_specular_texture{};
         u32 m_loaded_count = 0;
         bool m_initialized = false;
     };

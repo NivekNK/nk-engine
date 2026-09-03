@@ -130,6 +130,8 @@ namespace nk {
         inline constexpr ShaderUniformHandle directional_light_direction{6};
         inline constexpr ShaderUniformHandle directional_light_color{7};
         inline constexpr ShaderUniformHandle normal_matrix{8};
+        inline constexpr ShaderUniformHandle specular_texture{9};
+        inline constexpr ShaderUniformHandle shininess{10};
     }
 }
 

@@ -93,6 +93,28 @@ namespace nk {
             color = parsed;
             return true;
         }
+
+        bool parse_f32(const strview text, f32& value) noexcept {
+            strbuf<63> buffer{text};
+            if (buffer.truncated())
+                return false;
+
+            errno = 0;
+            char* end = nullptr;
+            const f32 parsed = std::strtof(buffer.cstr(), &end);
+            if (end == buffer.cstr() || errno == ERANGE ||
+                !std::isfinite(parsed)) {
+                return false;
+            }
+            while (*end == ' ' || *end == '\t' ||
+                   *end == '\r' || *end == '\n') {
+                ++end;
+            }
+            if (*end != '\0')
+                return false;
+            value = parsed;
+            return true;
+        }
     }
 
     result<void, resource_error> TextResourceLoader::load(
@@ -313,6 +335,21 @@ namespace nk {
                 }
             } else if (key == strview{"diffuse_map_name", 16}) {
                 if (!parsed.diffuse_map_name.assign(value)) {
+                    return err(resource_error{
+                        resource_error_code::invalid_data,
+                        0,
+                    });
+                }
+            } else if (key == strview{"specular_map_name", 17}) {
+                if (!parsed.specular_map_name.assign(value)) {
+                    return err(resource_error{
+                        resource_error_code::invalid_data,
+                        0,
+                    });
+                }
+            } else if (key == strview{"shininess", 9}) {
+                if (!parse_f32(value, parsed.shininess) ||
+                    parsed.shininess <= 0.0f) {
                     return err(resource_error{
                         resource_error_code::invalid_data,
                         0,

@@ -45,11 +45,18 @@ namespace {
         nk::u32 end_calls() const { return m_end_calls; }
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
+        void fail_texture_create_on_call(nk::u32 call) {
+            m_failed_texture_create_call = call;
+        }
         void fail_shader_create(bool value) { m_fail_shader_create = value; }
         void fail_instance_acquire_on_call(nk::u32 call) {
             m_failed_instance_acquire_call = call;
         }
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
+        nk::u32 created_textures() const { return m_created_textures; }
+        bool default_specular_is_black() const {
+            return m_default_specular_is_black;
+        }
         nk::u32 created_shaders() const { return m_created_shaders; }
         nk::u32 destroyed_shaders() const { return m_destroyed_shaders; }
         nk::u32 sampler_array_index() const { return m_sampler_array_index; }
@@ -72,6 +79,10 @@ namespace {
         const glm::vec4& directional_light_color() const {
             return m_directional_light_color;
         }
+        nk::Texture* specular_sampler_texture() const {
+            return m_specular_sampler_texture;
+        }
+        nk::f32 shininess() const { return m_shininess; }
         nk::result<nk::ShaderHandle, nk::renderer_error> create_shader(
             const nk::ShaderConfig&,
             const nk::RenderPassKind pass) override {
@@ -160,26 +171,37 @@ namespace {
 
         nk::result<void, nk::renderer_error> set_shader_sampler(
             nk::ShaderHandle,
-            nk::ShaderUniformHandle,
-            nk::Texture*,
+            const nk::ShaderUniformHandle uniform,
+            nk::Texture* texture,
             const nk::u32 array_index) override {
             m_sampler_array_index = array_index;
+            if (uniform == nk::builtin_shader_uniform::specular_texture)
+                m_specular_sampler_texture = texture;
             append_shader_trace(7);
             return nk::ok();
         }
         nk::result<void, nk::renderer_error> create_texture(
-            nk::strview,
+            const nk::strview name,
             nk::u32 width,
             nk::u32 height,
             nk::u32 channel_count,
-            const nk::u8*,
+            const nk::u8* pixels,
             bool has_transparency,
             nk::Texture* texture) override {
-            if (m_fail_texture_create) {
+            ++m_texture_create_attempts;
+            if (m_fail_texture_create ||
+                m_texture_create_attempts == m_failed_texture_create_call) {
                 return nk::err(nk::renderer_error{
                     .code = nk::renderer_error_code::texture_sampler_creation_failed,
                     .native_code = VK_ERROR_OUT_OF_DEVICE_MEMORY,
                 });
+            }
+            ++m_created_textures;
+            if (name == nk::default_specular_texture_name) {
+                m_default_specular_is_black =
+                    width == 1 && height == 1 && channel_count == 4 &&
+                    pixels != nullptr && pixels[0] == 0 && pixels[1] == 0 &&
+                    pixels[2] == 0 && pixels[3] == 255;
             }
             *texture = {
                 .width = width,
@@ -276,6 +298,10 @@ namespace {
                     size == sizeof(glm::vec4)) {
                     m_directional_light_color =
                         *static_cast<const glm::vec4*>(data);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::shininess &&
+                    size == sizeof(nk::f32)) {
+                    m_shininess = *static_cast<const nk::f32*>(data);
                 }
             }
             if (uniform == nk::builtin_shader_uniform::projection ||
@@ -312,7 +338,7 @@ namespace {
 
     private:
         void append_shader_trace(const nk::u8 value) {
-            ASSERT_LT(m_shader_trace_length, 32u);
+            ASSERT_LT(m_shader_trace_length, std::size(m_shader_trace));
             m_shader_trace[m_shader_trace_length++] = value;
         }
 
@@ -334,6 +360,10 @@ namespace {
         nk::u32 m_pass_trace = 0;
         nk::u32 m_end_calls = 0;
         nk::u32 m_destroyed_textures = 0;
+        nk::u32 m_created_textures = 0;
+        nk::u32 m_texture_create_attempts = 0;
+        nk::u32 m_failed_texture_create_call = 0;
+        bool m_default_specular_is_black = false;
         nk::u32 m_failed_instance_acquire_call = 0;
         nk::u32 m_instance_acquire_attempts = 0;
         nk::u32 m_acquired_instances = 0;
@@ -345,7 +375,9 @@ namespace {
         glm::vec4 m_ambient_color{};
         glm::vec3 m_directional_light_direction{};
         glm::vec4 m_directional_light_color{};
-        nk::u8 m_shader_trace[32]{};
+        nk::Texture* m_specular_sampler_texture = nullptr;
+        nk::f32 m_shininess = 0.0f;
+        nk::u8 m_shader_trace[64]{};
         nk::u32 m_shader_trace_length = 0;
     };
 
@@ -444,6 +476,7 @@ namespace {
 
 static_assert(std::is_trivially_copyable_v<nk::renderer_error>);
 static_assert(sizeof(nk::renderer_error) == 8);
+static_assert(nk::TextureUse::diffuse != nk::TextureUse::specular);
 
 TEST(RendererResult, SeparatesSwapchainStatusesFromFailures) {
     auto ready = nk::vk::classify_swapchain_result(
@@ -587,7 +620,7 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
 
     ASSERT_TRUE(frame);
     constexpr nk::u8 world_protocol[] = {
-        1, 2, 3, 3, 6, 6, 6, 4, 5, 6, 7, 8, 9, 9,
+        1, 2, 3, 3, 6, 6, 6, 4, 5, 6, 7, 7, 6, 8, 9, 9,
     };
     constexpr nk::u8 ui_protocol[] = {
         1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
@@ -988,6 +1021,10 @@ TEST(TextureSystem, LoadsCachesAndAutoReleasesTextures) {
         allocator, renderer, *resources, 4);
     ASSERT_TRUE(created);
     nk::TextureSystem* textures = *created;
+    EXPECT_TRUE(textures->default_texture().valid());
+    EXPECT_TRUE(textures->default_specular_texture().valid());
+    EXPECT_TRUE(renderer.default_specular_is_black());
+    EXPECT_EQ(renderer.created_textures(), 2u);
 
     auto first = textures->acquire("cobblestone", true);
     ASSERT_TRUE(first);
@@ -1010,7 +1047,7 @@ TEST(TextureSystem, LoadsCachesAndAutoReleasesTextures) {
 
     nk::TextureSystem::destroy(allocator, textures);
     nk::ResourceSystem::destroy(allocator, resources);
-    EXPECT_EQ(renderer.destroyed_textures(), 2u);
+    EXPECT_EQ(renderer.destroyed_textures(), 3u);
 }
 
 TEST(TextureSystem, DoesNotPublishFailedLoads) {
@@ -1043,7 +1080,27 @@ TEST(TextureSystem, DoesNotPublishFailedLoads) {
 
     nk::TextureSystem::destroy(allocator, textures);
     nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(renderer.destroyed_textures(), 2u);
+}
+
+TEST(TextureSystem, RollsBackWhenDefaultSpecularTextureCreationFails) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    renderer.fail_texture_create_on_call(2);
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 2);
+
+    ASSERT_FALSE(created);
+    EXPECT_EQ(created.error().code, nk::texture_error_code::renderer_failed);
+    EXPECT_EQ(renderer.created_textures(), 1u);
     EXPECT_EQ(renderer.destroyed_textures(), 1u);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
 }
 
 TEST(TextureSystem, EnforcesCapacityAndReusesReleasedSlots) {
@@ -1100,13 +1157,19 @@ TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
     EXPECT_EQ((*first)->diffuse_color, glm::vec4(1.0f));
     ASSERT_NE((*first)->diffuse_map.texture, nullptr);
     EXPECT_EQ((*first)->diffuse_map.texture->width, 480u);
+    ASSERT_NE((*first)->specular_map.texture, nullptr);
+    EXPECT_EQ((*first)->specular_map.use, nk::TextureUse::specular);
+    EXPECT_EQ((*first)->specular_map.texture->width, 480u);
+    EXPECT_FLOAT_EQ((*first)->shininess, 64.0f);
     EXPECT_EQ(textures->reference_count("paving"), 1u);
+    EXPECT_EQ(textures->reference_count("paving_SPEC"), 1u);
 
     auto second = materials->acquire("test_material");
     ASSERT_TRUE(second);
     EXPECT_EQ(*first, *second);
     EXPECT_EQ(materials->reference_count("test_material"), 2u);
     EXPECT_EQ(textures->reference_count("paving"), 1u);
+    EXPECT_EQ(textures->reference_count("paving_SPEC"), 1u);
 
     materials->release("test_material");
     EXPECT_EQ(materials->loaded_count(), 1u);
@@ -1119,7 +1182,52 @@ TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
     EXPECT_EQ(renderer.released_instances(), 4u);
 }
 
-TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
+TEST(MaterialSystem, UsesNonOwnedDefaultsForOmittedMaterialMaps) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+
+    nk::MaterialConfig config{};
+    ASSERT_TRUE(config.name.assign("default_maps"));
+    auto acquired = systems.materials->acquire(config);
+
+    ASSERT_TRUE(acquired);
+    EXPECT_EQ(
+        (*acquired)->diffuse_map.texture,
+        &systems.textures->default_texture());
+    EXPECT_EQ(
+        (*acquired)->specular_map.texture,
+        &systems.textures->default_specular_texture());
+    EXPECT_EQ(
+        (*acquired)->specular_map_name.view(),
+        nk::default_specular_texture_name);
+    EXPECT_EQ(systems.textures->loaded_count(), 0u);
+    systems.materials->release("default_maps");
+    EXPECT_EQ(systems.textures->loaded_count(), 0u);
+}
+
+TEST(MaterialSystem, RollsBackDiffuseWhenSpecularAcquisitionFails) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+
+    nk::MaterialConfig config{};
+    ASSERT_TRUE(config.name.assign("transactional_maps"));
+    ASSERT_TRUE(config.diffuse_map_name.assign("paving"));
+    ASSERT_TRUE(config.specular_map_name.assign("missing_SPEC"));
+    auto acquired = systems.materials->acquire(config);
+
+    ASSERT_FALSE(acquired);
+    EXPECT_EQ(acquired.error().code, nk::material_error_code::texture_failed);
+    EXPECT_EQ(systems.materials->loaded_count(), 0u);
+    EXPECT_EQ(systems.textures->loaded_count(), 0u);
+    EXPECT_EQ(systems.textures->reference_count("paving"), 0u);
+    EXPECT_EQ(renderer.destroyed_textures(), 1u);
+}
+
+TEST(MaterialSystem, RebindsMaterialPropertiesWithoutLeakingReferences) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
     TestRenderSystems systems{allocator, renderer};
@@ -1139,6 +1247,40 @@ TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {
     ASSERT_TRUE(materials->set_diffuse_texture(*(*material), "paving2"));
     EXPECT_EQ(textures->reference_count("cobblestone"), 0u);
     EXPECT_EQ(textures->reference_count("paving2"), 1u);
+
+    ASSERT_TRUE(materials->set_specular_texture(
+        *(*material),
+        "cobblestone_SPEC"));
+    EXPECT_EQ(
+        (*material)->specular_map_name.view(),
+        nk::strview{"cobblestone_SPEC"});
+    EXPECT_EQ(textures->reference_count("paving_SPEC"), 0u);
+    EXPECT_EQ(textures->reference_count("cobblestone_SPEC"), 1u);
+
+    auto missing = materials->set_specular_texture(
+        *(*material),
+        "missing_SPEC");
+    ASSERT_FALSE(missing);
+    EXPECT_EQ(missing.error().code, nk::material_error_code::texture_failed);
+    EXPECT_EQ(
+        (*material)->specular_map_name.view(),
+        nk::strview{"cobblestone_SPEC"});
+    EXPECT_EQ(textures->reference_count("cobblestone_SPEC"), 1u);
+
+    ASSERT_TRUE(materials->set_specular_texture(
+        *(*material),
+        nk::default_specular_texture_name));
+    EXPECT_EQ(textures->reference_count("cobblestone_SPEC"), 0u);
+    ASSERT_TRUE(materials->set_shininess(*(*material), 96.0f));
+    EXPECT_FLOAT_EQ((*material)->shininess, 96.0f);
+
+    auto invalid_shininess =
+        materials->set_shininess(*(*material), 0.0f);
+    ASSERT_FALSE(invalid_shininess);
+    EXPECT_EQ(
+        invalid_shininess.error().code,
+        nk::material_error_code::invalid_config);
+    EXPECT_FLOAT_EQ((*material)->shininess, 96.0f);
 
     systems.shutdown();
 }
@@ -1161,6 +1303,8 @@ TEST(MaterialSystem, UpdatesInstanceDataOncePerFrameAndInvalidatesChanges) {
     ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));
     EXPECT_EQ(renderer.instance_apply_count(), 2u);
     EXPECT_EQ(renderer.instance_update_count(), 1u);
+    EXPECT_EQ(renderer.specular_sampler_texture(), (*material)->specular_map.texture);
+    EXPECT_FLOAT_EQ(renderer.shininess(), 64.0f);
 
     ASSERT_TRUE(systems.materials->set_diffuse_color(
         *(*material),

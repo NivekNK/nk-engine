@@ -22,3 +22,5 @@ uniform=f32_4,global,ambient_color
 uniform=f32_3,global,directional_light_direction
 uniform=f32_4,global,directional_light_color
 uniform=mat4,local,normal_matrix
+uniform=sampler_2d,instance,specular_texture
+uniform=f32,instance,shininess

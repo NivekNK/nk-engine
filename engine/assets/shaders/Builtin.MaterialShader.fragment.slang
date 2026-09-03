@@ -1,6 +1,7 @@
 struct LocalUniformObject
 {
     float4 diffuse_color;
+    float shininess;
 };
 
 struct GlobalUniformObject
@@ -19,7 +20,10 @@ ConstantBuffer<GlobalUniformObject> global_ubo;
 ConstantBuffer<LocalUniformObject> object_ubo;
 
 [[vk::binding(1, 1)]]
-Sampler2D diffuse_sampler;
+Sampler2D material_samplers[2];
+
+static const uint diffuse_sampler_index = 0;
+static const uint specular_sampler_index = 1;
 
 struct dto
 {
@@ -46,7 +50,8 @@ float3 safe_normalize(float3 value)
 }
 
 float4 main(FragmentInput input) : SV_Target0 {
-    float4 sampled_color = diffuse_sampler.Sample(input.in_dto.tex_coord);
+    float4 sampled_color = material_samplers[diffuse_sampler_index].Sample(
+        input.in_dto.tex_coord);
     float4 surface_color = object_ubo.diffuse_color * sampled_color;
 
     float3 normal = safe_normalize(input.in_dto.normal);

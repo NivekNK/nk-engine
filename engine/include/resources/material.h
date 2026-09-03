@@ -12,8 +12,9 @@ namespace nk {
     inline constexpr u64 shader_name_capacity = 127;
 
     enum class TextureUse : u8 {
-        unknown,
-        diffuse,
+        unknown = 0,
+        diffuse = 1,
+        specular = 2,
     };
 
     enum class MaterialType : u8 {
@@ -33,13 +34,17 @@ namespace nk {
         MaterialType type = MaterialType::world;
         glm::vec4 diffuse_color{1.0f};
         strbuf<texture_name_capacity> diffuse_map_name;
+        strbuf<texture_name_capacity> specular_map_name;
+        f32 shininess = 32.0f;
     };
 
     struct MaterialApplyState {
         u64 frame_number = numeric::u64_max;
         u32 material_generation = numeric::invalid_id;
-        u32 texture_id = numeric::invalid_id;
-        u32 texture_generation = numeric::invalid_id;
+        u32 diffuse_texture_id = numeric::invalid_id;
+        u32 diffuse_texture_generation = numeric::invalid_id;
+        u32 specular_texture_id = numeric::invalid_id;
+        u32 specular_texture_generation = numeric::invalid_id;
         u32 instance_id = numeric::invalid_id;
         ShaderHandle shader{};
     };
@@ -54,6 +59,9 @@ namespace nk {
         glm::vec4 diffuse_color{1.0f};
         TextureMap diffuse_map{};
         strbuf<texture_name_capacity> diffuse_map_name;
+        TextureMap specular_map{};
+        strbuf<texture_name_capacity> specular_map_name;
+        f32 shininess = 32.0f;
         MaterialApplyState apply_state{};
 
         bool valid() const noexcept {

@@ -63,9 +63,15 @@ namespace nk {
         [[nodiscard]] result<void, material_error> set_diffuse_texture(
             Material& material,
             strview texture_name);
+        [[nodiscard]] result<void, material_error> set_specular_texture(
+            Material& material,
+            strview texture_name);
         [[nodiscard]] result<void, material_error> set_diffuse_color(
             Material& material,
             const glm::vec4& color);
+        [[nodiscard]] result<void, material_error> set_shininess(
+            Material& material,
+            f32 shininess);
 
         [[nodiscard]] result<void, material_error> apply_global(
             MaterialType type,
@@ -111,6 +117,8 @@ namespace nk {
             ShaderUniformHandle directional_light_direction{};
             ShaderUniformHandle directional_light_color{};
             ShaderUniformHandle normal_matrix{};
+            ShaderUniformHandle specular_texture{};
+            ShaderUniformHandle shininess{};
 
             [[nodiscard]] bool valid(MaterialType type) const noexcept {
                 const bool common_valid =
@@ -122,7 +130,8 @@ namespace nk {
                      (ambient_color.valid() &&
                       directional_light_direction.valid() &&
                       directional_light_color.valid() &&
-                      normal_matrix.valid()));
+                      normal_matrix.valid() && specular_texture.valid() &&
+                      shininess.valid()));
             }
         };
 

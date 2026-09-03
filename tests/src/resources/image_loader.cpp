@@ -15,6 +15,14 @@ namespace {
         NK_TEST_ASSET_ROOT "/textures/paving2.png";
     constexpr nk::cstr orange_lines_path =
         NK_TEST_ASSET_ROOT "/textures/orange_lines_512.png";
+    constexpr nk::cstr cobblestone_specular_path =
+        NK_TEST_ASSET_ROOT "/textures/cobblestone_SPEC.png";
+    constexpr nk::cstr paving_specular_path =
+        NK_TEST_ASSET_ROOT "/textures/paving_SPEC.png";
+    constexpr nk::cstr paving2_specular_path =
+        NK_TEST_ASSET_ROOT "/textures/paving2_SPEC.png";
+    constexpr nk::cstr orange_lines_specular_path =
+        NK_TEST_ASSET_ROOT "/textures/orange_lines_512_SPEC.png";
 }
 
 TEST(ImageLoader, DecodesChapterTexturesAsRgba) {
@@ -50,7 +58,32 @@ TEST(ImageLoader, DecodesChapterTexturesAsRgba) {
         EXPECT_EQ(orange_lines->height, 512u);
         EXPECT_EQ(orange_lines->channel_count, 4u);
 
-        EXPECT_EQ(allocator.get_active_allocation_count(), 4u);
+        auto cobblestone_specular = nk::ImageLoader::load_png(
+            allocator, cobblestone_specular_path);
+        ASSERT_TRUE(cobblestone_specular);
+        EXPECT_EQ(cobblestone_specular->width, 512u);
+        EXPECT_EQ(cobblestone_specular->height, 512u);
+        EXPECT_FALSE(cobblestone_specular->has_transparency);
+
+        auto paving_specular = nk::ImageLoader::load_png(
+            allocator, paving_specular_path);
+        ASSERT_TRUE(paving_specular);
+        EXPECT_EQ(paving_specular->width, 480u);
+        EXPECT_EQ(paving_specular->height, 480u);
+
+        auto paving2_specular = nk::ImageLoader::load_png(
+            allocator, paving2_specular_path);
+        ASSERT_TRUE(paving2_specular);
+        EXPECT_EQ(paving2_specular->width, 480u);
+        EXPECT_EQ(paving2_specular->height, 480u);
+
+        auto orange_lines_specular = nk::ImageLoader::load_png(
+            allocator, orange_lines_specular_path);
+        ASSERT_TRUE(orange_lines_specular);
+        EXPECT_EQ(orange_lines_specular->width, 512u);
+        EXPECT_EQ(orange_lines_specular->height, 512u);
+
+        EXPECT_EQ(allocator.get_active_allocation_count(), 8u);
     }
 
     EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
