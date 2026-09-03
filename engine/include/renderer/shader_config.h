@@ -153,6 +153,7 @@ namespace nk {
         invalid_push_constant,
         overlapping_push_constants,
         unsupported_layout,
+        metadata_limits_exceeded,
     };
 
     [[nodiscard]] constexpr u32 shader_attribute_size(
