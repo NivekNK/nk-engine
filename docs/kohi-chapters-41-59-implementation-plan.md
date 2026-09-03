@@ -1,0 +1,748 @@
+# Plan de implementación de Kohi 41–59 en NK Engine
+
+- Estado: propuesto
+- Fecha de análisis: 2026-09-02
+- Punto de partida de NK Engine: capítulos 34–40 adaptados; rama `feature/textures`
+
+## Objetivo
+
+Ordenar la historia de Kohi entre los capítulos 41 y 59, separar los commits que
+quedaron mezclados o comprimidos, y convertirla en un plan implementable sobre
+NK Engine. Este documento no propone copiar literalmente el motor en C: mantiene
+las semánticas C++ de NK, sus allocators, `arr`, `dyarr`, `map`, `slice`, `str`,
+`result`, sus sistemas con ownership explícito y su backend Linux Wayland nativo.
+
+## Criterios de adaptación
+
+- La referencia funcional es Kohi, pero la API y el ownership deben ser propios
+  de NK Engine.
+- No se portará código de macOS ni GLFW. En Linux, las pruebas visuales se harán
+  primero sobre Wayland/xdg-shell en niri; XCB queda sólo como fallback existente.
+- No se introducirán contenedores STL en runtime para reemplazar los contenedores
+  propios. Se admiten utilidades estándar de lenguaje sin ownership dinámico
+  oculto cuando ya forman parte de la base actual.
+- Toda operación recuperable nueva debe devolver `nk::result<T, E>`; no se usarán
+  excepciones.
+- Una dependencia nueva sólo se agrega como submódulo fijado a un tag y se anota
+  en `.scripts/libraries.csv`. No se anticipa ninguna dependencia adicional en
+  estos capítulos.
+- `tinyobjloader` ya existe como submódulo en el tag `v2.0.0rc13` y ya está
+  registrado en `.scripts/libraries.csv`; el capítulo 55 debe reutilizarlo.
+- Cada capítulo se cierra con build, tests, validación Vulkan y un smoke test en
+  Wayland/niri cuando tenga salida gráfica.
+- Los commits sugeridos son semánticos y describen el cambio. No deben mencionar
+  el número del capítulo ni agrupar trabajo ajeno al alcance indicado.
+
+## Resultado del análisis histórico
+
+1. El vídeo 41 es una hoja de ruta y no tiene un commit funcional propio.
+2. Los capítulos 42–44 poseen límites claros: free list, dynamic allocator y
+   subasignación de buffers Vulkan.
+3. Los capítulos 45–48 fueron publicados en `main` como un único squash,
+   [`af39ef5`](https://github.com/travisvroman/kohi/commit/af39ef567da7f7b2607e1eca0a8d1eedc2fe01f5).
+   Para poder implementarlos por separado, este plan recupera la secuencia del
+   [PR #38](https://github.com/travisvroman/kohi/pull/38) y coloca los commits
+   originales según contenido y fecha de publicación de los vídeos. Es una
+   reconstrucción fundada, no una división oficial del squash.
+4. Los capítulos 49–50 tienen ramas de trabajo y merges entrecruzados. Se toma el
+   commit final de cada tema como referencia autoritativa y los anteriores como
+   evidencia de desarrollo o correcciones.
+5. Los capítulos 51–53 también aparecen como commits de desarrollo más un squash
+   final. Sólo se implementará el estado final; los commits previos sirven para
+   localizar correcciones, no para aplicar dos veces el mismo cambio.
+6. Los capítulos 54–59 vuelven a tener límites funcionales claros.
+
+### Segmentación resumida
+
+| Capítulo | Inicio/fin funcional de referencia | Estado del límite |
+|---|---|---|
+| 41 | Sin cambio funcional; documentación `7abec4f` → `6dbb907` | Intervalo auxiliar, no implementación del vídeo. |
+| 42 | `c4ae920`; fixes `185ae02` y `5f910b6` | Claro, con dos correcciones posteriores. |
+| 43 | `351ac92` → `7973c53`; integración global `195c60a` | Claro en la rama de desarrollo. |
+| 44 | `86e0dcf` | Claro; los commits circundantes son fixes/merges separados. |
+| 45 | `e26d5e2` → `b18c0b8` dentro del PR #38 | Reconstruido por contenido y fecha. |
+| 46 | `5af67df` dentro del PR #38 | Reconstruido; entrega puente de interfaz/backend. |
+| 47 | `5a8d58d` → `ed28914` dentro del PR #38 | Reconstruido por contenido y fecha. |
+| 48 | `0c36783` → `0ece16d`; squash final `af39ef5` | Reconstruido; el squash es el estado autoritativo. |
+| 49 | `06575c3` → `6960d48`; final `bc05433`; math fix `532a8af` | Dos ramas convergentes; usar el final como autoridad. |
+| 50 | `6a96cf6` → `a1cf8d8`; integración `0f6edd7`; fix `ce5970a` | Claro al considerar la integración con 49. |
+| 51 | `490b042` + `2544589`; final `8d3a9d2` | El último es el squash autoritativo. |
+| 52 | `5947269`; final `6e41e3d` | El último es el squash autoritativo. |
+| 53 | `875c03f` + `ad134a7`; final `37e0d20` | El último es el squash autoritativo. |
+| 54 | `58b3554` | Claro. |
+| 55 | `6f5b979` | Claro; squash del PR #46. |
+| 56 | `920035f` | Claro; squash del PR #50. |
+| 57 | `879ccc4` | Claro; squash del PR #56. |
+| 58 | `28817f7` | Claro; squash del PR #57. |
+| 59 | `4ba9e70` | Claro; squash del PR #61. |
+
+## Orden global y dependencias
+
+```text
+deuda retroactiva 35–40
+        │
+        ├─ 41 documentación/hoja de ruta
+        │
+        └─ 42 FreeList ── 43 FreeListAllocator ── 44 subasignación de Buffer
+                                                    │
+                                                    └─ 45 → 46 → 47 → 48 ShaderSystem
+                                                                         │
+                                                                         └─ 49 → 50 → 51 → 52 iluminación
+                                                                                              │
+                                                                                              └─ 53 → 54 → 55 → 56 meshes
+                                                                                                                   │
+                                                                                                                   └─ 57 → 58 → 59 texturas/targets
+```
+
+La dependencia dura del capítulo 44 es la estructura del 42, no necesariamente
+el allocator general del 43. Esto permite que los buffers administren rangos de
+GPU sin hacer que `Buffer` sea un allocator de memoria CPU.
+
+## Paso previo — deuda retroactiva de los capítulos 35–40
+
+Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
+41, pero sí auditarse antes de construir encima del renderer actual.
+
+### Correcciones que sí deben evaluarse
+
+| Referencia | Hallazgo | Acción en NK Engine |
+|---|---|---|
+| [`c760904`](https://github.com/travisvroman/kohi/commit/c7609045ba393605acf4f7f12d585438e5a028b5) | No todo dispositivo ofrece memoria host-visible y device-local para UBO. | Verificar selección de tipos de memoria y fallback host-visible/coherent. |
+| [`9f2d315`](https://github.com/travisvroman/kohi/commit/9f2d31585d0a666c808ec9664bb1acacdfb20979) | Dereferencia nula al fallar la carga de un recurso. | Añadir regresión de argumentos/salidas nulas en `ResourceSystem`. |
+| [`e266181`](https://github.com/travisvroman/kohi/commit/e266181807360c3b1cf0fbc83486e5ad1ac9406a) | Se reservaba GeometrySystem con el tamaño de MaterialSystem. | Auditar que cada sistema use su tamaño y allocator correctos. |
+| [`63994f4`](https://github.com/travisvroman/kohi/commit/63994f4d8472789d45cd8157b0997cc6270c4e35) | Estado de plataforma sin inicializar. | Verificar inicialización total del backend Wayland y del fallback XCB. |
+| [`8c1b685`](https://github.com/travisvroman/kohi/commit/8c1b685fc1b2f16338aaac52d31605c3850dfc2b) | Build Linux y stride de UBO de instancia alineado a 256 bytes. | Ignorar el build script antiguo, pero calcular stride con `minUniformBufferOffsetAlignment`. |
+| [`c126dec`](https://github.com/travisvroman/kohi/commit/c126dec11b8747544b564f7fbb5b7fa0d282cc21) | Actualización de descriptor después de bind. | Asegurar orden update-before-bind y añadir validación Vulkan. |
+| [`185ae02`](https://github.com/travisvroman/kohi/commit/185ae02c2be3ecdd728128ab385c9dcfa84d41fb) | Cálculo incorrecto de capacidad de metadata de la free list. | Se absorbe como regresión obligatoria del capítulo 42. |
+| [`c176d1b`](https://github.com/travisvroman/kohi/commit/c176d1bd21b067d030b8ec0a0386d04b3be740ff) | El render pass UI no actualizaba su área al redimensionar. | Probar resize de world y UI bajo Wayland. |
+| [`c50e824`](https://github.com/travisvroman/kohi/commit/c50e82498bdf38e55c38ae076a5505984cd47c2f) | Selección de colas Vulkan subóptima. | Preferir una familia compartida graphics/present y conservar fallback separado. |
+| [`805a53b`](https://github.com/travisvroman/kohi/commit/805a53b60cd287ddc0fe0fd3b5518825cf7f335a) | Doble indirección incorrecta de `VkFence`. | Verificar los tipos y lifetime de fences por imagen. |
+| [`2cbd684`](https://github.com/travisvroman/kohi/commit/2cbd684787246681f1a37d670d925fde077bfcf2) | Descriptor sets fijados a tres imágenes. | Dimensionar siempre con el image count real del swapchain. |
+| [`de996b0`](https://github.com/travisvroman/kohi/commit/de996b0b926c66e11bd23417e41d36181d5df273) | Compilación más estricta destapó tipos e inicializaciones incorrectas. | Mantener `-Wall -Wextra -pedantic-errors -Wvla` y corregir, no silenciar, warnings nuevos. |
+| [`ce5970a`](https://github.com/travisvroman/kohi/commit/ce5970a3b06f0fd478453f5d0abf2d3b322107ad) | `SPECULAR` repetía el bit de `DIFFUSE` y había una conversión angular incorrecta. | Se absorbe en capítulos 49–51: enums únicos y convención angular consistente. |
+
+### Criterio de cierre previo
+
+- [ ] Cada corrección aplicable está cubierta por código actual o por un test de
+  regresión nuevo.
+- [ ] Validation Layers no reporta errores en inicio, resize, dibujo UI y cierre.
+- [ ] Si se requiere corregir código, usar commits pequeños como
+  `fix(renderer): respect swapchain image counts in descriptor state` y
+  `fix(resources): preserve failure-state invariants`.
+
+## Capítulo 41 — Roadmap and Series Plans
+
+- Vídeo: [Kohi #041](https://youtu.be/SS8Zn13cZus?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Commit funcional: ninguno.
+- Lote documental cronológicamente asociado:
+  [`7abec4f`](https://github.com/travisvroman/kohi/commit/7abec4fd52902697ad525a87a9c874d271ef423a),
+  [`642fe9f`](https://github.com/travisvroman/kohi/commit/642fe9f2413a5ecdc2925bac067de0c0dea60e51),
+  [`52a229e`](https://github.com/travisvroman/kohi/commit/52a229ec0b9441fed456fd8c16a83a68b02beed9),
+  [`b9c4e87`](https://github.com/travisvroman/kohi/commit/b9c4e876fb29736cf170b7740c56fdd21a8060ba),
+  [`1dce8dd`](https://github.com/travisvroman/kohi/commit/1dce8dd605c02a528157defd43afd5c4ac08aa76) y
+  [`6dbb907`](https://github.com/travisvroman/kohi/commit/6dbb9073ec10288da35d61183bdf238880a2fce3).
+
+### Plan
+
+- [ ] No crear una implementación ficticia para este capítulo.
+- [ ] Revisar el roadmap sólo para confirmar el orden conceptual 42–59.
+- [ ] Documentar contratos de las APIs nuevas al implementarlas; no portar
+  Doxygen ni comentarios que describan APIs C inexistentes en NK.
+- [ ] Cerrar mediante un commit documental únicamente si se cambia documentación,
+  por ejemplo `docs(engine): document renderer resource ownership`.
+
+## Capítulo 42 — Free List
+
+- Vídeo: [Kohi #042](https://youtu.be/sP7xRUyP3e0?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia principal: [`c4ae920`](https://github.com/travisvroman/kohi/commit/c4ae9202dbd2ebd2dbb3af2f5c4fb3efd8836bed)
+- Fix temprano: [`185ae02`](https://github.com/travisvroman/kohi/commit/185ae02c2be3ecdd728128ab385c9dcfa84d41fb)
+- Fix tardío obligatorio: [`5f910b6`](https://github.com/travisvroman/kohi/commit/5f910b6811b5c1e50f6961df30a6e3c5a1ad4506)
+- Merge de procedencia: [`a89c2df`](https://github.com/travisvroman/kohi/commit/a89c2df7b5ce6dc99b8d8d025c9237b0119fb1a2)
+
+### Diseño NK
+
+- [ ] Crear `nk::mem::FreeList` como administrador de rangos contiguos, no como
+  contenedor público dentro de `nk::cl`.
+- [ ] Modelar cada rango con `u64 offset` y `u64 size`; usar aritmética comprobada
+  en toda suma, resta y alineación.
+- [ ] Recibir el allocator de metadata explícitamente al inicializar. No depender
+  de `MemorySystem` global ni reservar memoria durante `reserve`/`release`.
+- [ ] Ofrecer `reserve(size, alignment) -> result<MemoryRange, free_list_error>`,
+  `release(range)`, `resize(new_size)` y consultas de espacio libre/usado.
+- [ ] Mantener rangos ordenados por offset, fusionar vecinos por ambos lados,
+  rechazar double-free, solapamientos, rangos cero y rangos fuera de límites.
+- [ ] No copiar la fórmula defectuosa de metadata de Kohi. La capacidad mínima
+  para regiones pequeñas debe derivarse y probarse expresamente; el fix tardío
+  de Kohi que fuerza 20 entradas se trata como caso de regresión, no como número
+  mágico obligatorio.
+
+### Validación y commits
+
+- [ ] Tests: primera/mejor región disponible según política elegida, fragmentación,
+  coalescing, alineación, región completa, OOM, overflow, resize grow/shrink,
+  metadata mínima, double-free y secuencias aleatorias contra un modelo simple.
+- [ ] Commit sugerido: `feat(memory): add contiguous free-range management`.
+- [ ] Commit de tests si merece separación: `test(memory): cover free-range fragmentation and resize`.
+
+## Capítulo 43 — Dynamic Allocator
+
+- Vídeo: [Kohi #043](https://youtu.be/BSBFBWwG8Ds?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Desarrollo:
+  [`351ac92`](https://github.com/travisvroman/kohi/commit/351ac9256fa7c40ecda5eca08789e68004c250c2),
+  [`5a030e1`](https://github.com/travisvroman/kohi/commit/5a030e12820a59ef3758a751c8b117e79f2155b3) y
+  [`f977156`](https://github.com/travisvroman/kohi/commit/f9771567781bf67b0bc861218b06d9d9d467183f)
+- Integración global: [`195c60a`](https://github.com/travisvroman/kohi/commit/195c60a1fbaf2b7abe797a98ce8529d232d14bd0)
+- Corrección final: [`7973c53`](https://github.com/travisvroman/kohi/commit/7973c536d97cef8c9b7ef176619fc27e0d62a19e)
+- Documentación: [`293f5a1`](https://github.com/travisvroman/kohi/commit/293f5a10b0f5c519d8181f4bd70bc9f8a52f26ad) y
+  [`dccf6f8`](https://github.com/travisvroman/kohi/commit/dccf6f8a722785a27f9c47576bde25a76fe17986)
+- Merges de procedencia: [`fa5ca8e`](https://github.com/travisvroman/kohi/commit/fa5ca8eaa0504ffc241543f37b7b514b49cb1133) y
+  [`6c69e93`](https://github.com/travisvroman/kohi/commit/6c69e933208e9ab4bfa33cae34274279c05df731)
+
+### Diseño NK
+
+- [ ] Comparar el comportamiento requerido con `Allocator`, `MallocAllocator`,
+  `LinearAllocator`, `AllocatorOwner` y el tracking ya implementado.
+- [ ] No reemplazar el sistema global por la implementación C de Kohi. Añadir
+  `nk::mem::FreeListAllocator` sólo para el caso que falta: un heap fijo capaz de
+  liberar y reutilizar bloques.
+- [ ] Hacerlo derivar de `Allocator`, conservar tracking, alineación, estadísticas,
+  ownership/move y macros de source location existentes.
+- [ ] Usar `FreeList` del capítulo 42 para los rangos y almacenar un header mínimo
+  sólo si es imprescindible para validar `free`; evitar búsquedas o metadata
+  redundante en el fast path.
+- [ ] Mantener el arranque de `MemorySystem` actual. El backing store y la metadata
+  se inyectan al `init`, eliminando una dependencia circular.
+- [ ] Si el allocator actual ya cubre todo el uso real, cerrar el capítulo como
+  auditoría y tests, sin crear una clase redundante.
+
+### Validación y commits
+
+- [ ] Tests: distintas alineaciones, reuse, fragmentación, OOM, tamaño cero,
+  overflow, free inválido, tracking balanceado, move y shutdown.
+- [ ] Benchmark separado frente a `MallocAllocator` para cargas repetidas; no usar
+  el benchmark como sustituto de las pruebas de corrección.
+- [ ] Commit sugerido: `feat(memory): add a reusable free-list allocator`.
+
+## Capítulo 44 — Dynamic Vulkan Buffers
+
+- Vídeo: [Kohi #044](https://youtu.be/SNDJ-rGJd5A?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia principal: [`86e0dcf`](https://github.com/travisvroman/kohi/commit/86e0dcf64808e609bb244f5d90298b9640704344)
+- Merges de procedencia: [`50c4ba6`](https://github.com/travisvroman/kohi/commit/50c4ba60e8e52dce10e1a76ebaaa443f4c8aaf25) y
+  [`d64730b`](https://github.com/travisvroman/kohi/commit/d64730bc775c5ffc391eefee47d49cc59f838f7e)
+
+### Plan
+
+- [ ] Integrar una `FreeList` en cada `Buffer` que admita subasignación; no hacer
+  que `Buffer` herede del allocator de CPU.
+- [ ] Sustituir `m_geometry_vertex_offset` y `m_geometry_index_offset` por rangos
+  reservados con alineación comprobada.
+- [ ] Añadir `reserve`, `release` y `resize` fallibles al buffer, preservando datos
+  y offsets durante crecimiento.
+- [ ] Hacer la carga de geometría transaccional: si falla índices, staging o copy,
+  devolver también el rango de vértices y dejar el slot de geometría intacto.
+- [ ] Liberar ambos rangos al destruir o reemplazar geometría. Evitar
+  `vkDeviceWaitIdle` como solución general; documentar la sincronización necesaria
+  antes de reutilizar rangos todavía en vuelo.
+- [ ] Absorber los fixes retroactivos de image count, fences, queue families y
+  resize antes de dar por estable la nueva ruta.
+
+### Validación y commits
+
+- [ ] Unit tests del suballocator sin Vulkan y test de integración de ciclos
+  create/destroy/recreate que demuestre reutilización de offsets.
+- [ ] Smoke test con Validation Layers y resize repetido bajo niri.
+- [ ] Commits sugeridos: `feat(renderer): suballocate Vulkan buffer ranges` y
+  `fix(renderer): recycle geometry buffer ranges safely`.
+
+## Capítulo 45 — Shader System, parte 1
+
+- Vídeo: [Kohi #045](https://youtu.be/wXLsGqck100?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Squash común 45–48: [`af39ef5`](https://github.com/travisvroman/kohi/commit/af39ef567da7f7b2607e1eca0a8d1eedc2fe01f5)
+- Tramo reconstruido del PR #38:
+  [`e26d5e2`](https://github.com/travisvroman/kohi/commit/e26d5e2127976ffae53748535d84b346db12c1c9),
+  [`28dc2aa`](https://github.com/travisvroman/kohi/commit/28dc2aaa53e314251652425d847f72616c52a2b4),
+  [`f476910`](https://github.com/travisvroman/kohi/commit/f476910ebac0e8f3333539d1faf0361f9e8482bb),
+  [`3be3fe4`](https://github.com/travisvroman/kohi/commit/3be3fe43261ac7572af1f2aa6abafce0d73d525a),
+  [`37318ae`](https://github.com/travisvroman/kohi/commit/37318ae397bf400617125e6931b09769f0d5492b),
+  [`a1e5bea`](https://github.com/travisvroman/kohi/commit/a1e5bea9fe0a1f47d60ee6bfb0dd7b115dd329d3),
+  [`194a37a`](https://github.com/travisvroman/kohi/commit/194a37add490480b981cb42607ba7ad348a1ed66),
+  [`ce91bf4`](https://github.com/travisvroman/kohi/commit/ce91bf4449d7e257104e58f17b8606864ff2e9a7) y
+  [`b18c0b8`](https://github.com/travisvroman/kohi/commit/b18c0b810c28f214b6df64399e67653a06e6b3c9).
+
+### Plan
+
+- [ ] Extraer de `MaterialShader` un `Shader` backend configurable sin romper aún
+  la ruta pública existente.
+- [ ] Modelar etapas, atributos, descriptor layouts, uniformes, samplers y push
+  constants con enums/structs tipados y containers propios.
+- [ ] Mantener RAII y shutdown idempotente para módulos, layouts, pools, pipeline y
+  buffers. Cualquier init parcial debe hacer rollback completo.
+- [ ] Permitir layouts 2D y 3D sin clases Vulkan duplicadas para material y UI.
+- [ ] No crear todavía el registro global de shaders: esta entrega termina con un
+  objeto backend configurable probado directamente.
+
+### Validación y commit
+
+- [ ] Tests de validación de configuración y rollback; renderizar los shaders
+  built-in actuales mediante la nueva abstracción.
+- [ ] Commit sugerido: `refactor(renderer): introduce configurable Vulkan shaders`.
+
+## Capítulo 46 — Shader System, parte 2
+
+- Vídeo: [Kohi #046](https://youtu.be/T8-Tv4UsKCk?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Squash común: [`af39ef5`](https://github.com/travisvroman/kohi/commit/af39ef567da7f7b2607e1eca0a8d1eedc2fe01f5)
+- Límite reconstruido: [`5af67df`](https://github.com/travisvroman/kohi/commit/5af67df0060cda7ea49ea9bb19f1a3ea7eb8f36f)
+
+### Plan
+
+- [ ] Definir la interfaz renderer-neutral para create/destroy/use, bind globals,
+  bind instance, apply y set uniform.
+- [ ] Separar handles/IDs públicos de los punteros Vulkan internos.
+- [ ] Compactar metadata con anchos comprobados, sin truncar tamaños u offsets;
+  representar uniformes custom de forma explícita.
+- [ ] Mover la creación temporal del shader fuera del frontend y preparar la
+  entrada del sistema del capítulo 47.
+- [ ] Mantener el pipeline asociado a un render pass compatible, no a nombres
+  hardcodeados.
+
+### Validación y commit
+
+- [ ] Probar que material y UI usan la misma interfaz sin alterar el orden de sus
+  render passes.
+- [ ] Commit sugerido: `refactor(renderer): expose backend-neutral shader operations`.
+
+## Capítulo 47 — Shader System, parte 3
+
+- Vídeo: [Kohi #047](https://youtu.be/4E0v_5Wva-8?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Squash común: [`af39ef5`](https://github.com/travisvroman/kohi/commit/af39ef567da7f7b2607e1eca0a8d1eedc2fe01f5)
+- Tramo reconstruido:
+  [`5a8d58d`](https://github.com/travisvroman/kohi/commit/5a8d58dc4ca48bd7edbdec5e567f196148577923),
+  [`ef36b50`](https://github.com/travisvroman/kohi/commit/ef36b504e2aee0aff05e73d0757a2a43f924f287),
+  [`67ffde7`](https://github.com/travisvroman/kohi/commit/67ffde776459ac3e791a1667ca4c25015bf954b3),
+  [`1f5f0d1`](https://github.com/travisvroman/kohi/commit/1f5f0d1d85c5ae6f101afea3017e2fc41538a595) y
+  [`ed28914`](https://github.com/travisvroman/kohi/commit/ed28914f27760e748f941380513c84b8a2934ac1).
+
+### Plan
+
+- [ ] Crear `ShaderResourceLoader` sobre la interfaz virtual actual de
+  `ResourceLoader`.
+- [ ] Definir un formato de configuración de shader propio, con versión y errores
+  de parseo tipados. Puede conservar el concepto `.shadercfg`, no su parser C.
+- [ ] Crear `ShaderSystem` con lookup por nombre e ID usando `nk::cl::map<str, ...>`
+  y storage estable; definir ownership y límites desde config.
+- [ ] Implementar create/use/bind/apply y lookup de uniformes sin construir `str`
+  temporales durante cada draw; aceptar `strview`.
+- [ ] Resolver scopes global, instance y local, junto con ubicación, tamaño,
+  offset, array length y sampler index.
+- [ ] Toda carga fallida debe devolver `result` y liberar shader/recursos parciales.
+
+### Validación y commit
+
+- [ ] Tests del loader, nombres duplicados, límites, scopes, tipos inválidos,
+  lookup heterogéneo y shutdown.
+- [ ] Commits sugeridos: `feat(resources): load declarative shader configs` y
+  `feat(renderer): add managed shader resources`.
+
+## Capítulo 48 — Finalizing the Shader System
+
+- Vídeo: [Kohi #048](https://youtu.be/9nP3aBsrCXs?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Squash/final autoritativo: [`af39ef5`](https://github.com/travisvroman/kohi/commit/af39ef567da7f7b2607e1eca0a8d1eedc2fe01f5)
+- Tramo reconstruido:
+  [`0c36783`](https://github.com/travisvroman/kohi/commit/0c3678363cbec2473af66a9a1c54f001e492669f),
+  [`364cccf`](https://github.com/travisvroman/kohi/commit/364cccf95ded6ea511b9a025526bd3129e79e2a0),
+  [`c3cfbdd`](https://github.com/travisvroman/kohi/commit/c3cfbdd7fe1b1b153b6b65998a43fc6030ce15c5),
+  [`0c43dcf`](https://github.com/travisvroman/kohi/commit/0c43dcf03a3178082e948d84a456bdb0a758b025),
+  [`ae39c3a`](https://github.com/travisvroman/kohi/commit/ae39c3a52db1681bc572ffe5df4b963a7449f6d1),
+  [`fee4164`](https://github.com/travisvroman/kohi/commit/fee4164b06a59a8d50418a28c05aacef6456df84) y
+  [`0ece16d`](https://github.com/travisvroman/kohi/commit/0ece16d359efc4d3eb9b29a30ee6286d709e003d).
+- Los reverts de settings `b8bec4c` y `36f5111` no tienen implementación.
+
+### Plan
+
+- [ ] Completar set/update de uniformes y el binding global/instance/local.
+- [ ] Calcular strides UBO desde las propiedades físicas del dispositivo y validar
+  todos los offsets antes de map/copy.
+- [ ] Migrar MaterialSystem y los shaders world/UI al `ShaderSystem` genérico.
+- [ ] Eliminar `MaterialShader` únicamente cuando ambas rutas hayan pasado el
+  mismo smoke test; no conservar dos implementaciones activas.
+- [ ] Aplicar cada material una vez por frame cuando no cambie, pero invalidar el
+  cache ante cambios de generación, shader, mapa o descriptor.
+- [ ] Cubrir destrucción, reload y cierre en orden inverso de dependencias.
+
+### Validación y commits
+
+- [ ] Render world/UI, cambio de textura, resize y cierre con Validation Layers.
+- [ ] Commits sugeridos: `feat(renderer): complete shader uniform binding` y
+  `refactor(materials): route materials through the shader system`.
+
+## Capítulo 49 — Directional Lighting
+
+- Vídeo: [Kohi #049](https://youtu.be/gXMMrPgsAas?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia final: [`bc05433`](https://github.com/travisvroman/kohi/commit/bc05433030703151b5cdcb472de35f234510ee6f)
+- Desarrollo/correcciones:
+  [`06575c3`](https://github.com/travisvroman/kohi/commit/06575c31f930bcbd08408991ad4a3e77c3043e05),
+  [`6960d48`](https://github.com/travisvroman/kohi/commit/6960d48b056b310e45f5e52163ad712682febc90) y
+  [`532a8af`](https://github.com/travisvroman/kohi/commit/532a8af4ba4a3501ab204d9d151c6063a4e9b925)
+- Merges de integración: [`3d76931`](https://github.com/travisvroman/kohi/commit/3d76931b339f79d7f484b6723669c338c7768c34) y
+  [`0f6edd7`](https://github.com/travisvroman/kohi/commit/0f6edd7daad0600511aa2ec6ad55643101c6b4a5)
+
+### Plan
+
+- [ ] Añadir normal a `Vertex3D` y actualizar layout, generación de planos/cubos y
+  cargas existentes.
+- [ ] Implementar generación/normalización segura de normales y probar winding,
+  degenerados y transformaciones no uniformes.
+- [ ] Definir `DirectionalLight` renderer-neutral y su contrato de uniformes.
+- [ ] Extender el shader material con ambient + diffuse direccional y mantener
+  color/textura/alfa del material.
+- [ ] Fijar una convención documentada para handedness, orden de matrices,
+  dirección de luz y ángulos. El commit de math se usa como regresión.
+- [ ] No incorporar assets si los PNG ya presentes permiten demostrar el resultado.
+
+### Validación y commits
+
+- [ ] Tests matemáticos de normales y layout CPU/GPU; smoke con una malla rotando.
+- [ ] Commits sugeridos: `feat(geometry): generate vertex normals` y
+  `feat(renderer): add directional material lighting`.
+
+## Capítulo 50 — Specular Lighting
+
+- Vídeo: [Kohi #050](https://youtu.be/9O--xSmf5NU?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Desarrollo:
+  [`6a96cf6`](https://github.com/travisvroman/kohi/commit/6a96cf6c26e1d597beae0d981d5ce611f91b5f8b),
+  [`f88fc3f`](https://github.com/travisvroman/kohi/commit/f88fc3fff260cd8cbb022b258c805f2779d89ecb) y
+  [`a1cf8d8`](https://github.com/travisvroman/kohi/commit/a1cf8d87725089a1a1d537d13966bfca7819a570)
+- Integración con 49: [`3d76931`](https://github.com/travisvroman/kohi/commit/3d76931b339f79d7f484b6723669c338c7768c34) y
+  [`0f6edd7`](https://github.com/travisvroman/kohi/commit/0f6edd7daad0600511aa2ec6ad55643101c6b4a5)
+- Fix posterior: [`ce5970a`](https://github.com/travisvroman/kohi/commit/ce5970a3b06f0fd478453f5d0abf2d3b322107ad)
+
+### Plan
+
+- [ ] Añadir `TextureUse::specular` con valor único y mapa specular a config,
+  material, loader y lifecycle.
+- [ ] Crear una textura specular por defecto y usarla cuando el asset no declare
+  mapa; no compartir ownership de forma que se libere el default.
+- [ ] Exponer shininess y view position mediante uniformes tipados.
+- [ ] Implementar iluminación specular coherente con el modelo elegido y con la
+  dirección del capítulo 49.
+- [ ] Hacer acquisition transaccional: si falla el segundo sampler, liberar sólo
+  lo adquirido por esa operación.
+- [ ] Usar los PNG finales; no importar los JPG transitorios de la rama de trabajo.
+
+### Validación y commits
+
+- [ ] Tests de parsing/defaults/release y smoke comparando material con y sin mapa.
+- [ ] Commits sugeridos: `feat(materials): support specular texture maps` y
+  `feat(renderer): add specular material lighting`.
+
+## Capítulo 51 — Normal Maps
+
+- Vídeo: [Kohi #051](https://youtu.be/I0259XQnKng?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia final autoritativa: [`8d3a9d2`](https://github.com/travisvroman/kohi/commit/8d3a9d2c2b3c45219194c4004b2bc767625633e5)
+- Desarrollo incluido en el squash:
+  [`490b042`](https://github.com/travisvroman/kohi/commit/490b04265d04e739fd4ba9a24e7231eb70d3d739) y
+  [`2544589`](https://github.com/travisvroman/kohi/commit/2544589c38dec704405f8fb279d63bba4ceb6a33)
+
+### Plan
+
+- [ ] Añadir tangent con handedness a `Vertex3D`; revisar ABI/layout de pipeline.
+- [ ] Generar tangentes desde posiciones/UV/índices, acumulando y ortogonalizando;
+  manejar UV degeneradas sin NaN.
+- [ ] Añadir `TextureUse::normal`, config/material map y textura normal por defecto
+  `(0.5, 0.5, 1.0)` en espacio tangente.
+- [ ] Construir TBN de forma consistente en shader y transformar la muestra a
+  espacio de iluminación.
+- [ ] Actualizar las configuraciones built-in y el formato de materiales.
+- [ ] No aplicar por separado los tres commits de referencia: `8d3a9d2` ya contiene
+  el feature y el fix del default.
+
+### Validación y commits
+
+- [ ] Tests de tangentes, degenerados, defaults y layout; smoke con los normal maps
+  PNG finales.
+- [ ] Commits sugeridos: `feat(geometry): generate tangent space` y
+  `feat(materials): support normal texture maps`.
+
+## Capítulo 52 — Point Lights and Debug Modes
+
+- Vídeo: [Kohi #052](https://youtu.be/uD_vLeHvM1M?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia final autoritativa: [`6e41e3d`](https://github.com/travisvroman/kohi/commit/6e41e3dd1349b14e623c0ac6e4eacfa521a6a8c8)
+- Desarrollo incluido: [`5947269`](https://github.com/travisvroman/kohi/commit/59472695c01a0c6ce13ce0d6219d575196677883)
+
+### Plan
+
+- [ ] Definir `PointLight` con position, color y atenuación; no dejar luces de
+  producción hardcodeadas en GLSL. Si el tutorial las usa así como demostración,
+  colocarlas en la escena/editor de prueba.
+- [ ] Definir capacidad máxima y count en UBO con layout CPU/GPU comprobado.
+- [ ] Acumular direccional + point lights con diffuse/specular y atenuación.
+- [ ] Crear un `RenderViewMode` tipado para default, lighting-only y normals.
+- [ ] Enlazar los modos a eventos/input portable. Las teclas deben entrar por
+  `KeyCode`; no copiar `KeySym`/X11 al backend Wayland.
+- [ ] Mantener el modo fuera del backend Vulkan salvo el valor uniforme necesario.
+
+### Validación y commits
+
+- [ ] Tests de atenuación, packing UBO, evento de cambio y teclas Wayland; smoke de
+  todos los modos bajo niri.
+- [ ] Commits sugeridos: `feat(renderer): add point light accumulation` y
+  `feat(renderer): add lighting debug views`.
+
+## Capítulo 53 — Meshes, parte 1
+
+- Vídeo: [Kohi #053](https://youtu.be/73KBx90cD0M?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia final autoritativa: [`37e0d20`](https://github.com/travisvroman/kohi/commit/37e0d209bfbd1bd8c90b63e4eec9c654e78cb30e)
+- Desarrollo/fix incluido:
+  [`875c03f`](https://github.com/travisvroman/kohi/commit/875c03f943c42f6e6f6c8daf27c0a698b38cbdaf) y
+  [`ad134a7`](https://github.com/travisvroman/kohi/commit/ad134a765f8fba592799fbd6a98ac02660380d52)
+- Merges de procedencia: [`e6b76ee`](https://github.com/travisvroman/kohi/commit/e6b76ee8a8131b4aa1c45b3c86c36e0344f5e6bf),
+  [`0a92314`](https://github.com/travisvroman/kohi/commit/0a923140218fe87b31e9cd14c6fca6ab1188dd20) y
+  [`dd32341`](https://github.com/travisvroman/kohi/commit/dd3234114f944f514099bd49c5a155ed9ef8aec2)
+
+### Plan
+
+- [ ] Introducir `Mesh` como recurso que agrupa múltiples geometrías y conserva un
+  transform, sin ser dueño ambiguo de punteros crudos.
+- [ ] Usar `dyarr`/handles estables y documentar quién adquiere/libera geometrías y
+  materiales.
+- [ ] Extender `RenderPacket` para varias subgeometrías y evitar aplicar el mismo
+  material varias veces por frame si su estado no cambió.
+- [ ] Agregar materiales de demostración sólo cuando correspondan a assets ya
+  versionados y con rutas válidas.
+- [ ] Dejar el loader de disco fuera de este capítulo; aquí se prueba un mesh
+  construido desde configuraciones en memoria.
+
+### Validación y commits
+
+- [ ] Tests de lifecycle, mesh vacío/múltiple y cleanup parcial; smoke con dos o más
+  geometrías/materiales.
+- [ ] Commit sugerido: `feat(resources): add multi-geometry mesh resources`.
+
+## Capítulo 54 — Transforms
+
+- Vídeo: [Kohi #054](https://youtu.be/r2535XLneiI?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia principal: [`58b3554`](https://github.com/travisvroman/kohi/commit/58b3554a51d24c028f05f6e83af1ea8dfb2c7287)
+
+### Plan
+
+- [ ] Crear `Transform` C++ con position, quaternion rotation y scale, métodos de
+  mutación y cache de matriz local/world marcado dirty.
+- [ ] Representar parent como referencia no propietaria explícita o handle estable;
+  prohibir self-parent y ciclos.
+- [ ] Propagar invalidación a descendientes sin asignaciones por frame.
+- [ ] Definir con claridad si `Mesh` contiene su transform o recibe uno en el render
+  packet; evitar dos fuentes de verdad.
+- [ ] Reutilizar GLM ya instalado; no agregar otra biblioteca matemática.
+
+### Validación y commits
+
+- [ ] Tests de identidad, TRS, parent/child, reparent, dirty cache, ciclos y lifetime.
+- [ ] Commit sugerido: `feat(math): add hierarchical transforms`.
+
+## Capítulo 55 — Meshes, parte 2: OBJ
+
+- Vídeo: [Kohi #055](https://youtu.be/kIbW4Kv6p4c?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia final: [`6f5b979`](https://github.com/travisvroman/kohi/commit/6f5b979bccd59e84afb2155440bdaf4e014ad3b5)
+- PR de referencia: [#46](https://github.com/travisvroman/kohi/pull/46)
+
+### Plan
+
+- [ ] Implementar `MeshResourceLoader` para `ResourceType::static_mesh` usando el
+  submódulo existente `tinyobjloader` `v2.0.0rc13`.
+- [ ] Convertir OBJ/MTL a structs NK: posiciones, UV, normales, tangentes, índices,
+  grupos por material y extents.
+- [ ] Deduplicar vértices con `nk::cl::map` y rapidhash; incluir en la clave todos
+  los atributos que distinguen realmente un vértice.
+- [ ] Generar normales/tangentes sólo cuando falten y conservar el winding
+  acordado por NK.
+- [ ] Cargar múltiples submeshes/materiales de forma transaccional y devolver
+  errores de parseo, I/O, límites u OOM mediante `result`.
+- [ ] Empezar con fixtures OBJ pequeños ya presentes. No importar ciegamente los
+  ~570 mil renglones de Sponza, `Thumbs.db` ni decenas de TGA/JPG. Antes de añadir
+  assets grandes, verificar licencia, formatos soportados y necesidad del smoke.
+- [ ] Si se necesitan TGA/JPG, evaluar un decoder separado como cambio de
+  dependencia independiente, fijado a tag y CSV; no es requisito para validar OBJ.
+
+### Validación y commits
+
+- [ ] Tests: OBJ sin material, multi-material, índices negativos, caras no
+  trianguladas según política, archivo inválido, extents y cleanup.
+- [ ] Commits sugeridos: `feat(resources): load static meshes from OBJ` y, sólo si
+  procede, `assets(meshes): add licensed mesh fixtures`.
+
+## Capítulo 56 — Custom Binary Mesh File Format
+
+- Vídeo: [Kohi #056](https://youtu.be/Uk2p3vKBMXE?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia principal: [`920035f`](https://github.com/travisvroman/kohi/commit/920035fa5f8184f36a27107eed0ad81582efa23b)
+
+### Plan
+
+- [ ] Definir formato propio de NK, recomendado `.nkmesh`, con magic, versión,
+  endianness, counts, tamaños, extents y nombres acotados. No heredar `.ksm`.
+- [ ] Validar todos los offsets/counts antes de reservar o leer; limitar tamaños
+  para archivos hostiles o corruptos.
+- [ ] Serializar tipos de ancho fijo, nunca padding de structs C++ ni punteros.
+- [ ] En cache miss cargar OBJ y escribir cache mediante archivo temporal + rename;
+  si el cache está corrupto o incompatible, regenerarlo desde la fuente.
+- [ ] Versionar el formato al cambiar layout de vértices o texture maps.
+- [ ] No versionar caches gigantes generados. Mantener como máximo un fixture
+  binario pequeño y reproducible para compatibilidad.
+
+### Validación y commits
+
+- [ ] Round-trip OBJ → `.nkmesh` → Mesh, truncados, magic/version inválidos,
+  overflow, cache fallback y resultado determinista.
+- [ ] Commit sugerido: `feat(resources): cache static meshes in a versioned binary format`.
+
+## Capítulo 57 — Enhancing Texture Maps
+
+- Vídeo: [Kohi #057](https://youtu.be/hGA2veSznn8?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia principal: [`879ccc4`](https://github.com/travisvroman/kohi/commit/879ccc411f44d5df28ffdcc9c30d27a0febd6a3e)
+
+### Plan
+
+- [ ] Mover la configuración de sampler desde `TextureData` hacia `TextureMap`:
+  filtros min/mag, wrap U/V/W y anisotropía.
+- [ ] Mantener `Texture` como imagen compartible y dar al renderer un recurso de
+  sampler separado con ownership claro.
+- [ ] Traducir enums renderer-neutral a Vulkan en un único punto y validar soporte.
+- [ ] Limitar anisotropía a `maxSamplerAnisotropy`; desactivarla si el dispositivo
+  no la soporta, en vez de fijarla siempre a 16.
+- [ ] Actualizar material configs y la versión de `.nkmesh` con defaults backward
+  compatible o rechazo explícito de la versión antigua.
+- [ ] Cachear samplers idénticos sólo si las mediciones justifican la complejidad;
+  el primer alcance puede administrar uno por map.
+
+### Validación y commits
+
+- [ ] Tests de defaults, parsing, enum mapping, clamp, acquire/release y fallo
+  parcial; smoke con wrap/filter visualmente distinguible.
+- [ ] Commit sugerido: `feat(materials): configure samplers per texture map`.
+
+## Capítulo 58 — Writable Textures
+
+- Vídeo: [Kohi #058](https://youtu.be/86022SGWaHc?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia principal: [`28817f7`](https://github.com/travisvroman/kohi/commit/28817f7454101cce3a2310eccf0b3fa131587fab)
+
+### Plan
+
+- [ ] Añadir tipo/flags y ownership explícito de textura: cargada, writable y
+  external/swapchain. Usar la grafía `writable` en la API NK.
+- [ ] Implementar create, resize y write region mediante frontend renderer y
+  backend Vulkan, con transiciones de layout y staging correctos.
+- [ ] Envolver imágenes del swapchain como texturas externas sin destruir su
+  `VkImage` ni memoria durante release.
+- [ ] Incrementar generation sólo tras completar una actualización válida para que
+  descriptores puedan detectar cambios.
+- [ ] Hacer resize transaccional y sincronizar sólo los recursos en uso; documentar
+  cuándo aún se requiere esperar al dispositivo.
+- [ ] Separar recursos de archivo de texturas runtime para que auto-release no
+  intente recargar una imagen externa.
+
+### Validación y commits
+
+- [ ] Tests con backend fake para ownership/generation/rollback y smoke Vulkan de
+  escritura + resize del swapchain bajo niri.
+- [ ] Commits sugeridos: `feat(textures): support writable runtime textures` y
+  `refactor(renderer): expose swapchain images as external textures`.
+
+## Capítulo 59 — Render Targets and Configurable Renderpasses
+
+- Vídeo: [Kohi #059](https://youtu.be/tZjc_hSaUA4?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
+- Referencia principal: [`4ba9e70`](https://github.com/travisvroman/kohi/commit/4ba9e704e525f73c46d5eec0bc145f02920d5f6c)
+- PR de referencia: [#61](https://github.com/travisvroman/kohi/pull/61)
+- Prerrequisito tardío: fix de metadata de FreeList
+  [`5f910b6`](https://github.com/travisvroman/kohi/commit/5f910b6811b5c1e50f6961df30a6e3c5a1ad4506)
+
+### Plan
+
+- [ ] Definir `RenderPassConfig`, `RenderTargetConfig` y attachment configs fuera
+  del backend Vulkan: formato/tipo, load/store, clear y fuente del attachment.
+- [ ] Mantener `VkRenderPass`, `VkFramebuffer` y detalles de layouts dentro de
+  Vulkan; el frontend sólo conserva handles/recursos renderer-neutral.
+- [ ] Construir targets desde texturas writable o externas del capítulo 58.
+- [ ] Regenerar attachments/targets al cambiar generación, tamaño o image count del
+  swapchain, incluyendo world y UI.
+- [ ] Validar compatibilidad de dimensiones, formato, sample count y roles
+  color/depth antes de crear objetos Vulkan.
+- [ ] Hacer init/rebuild transaccional y destruir framebuffers antes que sus views,
+  images y render pass.
+- [ ] Mantener inicialmente el flujo world → UI. Un render graph queda fuera de
+  alcance hasta que exista una necesidad distinta a estos dos passes.
+
+### Validación y commits
+
+- [ ] Unit tests de config inválida y backend fake; Validation Layers en inicio,
+  varios resize, minimizar/restaurar y cierre bajo niri.
+- [ ] Commits sugeridos: `feat(renderer): add configurable render targets` y
+  `refactor(vulkan): build render passes from renderer configs`.
+
+## Matriz de verificación por entrega
+
+Cada capítulo funcional debe satisfacer, como mínimo:
+
+```bash
+nix run .#build -- Debug --target tests
+ctest --test-dir out/build/Linux-Debug --output-on-failure
+NK_ENABLE_SANITIZERS=ON nix run .#build -- Debug --target tests
+ctest --test-dir out/build/Linux-Debug-Sanitized --output-on-failure
+nix run .#build -- Debug --target editor
+NK_PLATFORM_BACKEND=wayland nix run .#run -- Debug
+```
+
+Además:
+
+- [ ] `git diff --check` limpio.
+- [ ] Sin errores ni warnings de Validation Layers relacionados con el cambio.
+- [ ] AllocationTracker vuelve al baseline después del test de lifecycle.
+- [ ] Fallos parciales dejan el objeto inválido pero destruible y no filtran
+  memoria CPU/GPU.
+- [ ] El commit es revertible por sí solo o declara de forma explícita su
+  dependencia del commit inmediatamente anterior.
+
+## Inventario completo de commits entregados
+
+La tabla evita que un merge, fix o cambio no funcional sea interpretado como un
+capítulo perdido. “Procedencia” significa que el contenido real vive en sus
+padres y no se implementa una segunda vez.
+
+| Commits | Clasificación |
+|---|---|
+| [`9cd8543`](https://github.com/travisvroman/kohi/commit/9cd8543b2007ce5ef4c9455a828baea46d72559d), [`df0a262`](https://github.com/travisvroman/kohi/commit/df0a2626fe32526313c404be40c3d0e4e4bf03b0), [`5fa6644`](https://github.com/travisvroman/kohi/commit/5fa66447ed2febf574f8573266f3b40085cf1a72), [`fa70696`](https://github.com/travisvroman/kohi/commit/fa70696d5abd366201f43cd31fef253339c2bdac), [`c39dde8`](https://github.com/travisvroman/kohi/commit/c39dde81cd4b18809663f6d3e923c35efe6da870), [`142da8f`](https://github.com/travisvroman/kohi/commit/142da8fcbeddad6421e9c0c9c929c7cf37b90e96), [`57712a3`](https://github.com/travisvroman/kohi/commit/57712a32e8f8fa4305a0c32b7b8299ea8e03db72) | Merges de procedencia 35–40. |
+| [`7bfacf1`](https://github.com/travisvroman/kohi/commit/7bfacf18878bb0cb887bd4e2c0b09c0c422768d3), [`8311129`](https://github.com/travisvroman/kohi/commit/8311129761f181e88302e821918663957eb28136), [`d76fd4e`](https://github.com/travisvroman/kohi/commit/d76fd4eb8e9b49749dfd5c06a6ae5e8a294214db), [`6d586e1`](https://github.com/travisvroman/kohi/commit/6d586e131a2cc2319d9fd93a67a69bc446d7bb1c), [`abe4aab`](https://github.com/travisvroman/kohi/commit/abe4aab38014a89c60d4ce0537ab5354e31682eb), [`dbadba4`](https://github.com/travisvroman/kohi/commit/dbadba43231e6262afd796fc6585909462b6b193), [`ad36538`](https://github.com/travisvroman/kohi/commit/ad36538ebbf54b3d2bc77bfe364333ca4f6736f5), [`ca369fc`](https://github.com/travisvroman/kohi/commit/ca369fc63209ccf7ce069800cbed8ca846bbc1e3) | Merges de procedencia previos al 42. |
+| [`c760904`](https://github.com/travisvroman/kohi/commit/c7609045ba393605acf4f7f12d585438e5a028b5), [`9f2d315`](https://github.com/travisvroman/kohi/commit/9f2d31585d0a666c808ec9664bb1acacdfb20979), [`e266181`](https://github.com/travisvroman/kohi/commit/e266181807360c3b1cf0fbc83486e5ad1ac9406a), [`63994f4`](https://github.com/travisvroman/kohi/commit/63994f4d8472789d45cd8157b0997cc6270c4e35), [`8c1b685`](https://github.com/travisvroman/kohi/commit/8c1b685fc1b2f16338aaac52d31605c3850dfc2b), [`c126dec`](https://github.com/travisvroman/kohi/commit/c126dec11b8747544b564f7fbb5b7fa0d282cc21) | Fixes retroactivos aplicables; auditarlos antes del 42. |
+| [`0c52ad4`](https://github.com/travisvroman/kohi/commit/0c52ad4e0d917fd1e1d1a5a3f1c272c2f2886cf4), [`e5d084e`](https://github.com/travisvroman/kohi/commit/e5d084eb50aea71085106ef62f59d771a6403568), [`6bf0d10`](https://github.com/travisvroman/kohi/commit/6bf0d1029ea28adf57bd26a35122a7010c8f051a) | macOS: fuera de alcance. |
+| [`79d5096`](https://github.com/travisvroman/kohi/commit/79d5096cc9e88e0a6aa26ee964385a63a760393b), [`8573cb6`](https://github.com/travisvroman/kohi/commit/8573cb65d50b6145d510dea4008f32a29251f427) | README: sin implementación. |
+| [`7abec4f`](https://github.com/travisvroman/kohi/commit/7abec4fd52902697ad525a87a9c874d271ef423a), [`642fe9f`](https://github.com/travisvroman/kohi/commit/642fe9f2413a5ecdc2925bac067de0c0dea60e51), [`52a229e`](https://github.com/travisvroman/kohi/commit/52a229ec0b9441fed456fd8c16a83a68b02beed9), [`b9c4e87`](https://github.com/travisvroman/kohi/commit/b9c4e876fb29736cf170b7740c56fdd21a8060ba), [`1dce8dd`](https://github.com/travisvroman/kohi/commit/1dce8dd605c02a528157defd43afd5c4ac08aa76), [`6dbb907`](https://github.com/travisvroman/kohi/commit/6dbb9073ec10288da35d61183bdf238880a2fce3) | Documentación asociada al intervalo del 41. |
+| [`c4ae920`](https://github.com/travisvroman/kohi/commit/c4ae9202dbd2ebd2dbb3af2f5c4fb3efd8836bed), [`a89c2df`](https://github.com/travisvroman/kohi/commit/a89c2df7b5ce6dc99b8d8d025c9237b0119fb1a2), [`185ae02`](https://github.com/travisvroman/kohi/commit/185ae02c2be3ecdd728128ab385c9dcfa84d41fb), [`5f910b6`](https://github.com/travisvroman/kohi/commit/5f910b6811b5c1e50f6961df30a6e3c5a1ad4506) | Capítulo 42 y fixes de FreeList. |
+| [`fa5ca8e`](https://github.com/travisvroman/kohi/commit/fa5ca8eaa0504ffc241543f37b7b514b49cb1133), [`351ac92`](https://github.com/travisvroman/kohi/commit/351ac9256fa7c40ecda5eca08789e68004c250c2), [`5a030e1`](https://github.com/travisvroman/kohi/commit/5a030e12820a59ef3758a751c8b117e79f2155b3), [`f977156`](https://github.com/travisvroman/kohi/commit/f9771567781bf67b0bc861218b06d9d9d467183f), [`de996b0`](https://github.com/travisvroman/kohi/commit/de996b0b926c66e11bd23417e41d36181d5df273), [`6c69e93`](https://github.com/travisvroman/kohi/commit/6c69e933208e9ab4bfa33cae34274279c05df731), [`195c60a`](https://github.com/travisvroman/kohi/commit/195c60a1fbaf2b7abe797a98ce8529d232d14bd0), [`293f5a1`](https://github.com/travisvroman/kohi/commit/293f5a10b0f5c519d8181f4bd70bc9f8a52f26ad), [`dccf6f8`](https://github.com/travisvroman/kohi/commit/dccf6f8a722785a27f9c47576bde25a76fe17986), [`7973c53`](https://github.com/travisvroman/kohi/commit/7973c536d97cef8c9b7ef176619fc27e0d62a19e) | Capítulo 43; merges/docs no se duplican. |
+| [`86e0dcf`](https://github.com/travisvroman/kohi/commit/86e0dcf64808e609bb244f5d90298b9640704344), [`50c4ba6`](https://github.com/travisvroman/kohi/commit/50c4ba60e8e52dce10e1a76ebaaa443f4c8aaf25), [`d64730b`](https://github.com/travisvroman/kohi/commit/d64730bc775c5ffc391eefee47d49cc59f838f7e) | Capítulo 44 e integración. |
+| [`c144e17`](https://github.com/travisvroman/kohi/commit/c144e1720255c89a6460b9fab3be6dcd286f851b), [`6a8e03b`](https://github.com/travisvroman/kohi/commit/6a8e03b6cb7ff491d36c7d65595e83c21454b9a6), [`04d3244`](https://github.com/travisvroman/kohi/commit/04d3244880888df8d0a5386106e0052cecbabd64), [`cb70fd3`](https://github.com/travisvroman/kohi/commit/cb70fd3bab8875a667df36c639c0b58777abe782), [`716b35a`](https://github.com/travisvroman/kohi/commit/716b35a68df837639f0d496846be9e7ab8f65dcd), [`3e1596a`](https://github.com/travisvroman/kohi/commit/3e1596a24c9bfbc42138d04c154e15a6c0250aac) | Merges de fixes alrededor del 44; procedencia solamente. |
+| [`4d75df7`](https://github.com/travisvroman/kohi/commit/4d75df779d6cf3241803b432fc2ba84d3d052e3c), [`cd22fa7`](https://github.com/travisvroman/kohi/commit/cd22fa7e3ba0035ed0aba86140008e547c90ff3e) | Plantilla/VS Code: sin implementación. |
+| [`c176d1b`](https://github.com/travisvroman/kohi/commit/c176d1bd21b067d030b8ec0a0386d04b3be740ff), [`c50e824`](https://github.com/travisvroman/kohi/commit/c50e82498bdf38e55c38ae076a5505984cd47c2f), [`805a53b`](https://github.com/travisvroman/kohi/commit/805a53b60cd287ddc0fe0fd3b5518825cf7f335a), [`2cbd684`](https://github.com/travisvroman/kohi/commit/2cbd684787246681f1a37d670d925fde077bfcf2) | Fixes renderer/Vulkan alrededor del 44; se vuelven regresiones obligatorias. |
+| [`af39ef5`](https://github.com/travisvroman/kohi/commit/af39ef567da7f7b2607e1eca0a8d1eedc2fe01f5) | Squash conjunto de capítulos 45–48. |
+| [`06575c3`](https://github.com/travisvroman/kohi/commit/06575c31f930bcbd08408991ad4a3e77c3043e05), [`6960d48`](https://github.com/travisvroman/kohi/commit/6960d48b056b310e45f5e52163ad712682febc90), [`532a8af`](https://github.com/travisvroman/kohi/commit/532a8af4ba4a3501ab204d9d151c6063a4e9b925), [`bc05433`](https://github.com/travisvroman/kohi/commit/bc05433030703151b5cdcb472de35f234510ee6f) | Capítulo 49. |
+| [`6a96cf6`](https://github.com/travisvroman/kohi/commit/6a96cf6c26e1d597beae0d981d5ce611f91b5f8b), [`f88fc3f`](https://github.com/travisvroman/kohi/commit/f88fc3fff260cd8cbb022b258c805f2779d89ecb), [`a1cf8d8`](https://github.com/travisvroman/kohi/commit/a1cf8d87725089a1a1d537d13966bfca7819a570), [`3d76931`](https://github.com/travisvroman/kohi/commit/3d76931b339f79d7f484b6723669c338c7768c34), [`0f6edd7`](https://github.com/travisvroman/kohi/commit/0f6edd7daad0600511aa2ec6ad55643101c6b4a5), [`ce5970a`](https://github.com/travisvroman/kohi/commit/ce5970a3b06f0fd478453f5d0abf2d3b322107ad) | Capítulo 50, integración con 49 y fix posterior. |
+| [`490b042`](https://github.com/travisvroman/kohi/commit/490b04265d04e739fd4ba9a24e7231eb70d3d739), [`2544589`](https://github.com/travisvroman/kohi/commit/2544589c38dec704405f8fb279d63bba4ceb6a33), [`8d3a9d2`](https://github.com/travisvroman/kohi/commit/8d3a9d2c2b3c45219194c4004b2bc767625633e5) | Capítulo 51; el último es el squash final. |
+| [`5947269`](https://github.com/travisvroman/kohi/commit/59472695c01a0c6ce13ce0d6219d575196677883), [`6e41e3d`](https://github.com/travisvroman/kohi/commit/6e41e3dd1349b14e623c0ac6e4eacfa521a6a8c8) | Capítulo 52; el último es el squash final. |
+| [`875c03f`](https://github.com/travisvroman/kohi/commit/875c03f943c42f6e6f6c8daf27c0a698b38cbdaf), [`ad134a7`](https://github.com/travisvroman/kohi/commit/ad134a765f8fba592799fbd6a98ac02660380d52), [`e6b76ee`](https://github.com/travisvroman/kohi/commit/e6b76ee8a8131b4aa1c45b3c86c36e0344f5e6bf), [`37e0d20`](https://github.com/travisvroman/kohi/commit/37e0d209bfbd1bd8c90b63e4eec9c654e78cb30e), [`0a92314`](https://github.com/travisvroman/kohi/commit/0a923140218fe87b31e9cd14c6fca6ab1188dd20), [`dd32341`](https://github.com/travisvroman/kohi/commit/dd3234114f944f514099bd49c5a155ed9ef8aec2) | Capítulo 53 e integración hacia 54. |
+| [`58b3554`](https://github.com/travisvroman/kohi/commit/58b3554a51d24c028f05f6e83af1ea8dfb2c7287) | Capítulo 54. |
+| [`76055c5`](https://github.com/travisvroman/kohi/commit/76055c56c86d8b1cd85a9c0624236ea1b537d9d6), [`9be9f18`](https://github.com/travisvroman/kohi/commit/9be9f185c4fc78e5826f0b241b63322ef4bc154b), [`9424fda`](https://github.com/travisvroman/kohi/commit/9424fda2ca4d384d15383c7ee411bd37ebd66c8c), [`38c3c52`](https://github.com/travisvroman/kohi/commit/38c3c521017895ef26ef7862ad30428a0504665c), [`653f8d8`](https://github.com/travisvroman/kohi/commit/653f8d866b8395ad21f9228140c03fcb088c5a84) | Secuencia de pruebas de README sin cambio funcional neto. |
+| [`6f5b979`](https://github.com/travisvroman/kohi/commit/6f5b979bccd59e84afb2155440bdaf4e014ad3b5) | Capítulo 55. |
+| [`920035f`](https://github.com/travisvroman/kohi/commit/920035fa5f8184f36a27107eed0ad81582efa23b) | Capítulo 56. |
+| [`879ccc4`](https://github.com/travisvroman/kohi/commit/879ccc411f44d5df28ffdcc9c30d27a0febd6a3e) | Capítulo 57. |
+| [`28817f7`](https://github.com/travisvroman/kohi/commit/28817f7454101cce3a2310eccf0b3fa131587fab) | Capítulo 58. |
+| [`4ba9e70`](https://github.com/travisvroman/kohi/commit/4ba9e704e525f73c46d5eec0bc145f02920d5f6c) | Capítulo 59. |
+
+## Regla de ejecución futura
+
+Al comenzar un capítulo:
+
+1. Marcar sus tareas como en progreso sin modificar las de capítulos posteriores.
+2. Comparar el estado final de referencia, no aplicar commits de desarrollo como
+   parches literales.
+3. Implementar primero contratos y tests, luego integración y assets.
+4. Ejecutar la matriz de verificación.
+5. Crear los commits semánticos propuestos o equivalentes, sin mencionar capítulos.
+6. Actualizar este documento con decisiones, desviaciones justificadas y hashes de
+   los commits NK resultantes.
