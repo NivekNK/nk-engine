@@ -483,9 +483,23 @@ TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
             allocator, renderer, *textures, *resources, 4);
     ASSERT_TRUE(materials_created);
     nk::MaterialSystem* materials = *materials_created;
+    EXPECT_EQ(
+        materials->default_material().type,
+        nk::MaterialType::world);
+    EXPECT_EQ(
+        materials->default_ui_material().type,
+        nk::MaterialType::ui);
+
+    auto ui = materials->acquire("test_ui_material");
+    ASSERT_TRUE(ui);
+    EXPECT_EQ((*ui)->type, nk::MaterialType::ui);
+    ASSERT_NE((*ui)->diffuse_map.texture, nullptr);
+    EXPECT_EQ((*ui)->diffuse_map.texture->width, 512u);
+    materials->release("test_ui_material");
 
     auto first = materials->acquire("test_material");
     ASSERT_TRUE(first);
+    EXPECT_EQ((*first)->type, nk::MaterialType::world);
     EXPECT_EQ((*first)->diffuse_color, glm::vec4(1.0f));
     ASSERT_NE((*first)->diffuse_map.texture, nullptr);
     EXPECT_EQ((*first)->diffuse_map.texture->width, 480u);
@@ -502,12 +516,12 @@ TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
     materials->release("test_material");
     EXPECT_EQ(materials->loaded_count(), 0u);
     EXPECT_EQ(textures->loaded_count(), 0u);
-    EXPECT_EQ(renderer.destroyed_materials(), 1u);
+    EXPECT_EQ(renderer.destroyed_materials(), 2u);
 
     nk::MaterialSystem::destroy(allocator, materials);
     nk::TextureSystem::destroy(allocator, textures);
     nk::ResourceSystem::destroy(allocator, resources);
-    EXPECT_EQ(renderer.destroyed_materials(), 2u);
+    EXPECT_EQ(renderer.destroyed_materials(), 4u);
 }
 
 TEST(MaterialSystem, RebindsDiffuseTexturesWithoutLeakingReferences) {

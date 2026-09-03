@@ -50,8 +50,23 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(
         material->as<nk::MaterialConfig>()->diffuse_map_name.view(),
         nk::strview{"paving"});
-    EXPECT_EQ(resources->active_resource_count(), 4u);
+    EXPECT_EQ(
+        material->as<nk::MaterialConfig>()->type,
+        nk::MaterialType::world);
 
+    auto ui_material = resources->load(
+        "test_ui_material",
+        nk::ResourceType::material);
+    ASSERT_TRUE(ui_material);
+    EXPECT_EQ(
+        ui_material->as<nk::MaterialConfig>()->type,
+        nk::MaterialType::ui);
+    EXPECT_EQ(
+        ui_material->as<nk::MaterialConfig>()->diffuse_map_name.view(),
+        nk::strview{"orange_lines_512"});
+    EXPECT_EQ(resources->active_resource_count(), 5u);
+
+    EXPECT_TRUE(resources->unload(*ui_material));
     EXPECT_TRUE(resources->unload(*material));
     EXPECT_TRUE(resources->unload(*image));
     EXPECT_TRUE(resources->unload(*binary));

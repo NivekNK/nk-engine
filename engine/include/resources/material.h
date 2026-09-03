@@ -14,6 +14,11 @@ namespace nk {
         diffuse,
     };
 
+    enum class MaterialType : u8 {
+        world,
+        ui,
+    };
+
     struct TextureMap {
         Texture* texture = nullptr;
         TextureUse use = TextureUse::unknown;
@@ -22,6 +27,7 @@ namespace nk {
     struct MaterialConfig {
         strbuf<material_name_capacity> name;
         bool auto_release = true;
+        MaterialType type = MaterialType::world;
         glm::vec4 diffuse_color{1.0f};
         strbuf<texture_name_capacity> diffuse_map_name;
     };
@@ -31,6 +37,7 @@ namespace nk {
         u32 generation = numeric::invalid_id;
         u32 internal_id = numeric::invalid_id;
         strbuf<material_name_capacity> name;
+        MaterialType type = MaterialType::world;
         glm::vec4 diffuse_color{1.0f};
         TextureMap diffuse_map{};
         strbuf<texture_name_capacity> diffuse_map_name;

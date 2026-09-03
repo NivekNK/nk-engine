@@ -293,6 +293,17 @@ namespace nk {
                         0,
                     });
                 }
+            } else if (key == strview{"type", 4}) {
+                if (value == strview{"world", 5}) {
+                    parsed.type = MaterialType::world;
+                } else if (value == strview{"ui", 2}) {
+                    parsed.type = MaterialType::ui;
+                } else {
+                    return err(resource_error{
+                        resource_error_code::invalid_data,
+                        0,
+                    });
+                }
             } else if (key == strview{"diffuse_map_name", 16}) {
                 if (!parsed.diffuse_map_name.assign(value)) {
                     return err(resource_error{

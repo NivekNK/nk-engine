@@ -478,6 +478,15 @@ namespace nk {
             return;
         }
 
+        const MaterialType expected_material_type =
+            pass == RenderPassKind::world
+                ? MaterialType::world
+                : MaterialType::ui;
+        if (data.geometry->material->type != expected_material_type) {
+            ErrorLog("Geometry material type does not match the active render pass.");
+            return;
+        }
+
         const u64 expected_vertex_stride = pass == RenderPassKind::world
             ? sizeof(glm::Vertex3D)
             : sizeof(glm::Vertex2D);
@@ -684,23 +693,19 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::create_material(
         Material& material) {
-        auto world_resources = m_material_shader.acquire_resources(material);
-        if (!world_resources)
-            return err(world_resources.error());
-
-        auto ui_resources = m_ui_shader.acquire_resources(material.internal_id);
-        if (!ui_resources) {
-            m_material_shader.release_resources(material);
-            return err(ui_resources.error());
-        }
-        return ok();
+        MaterialShader& shader = material.type == MaterialType::world
+            ? m_material_shader
+            : m_ui_shader;
+        return shader.acquire_resources(material);
     }
 
     void VulkanRenderer::destroy_material(Material& material) {
-        if (material.internal_id != numeric::invalid_id) {
-            m_ui_shader.release_resources(material.internal_id);
-            m_material_shader.release_resources(material);
-        }
+        if (material.internal_id == numeric::invalid_id)
+            return;
+        MaterialShader& shader = material.type == MaterialType::world
+            ? m_material_shader
+            : m_ui_shader;
+        shader.release_resources(material);
     }
 
     result<void, renderer_error> VulkanRenderer::create_geometry(

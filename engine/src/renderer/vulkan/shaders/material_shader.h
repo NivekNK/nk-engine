@@ -85,10 +85,7 @@ namespace nk {
 
         [[nodiscard]] result<void, renderer_error> acquire_resources(
             Material& material);
-        [[nodiscard]] result<void, renderer_error> acquire_resources(
-            u32 instance_id);
         void release_resources(Material& material);
-        void release_resources(u32 instance_id);
 
         void set_global_ubo(const GlobalUniformObject& global_ubo) { m_global_ubo = global_ubo; }
         void set_default_texture(Texture* texture) noexcept {

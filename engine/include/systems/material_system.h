@@ -13,6 +13,7 @@ namespace nk {
     namespace mem { class Allocator; }
 
     inline constexpr strview default_material_name{"default", 7};
+    inline constexpr strview default_ui_material_name{"default_ui", 10};
 
     enum class material_error_code : u8 {
         invalid_name,
@@ -64,6 +65,12 @@ namespace nk {
         const Material& default_material() const noexcept {
             return m_default_material;
         }
+        Material& default_ui_material() noexcept {
+            return m_default_ui_material;
+        }
+        const Material& default_ui_material() const noexcept {
+            return m_default_ui_material;
+        }
 
         u32 reference_count(strview name) const noexcept;
         u32 loaded_count() const noexcept { return m_loaded_count; }
@@ -82,7 +89,7 @@ namespace nk {
             ResourceSystem& resources,
             u32 max_material_count);
         void shutdown();
-        [[nodiscard]] result<void, material_error> create_default_material();
+        [[nodiscard]] result<void, material_error> create_default_materials();
         [[nodiscard]] result<void, material_error> load_material(
             const MaterialConfig& config,
             Material& material);
@@ -96,6 +103,7 @@ namespace nk {
         cl::arr<Material> m_materials;
         cl::map<str, MaterialReference> m_references;
         Material m_default_material{};
+        Material m_default_ui_material{};
         u32 m_loaded_count = 0;
         bool m_initialized = false;
     };

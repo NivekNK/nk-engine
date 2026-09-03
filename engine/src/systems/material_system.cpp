@@ -87,7 +87,7 @@ namespace nk {
             return err(material_error{material_error_code::out_of_memory, 0});
         }
 
-        auto default_created = create_default_material();
+        auto default_created = create_default_materials();
         if (!default_created) {
             const material_error error = default_created.error();
             shutdown();
@@ -107,6 +107,8 @@ namespace nk {
                 if (material.valid())
                     destroy_material(material);
             }
+            if (m_default_ui_material.valid())
+                destroy_material(m_default_ui_material);
             if (m_default_material.valid())
                 destroy_material(m_default_material);
         }
@@ -117,6 +119,7 @@ namespace nk {
             (void)m_materials.arr_shutdown();
 
         m_default_material = {};
+        m_default_ui_material = {};
         m_loaded_count = 0;
         m_initialized = false;
         m_textures = nullptr;
@@ -125,25 +128,48 @@ namespace nk {
         m_allocator = nullptr;
     }
 
-    result<void, material_error> MaterialSystem::create_default_material() {
-        Material material{};
-        material.name.assign(default_material_name);
-        material.diffuse_color = glm::vec4{1.0f};
-        material.diffuse_map = {
+    result<void, material_error> MaterialSystem::create_default_materials() {
+        Material world{};
+        world.name.assign(default_material_name);
+        world.type = MaterialType::world;
+        world.diffuse_color = glm::vec4{1.0f};
+        world.diffuse_map = {
             .texture = &m_textures->default_texture(),
             .use = TextureUse::diffuse,
         };
-        material.diffuse_map_name.assign(default_texture_name);
-        material.generation = 0;
+        world.diffuse_map_name.assign(default_texture_name);
+        world.generation = 0;
 
-        auto created = m_renderer->create_material(material);
-        if (!created) {
+        auto world_created = m_renderer->create_material(world);
+        if (!world_created) {
             return err(material_error{
                 material_error_code::renderer_failed,
-                created.error().native_code,
+                world_created.error().native_code,
             });
         }
-        m_default_material = material;
+
+        Material ui{};
+        ui.name.assign(default_ui_material_name);
+        ui.type = MaterialType::ui;
+        ui.diffuse_color = glm::vec4{1.0f};
+        ui.diffuse_map = {
+            .texture = &m_textures->default_texture(),
+            .use = TextureUse::diffuse,
+        };
+        ui.diffuse_map_name.assign(default_texture_name);
+        ui.generation = 0;
+
+        auto ui_created = m_renderer->create_material(ui);
+        if (!ui_created) {
+            m_renderer->destroy_material(world);
+            return err(material_error{
+                material_error_code::renderer_failed,
+                ui_created.error().native_code,
+            });
+        }
+
+        m_default_material = world;
+        m_default_ui_material = ui;
         return ok();
     }
 
@@ -155,6 +181,8 @@ namespace nk {
             return err(material_error{material_error_code::invalid_name, 0});
         if (name == default_material_name)
             return ok(&m_default_material);
+        if (name == default_ui_material_name)
+            return ok(&m_default_ui_material);
 
         if (MaterialReference* reference = m_references.find(name);
             reference != nullptr) {
@@ -187,6 +215,8 @@ namespace nk {
             return err(material_error{material_error_code::invalid_name, 0});
         if (config.name.view() == default_material_name)
             return ok(&m_default_material);
+        if (config.name.view() == default_ui_material_name)
+            return ok(&m_default_ui_material);
 
         if (MaterialReference* reference =
                 m_references.find(config.name.view());
@@ -235,8 +265,11 @@ namespace nk {
     }
 
     void MaterialSystem::release(const strview name) {
-        if (!m_initialized || name.empty() || name == default_material_name)
+        if (!m_initialized || name.empty() ||
+            name == default_material_name ||
+            name == default_ui_material_name) {
             return;
+        }
 
         MaterialReference* reference = m_references.find(name);
         if (reference == nullptr || reference->reference_count == 0) {
@@ -299,6 +332,7 @@ namespace nk {
         const MaterialConfig& config,
         Material& material) {
         material.name.assign(config.name.view());
+        material.type = config.type;
         material.diffuse_color = config.diffuse_color;
         material.diffuse_map.use = TextureUse::diffuse;
         material.diffuse_map_name.assign(config.diffuse_map_name.view());
@@ -357,8 +391,11 @@ namespace nk {
     }
 
     u32 MaterialSystem::reference_count(const strview name) const noexcept {
-        if (!m_initialized || name.empty() || name == default_material_name)
+        if (!m_initialized || name.empty() ||
+            name == default_material_name ||
+            name == default_ui_material_name) {
             return 0;
+        }
         const MaterialReference* reference = m_references.find(name);
         return reference == nullptr
             ? 0

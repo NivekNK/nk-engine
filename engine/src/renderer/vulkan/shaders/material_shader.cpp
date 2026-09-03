@@ -559,24 +559,6 @@ namespace nk {
             });
         }
 
-        auto acquired = acquire_resources(instance_id);
-        if (!acquired)
-            return err(acquired.error());
-
-        material.internal_id = instance_id;
-        return ok();
-    }
-
-    result<void, renderer_error> MaterialShader::acquire_resources(
-        const u32 instance_id) {
-        if (instance_id >= max_material_count ||
-            m_instance_states[instance_id].descriptor_sets.allocator() != nullptr) {
-            return err(renderer_error{
-                renderer_error_code::object_resource_failed,
-                0,
-            });
-        }
-
         MaterialShaderInstanceState& instance = m_instance_states[instance_id];
         if (!instance.descriptor_sets.arr_init(m_allocator, m_image_count))
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
@@ -639,21 +621,17 @@ namespace nk {
             });
         }
 
+        material.internal_id = instance_id;
         return ok();
     }
 
     void MaterialShader::release_resources(Material& material) {
         if (material.internal_id >= max_material_count)
             return;
-        release_resources(material.internal_id);
-        material.internal_id = numeric::invalid_id;
-    }
-
-    void MaterialShader::release_resources(const u32 instance_id) {
-        if (instance_id >= max_material_count)
-            return;
+        const u32 instance_id = material.internal_id;
         MaterialShaderInstanceState& instance = m_instance_states[instance_id];
         if (instance.descriptor_sets.allocator() == nullptr) {
+            material.internal_id = numeric::invalid_id;
             return;
         }
 
@@ -673,5 +651,6 @@ namespace nk {
             (void)state.ids.arr_shutdown();
         }
         (void)instance.descriptor_sets.arr_shutdown();
+        material.internal_id = numeric::invalid_id;
     }
 }
