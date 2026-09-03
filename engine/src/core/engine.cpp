@@ -232,6 +232,37 @@ namespace nk {
         m_test_geometry = *test_geometry;
         m_test_material = m_test_geometry->material;
 
+        Geometry2DConfig ui_config{};
+        if (!ui_config.vertices.dyarr_init_list(
+                m_allocator,
+                {
+                    {{0.0f, 0.0f}, {0.0f, 0.0f}},
+                    {{512.0f, 512.0f}, {1.0f, 1.0f}},
+                    {{0.0f, 512.0f}, {0.0f, 1.0f}},
+                    {{512.0f, 0.0f}, {1.0f, 0.0f}},
+                }) ||
+            !ui_config.indices.dyarr_init_list(
+                m_allocator,
+                {2u, 1u, 0u, 3u, 0u, 1u})) {
+            ErrorLog("Test UI geometry allocation failed.");
+            shutdown_impl();
+            return false;
+        }
+        ui_config.name.assign("test_ui_geometry");
+        ui_config.material_name.assign("test_ui_material");
+
+        auto test_ui_geometry = m_geometry_system->acquire(ui_config, true);
+        if (!test_ui_geometry) {
+            const geometry_error error = test_ui_geometry.error();
+            ErrorLog(
+                "Test UI geometry creation failed: geometry_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_test_ui_geometry = *test_ui_geometry;
+
         Camera::init(m_renderer);
 
         m_clock.init(m_platform);
@@ -257,6 +288,7 @@ namespace nk {
             GeometrySystem::destroy(*m_allocator, m_geometry_system);
             m_geometry_system = nullptr;
             m_test_geometry = nullptr;
+            m_test_ui_geometry = nullptr;
             m_test_material = nullptr;
         }
         if (m_material_system != nullptr) {
@@ -370,10 +402,17 @@ namespace nk {
                     .model = glm::mat4{1.0f},
                     .geometry = m_test_geometry,
                 };
+                GeometryRenderData ui_geometry{
+                    .model = glm::mat4{1.0f},
+                    .geometry = m_test_ui_geometry,
+                };
                 auto frame = m_renderer->draw_frame({
                     .delta_time = delta,
                     .geometry_count = m_test_geometry == nullptr ? 0u : 1u,
                     .geometries = &geometry,
+                    .ui_geometry_count =
+                        m_test_ui_geometry == nullptr ? 0u : 1u,
+                    .ui_geometries = &ui_geometry,
                 });
                 if (!frame) {
                     const renderer_error& error = frame.error();

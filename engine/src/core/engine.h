@@ -54,6 +54,7 @@ namespace nk {
         MaterialSystem* m_material_system = nullptr;
         GeometrySystem* m_geometry_system = nullptr;
         Geometry* m_test_geometry = nullptr;
+        Geometry* m_test_ui_geometry = nullptr;
         Material* m_test_material = nullptr;
         u8 m_debug_texture_index = 0;
         bool m_initialized = false;
