@@ -490,7 +490,7 @@ namespace nk {
         const u64 expected_vertex_stride = pass == RenderPassKind::world
             ? sizeof(glm::Vertex3D)
             : sizeof(glm::Vertex2D);
-        if (geometry.vertex_size !=
+        if (geometry.vertex_range.size !=
             geometry.vertex_count * expected_vertex_stride) {
             ErrorLog("Geometry vertex layout does not match the active render pass.");
             return;
@@ -506,7 +506,7 @@ namespace nk {
         shader.apply_material(
             m_graphics_command_buffers, m_image_index, *data.geometry->material);
 
-        VkDeviceSize offsets[1] = {geometry.vertex_buffer_offset};
+        VkDeviceSize offsets[1] = {geometry.vertex_range.offset};
         VkBuffer vertex_buffer = m_object_vertex_buffer.get();
         vkCmdBindVertexBuffers(command_buffer->get(), 0, 1, &vertex_buffer, static_cast<VkDeviceSize*>(offsets));
 
@@ -514,7 +514,7 @@ namespace nk {
             vkCmdBindIndexBuffer(
                 command_buffer->get(),
                 m_object_index_buffer,
-                geometry.index_buffer_offset,
+                geometry.index_range.offset,
                 VK_INDEX_TYPE_UINT32);
             vkCmdDrawIndexed(
                 command_buffer->get(),
@@ -719,6 +719,7 @@ namespace nk {
         return create_geometry_internal(
             geometry,
             sizeof(glm::Vertex3D),
+            alignof(glm::Vertex3D),
             vertices.length(),
             vertices.data(),
             indices);
@@ -731,6 +732,7 @@ namespace nk {
         return create_geometry_internal(
             geometry,
             sizeof(glm::Vertex2D),
+            alignof(glm::Vertex2D),
             vertices.length(),
             vertices.data(),
             indices);
@@ -739,6 +741,7 @@ namespace nk {
     result<void, renderer_error> VulkanRenderer::create_geometry_internal(
         Geometry& geometry,
         const u64 vertex_stride,
+        const u64 vertex_alignment,
         const u64 vertex_count,
         const void* vertices,
         const cl::slice<const u32> indices) {
@@ -767,16 +770,37 @@ namespace nk {
             });
         }
 
-        const u64 vertex_size = vertex_count * vertex_stride;
-        const u64 index_size = indices.length() * sizeof(u32);
-        if (m_geometry_vertex_offset > m_object_vertex_buffer.size() ||
-            vertex_size > m_object_vertex_buffer.size() - m_geometry_vertex_offset ||
-            m_geometry_index_offset > m_object_index_buffer.size() ||
-            index_size > m_object_index_buffer.size() - m_geometry_index_offset) {
+        if (vertex_stride == 0 || vertex_alignment == 0 ||
+            vertex_count > numeric::u64_max / vertex_stride ||
+            indices.length() > numeric::u64_max / sizeof(u32)) {
             return err(renderer_error{
                 renderer_error_code::object_resource_failed,
                 0,
             });
+        }
+
+        const u64 vertex_size = vertex_count * vertex_stride;
+        const u64 index_size = indices.length() * sizeof(u32);
+
+        auto vertex_reserved = m_object_vertex_buffer.reserve(
+            vertex_size,
+            vertex_alignment);
+        if (!vertex_reserved)
+            return err(vertex_reserved.error());
+
+        mem::MemoryRange index_range{};
+        if (!indices.empty()) {
+            auto index_reserved = m_object_index_buffer.reserve(
+                index_size,
+                alignof(u32));
+            if (!index_reserved) {
+                auto vertex_released = m_object_vertex_buffer.release(
+                    *vertex_reserved);
+                if (!vertex_released)
+                    ErrorLog("Failed to roll back a vertex buffer range.");
+                return err(index_reserved.error());
+            }
+            index_range = *index_reserved;
         }
 
         auto vertices_uploaded = upload_data_range(
@@ -784,11 +808,21 @@ namespace nk {
             nullptr,
             m_device.get_graphics_queue(),
             &m_object_vertex_buffer,
-            m_geometry_vertex_offset,
+            vertex_reserved->offset,
             vertex_size,
             vertices);
-        if (!vertices_uploaded)
+        if (!vertices_uploaded) {
+            if (index_range.size != 0) {
+                auto index_released = m_object_index_buffer.release(index_range);
+                if (!index_released)
+                    ErrorLog("Failed to roll back an index buffer range.");
+            }
+            auto vertex_released = m_object_vertex_buffer.release(
+                *vertex_reserved);
+            if (!vertex_released)
+                ErrorLog("Failed to roll back a vertex buffer range.");
             return err(vertices_uploaded.error());
+        }
 
         if (!indices.empty()) {
             auto indices_uploaded = upload_data_range(
@@ -796,11 +830,17 @@ namespace nk {
                 nullptr,
                 m_device.get_graphics_queue(),
                 &m_object_index_buffer,
-                m_geometry_index_offset,
+                index_range.offset,
                 index_size,
                 indices.data());
-            if (!indices_uploaded)
+            if (!indices_uploaded) {
+                auto index_released = m_object_index_buffer.release(index_range);
+                auto vertex_released = m_object_vertex_buffer.release(
+                    *vertex_reserved);
+                if (!index_released || !vertex_released)
+                    ErrorLog("Failed to roll back geometry buffer ranges.");
                 return err(indices_uploaded.error());
+            }
         }
 
         VulkanGeometryData uploaded{
@@ -809,17 +849,32 @@ namespace nk {
                 ? 0
                 : geometry.generation + 1,
             .vertex_count = vertex_count,
-            .vertex_size = vertex_size,
-            .vertex_buffer_offset = m_geometry_vertex_offset,
+            .vertex_range = *vertex_reserved,
             .index_count = indices.length(),
-            .index_size = index_size,
-            .index_buffer_offset = m_geometry_index_offset,
+            .index_range = index_range,
         };
         if (uploaded.generation == numeric::invalid_id)
             uploaded.generation = 0;
 
-        m_geometry_vertex_offset += vertex_size;
-        m_geometry_index_offset += index_size;
+        const VulkanGeometryData previous = m_geometries[internal_id];
+        if (previous.id != numeric::invalid_id &&
+            !release_geometry_ranges(previous)) {
+            bool rollback_succeeded = true;
+            if (index_range.size != 0) {
+                auto index_released = m_object_index_buffer.release(
+                    index_range);
+                rollback_succeeded = static_cast<bool>(index_released);
+            }
+            auto vertex_released = m_object_vertex_buffer.release(
+                *vertex_reserved);
+            if (!rollback_succeeded || !vertex_released)
+                ErrorLog("Failed to roll back replacement geometry ranges.");
+            return err(renderer_error{
+                renderer_error_code::buffer_release_failed,
+                0,
+            });
+        }
+
         m_geometries[internal_id] = uploaded;
         geometry.internal_id = internal_id;
         geometry.generation = uploaded.generation;
@@ -829,11 +884,44 @@ namespace nk {
     void VulkanRenderer::destroy_geometry(Geometry& geometry) {
         if (geometry.internal_id >= max_geometry_count)
             return;
-        vkDeviceWaitIdle(m_device);
+
+        VulkanGeometryData& internal = m_geometries[geometry.internal_id];
+        if (internal.id == numeric::invalid_id)
+            return;
+
+        const VkResult wait_result = vkQueueWaitIdle(
+            m_device.get_graphics_queue());
+        if (wait_result != VK_SUCCESS) {
+            ErrorLog("Geometry destruction could not wait for the graphics queue.");
+            return;
+        }
+        if (!release_geometry_ranges(internal)) {
+            ErrorLog("Geometry destruction could not release its buffer ranges.");
+            return;
+        }
+
         m_geometries[geometry.internal_id] = {};
-        m_geometries[geometry.internal_id].id = numeric::invalid_id;
         geometry.internal_id = numeric::invalid_id;
         geometry.generation = numeric::invalid_id;
+    }
+
+    bool VulkanRenderer::release_geometry_ranges(
+        const VulkanGeometryData& geometry) noexcept {
+        if (geometry.id == numeric::invalid_id ||
+            geometry.vertex_range.size == 0) {
+            return false;
+        }
+
+        if (geometry.index_range.size != 0) {
+            auto index_released = m_object_index_buffer.release(
+                geometry.index_range);
+            if (!index_released)
+                return false;
+        }
+
+        auto vertex_released = m_object_vertex_buffer.release(
+            geometry.vertex_range);
+        return static_cast<bool>(vertex_released);
     }
 
     result<void, renderer_error> VulkanRenderer::recreate_framebuffers() {
@@ -1046,10 +1134,11 @@ namespace nk {
             vertex_buffer_size,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             memory_property_flags,
-            true);
+            true,
+            m_allocator,
+            geometry_range_capacity);
         if (!vertex_buffer_initialized)
             return err(vertex_buffer_initialized.error());
-        m_geometry_vertex_offset = 0;
         
         constexpr u64 index_buffer_size = sizeof(u32) * 1024 * 1024;
         auto index_buffer_initialized = m_object_index_buffer.init(
@@ -1058,10 +1147,11 @@ namespace nk {
             index_buffer_size,
             VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             memory_property_flags,
-            true);
+            true,
+            m_allocator,
+            geometry_range_capacity);
         if (!index_buffer_initialized)
             return err(index_buffer_initialized.error());
-        m_geometry_index_offset = 0;
 
         InfoLog("Vulkan Object Buffers created.");
         return ok();

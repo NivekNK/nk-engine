@@ -84,6 +84,7 @@ namespace nk {
         [[nodiscard]] result<void, renderer_error> create_geometry_internal(
             Geometry& geometry,
             u64 vertex_stride,
+            u64 vertex_alignment,
             u64 vertex_count,
             const void* vertices,
             cl::slice<const u32> indices);
@@ -102,14 +103,17 @@ namespace nk {
             u32 id = numeric::invalid_id;
             u32 generation = numeric::invalid_id;
             u64 vertex_count = 0;
-            u64 vertex_size = 0;
-            u64 vertex_buffer_offset = 0;
+            mem::MemoryRange vertex_range{};
             u64 index_count = 0;
-            u64 index_size = 0;
-            u64 index_buffer_offset = 0;
+            mem::MemoryRange index_range{};
         };
 
+        bool release_geometry_ranges(
+            const VulkanGeometryData& geometry) noexcept;
+
         static constexpr u32 max_geometry_count = 4096;
+        static constexpr u64 geometry_range_capacity =
+            static_cast<u64>(max_geometry_count) + 2;
 
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
         Instance m_instance;
@@ -151,8 +155,6 @@ namespace nk {
         Buffer m_object_vertex_buffer;
         Buffer m_object_index_buffer;
 
-        u64 m_geometry_vertex_offset = 0;
-        u64 m_geometry_index_offset = 0;
         VulkanGeometryData m_geometries[max_geometry_count]{};
 
         f32 m_frame_delta_time = 0.0f;
