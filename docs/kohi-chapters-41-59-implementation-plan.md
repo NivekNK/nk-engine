@@ -345,21 +345,44 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Extraer de `MaterialShader` un `Shader` backend configurable sin romper aún
+- [x] Extraer de `MaterialShader` un `Shader` backend configurable sin romper aún
   la ruta pública existente.
-- [ ] Modelar etapas, atributos, descriptor layouts, uniformes, samplers y push
+- [x] Modelar etapas, atributos, descriptor layouts, uniformes, samplers y push
   constants con enums/structs tipados y containers propios.
-- [ ] Mantener RAII y shutdown idempotente para módulos, layouts, pools, pipeline y
+- [x] Mantener RAII y shutdown idempotente para módulos, layouts, pools, pipeline y
   buffers. Cualquier init parcial debe hacer rollback completo.
-- [ ] Permitir layouts 2D y 3D sin clases Vulkan duplicadas para material y UI.
-- [ ] No crear todavía el registro global de shaders: esta entrega termina con un
+- [x] Permitir layouts 2D y 3D sin clases Vulkan duplicadas para material y UI.
+- [x] No crear todavía el registro global de shaders: esta entrega termina con un
   objeto backend configurable probado directamente.
 
 ### Validación y commit
 
-- [ ] Tests de validación de configuración y rollback; renderizar los shaders
+- [x] Tests de validación de configuración y rollback; renderizar los shaders
   built-in actuales mediante la nueva abstracción.
-- [ ] Commit sugerido: `refactor(renderer): introduce configurable Vulkan shaders`.
+- [x] Commit sugerido: `refactor(renderer): introduce configurable Vulkan shaders`.
+
+### Estado NK
+
+- Completado en `299dcd7` y `bcc3d71`.
+- `ShaderConfig` define y valida etapas gráficas, atributos, descriptor sets,
+  uniformes, samplers y push constants sin incluir tipos Vulkan. La validación
+  detecta etapas/locations/bindings/nombres duplicados, rangos fuera de bounds,
+  atributos y push constants solapados, scopes incompatibles y uso de etapas no
+  cargadas.
+- `VulkanShader` materializa esa configuración en módulos, layouts, un pool
+  dimensionado desde el image count real, UBOs con stride alineado a
+  `minUniformBufferOffsetAlignment`, pipeline y push constants. Cada fallo de
+  inicialización converge en `shutdown()`, que es idempotente y respeta el orden
+  inverso de dependencias.
+- `MaterialShader` quedó como adaptador temporal de materiales; world y UI usan
+  el mismo backend con `Vertex3D`/depth y `Vertex2D`/sin depth respectivamente.
+  No se adelantó el registro público ni la resolución por nombre de los capítulos
+  siguientes.
+- Se añadieron 8 tests del contrato de configuración. Pasaron 174/174 en Debug y
+  Debug con ASan/UBSan, y 165/165 en Release. El smoke nativo Wayland/xdg-shell
+  bajo niri renderizó ambos built-ins durante 5 frames con Validation Layers,
+  cero allocations en los 4 frames estables comprobados y cero fugas al cerrar.
+- No se añadieron dependencias ni assets externos.
 
 ## Capítulo 46 — Shader System, parte 2
 
