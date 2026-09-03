@@ -581,7 +581,11 @@ namespace nk {
             return err(staging_initialized.error());
         }
 
-        staging.load_data(0, image_size, 0, pixels);
+        auto staged = staging.load_data(0, image_size, 0, pixels);
+        if (!staged) {
+            m_allocator->deconstruct_t(TextureData, texture_data);
+            return err(staged.error());
+        }
 
         // NOTE: Lots of assumptions here, different texture types will require
         // different options here.
@@ -1086,7 +1090,9 @@ namespace nk {
             return err(staging_initialized.error());
 
         // Load the data into the staging buffer.
-        staging.load_data(0, size, 0, data);
+        auto staged = staging.load_data(0, size, 0, data);
+        if (!staged)
+            return err(staged.error());
 
         // Perform the copy from staging to the device local buffer.
         auto copied = staging.copy_to({

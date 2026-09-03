@@ -407,7 +407,12 @@ namespace nk {
         u64 offset = 0;
 
         // Copy data to buffer
-        m_global_uniform_buffer.load_data(offset, range, 0, &m_global_ubo);
+        auto loaded = m_global_uniform_buffer.load_data(
+            offset, range, 0, &m_global_ubo);
+        if (!loaded) {
+            ErrorLog("MaterialShader failed to update the global uniform buffer.");
+            return;
+        }
 
         VkDescriptorBufferInfo global_descriptor_buffer_info;
         global_descriptor_buffer_info.buffer = m_global_uniform_buffer;
@@ -472,7 +477,12 @@ namespace nk {
         MaterialUniformObject ubo{};
         ubo.diffuse_color = material.diffuse_color;
 
-        m_material_uniform_buffer.load_data(offset, range, 0, &ubo);
+        auto loaded = m_material_uniform_buffer.load_data(
+            offset, range, 0, &ubo);
+        if (!loaded) {
+            ErrorLog("MaterialShader failed to update a material uniform buffer.");
+            return;
+        }
 
         VkDescriptorBufferInfo buffer_info{};
         u32& uniform_generation =
