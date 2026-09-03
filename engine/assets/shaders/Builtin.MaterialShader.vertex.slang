@@ -5,6 +5,7 @@ struct GlobalUniformObject
     float4 ambient_color;
     float3 directional_light_direction;
     float4 directional_light_color;
+    float3 view_position;
 };
 
 struct PushConstants
@@ -30,6 +31,7 @@ struct dto
 {
     float2 tex_coord;
     float3 normal;
+    float3 world_position;
 };
 
 struct VertexOutput
@@ -62,8 +64,13 @@ VertexOutput main(VertexInput input)
         input.normal);
     output.out_dto.normal = safe_normalize(transformed_normal);
 
-    float4x4 mvp = mul(global_ubo.projection, mul(global_ubo.view, u_push_constants.model));
-    output.position = mul(mvp, float4(input.position, 1.0));
+    float4 world_position = mul(
+        u_push_constants.model,
+        float4(input.position, 1.0));
+    output.out_dto.world_position = world_position.xyz;
+    output.position = mul(
+        global_ubo.projection,
+        mul(global_ubo.view, world_position));
 
     return output;
 }

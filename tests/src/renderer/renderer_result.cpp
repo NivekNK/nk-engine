@@ -79,6 +79,7 @@ namespace {
         const glm::vec4& directional_light_color() const {
             return m_directional_light_color;
         }
+        const glm::vec3& view_position() const { return m_view_position_value; }
         nk::Texture* specular_sampler_texture() const {
             return m_specular_sampler_texture;
         }
@@ -302,6 +303,11 @@ namespace {
                     uniform == nk::builtin_shader_uniform::shininess &&
                     size == sizeof(nk::f32)) {
                     m_shininess = *static_cast<const nk::f32*>(data);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::view_position &&
+                    size == sizeof(glm::vec3)) {
+                    m_view_position_value =
+                        *static_cast<const glm::vec3*>(data);
                 }
             }
             if (uniform == nk::builtin_shader_uniform::projection ||
@@ -375,6 +381,7 @@ namespace {
         glm::vec4 m_ambient_color{};
         glm::vec3 m_directional_light_direction{};
         glm::vec4 m_directional_light_color{};
+        glm::vec3 m_view_position_value{};
         nk::Texture* m_specular_sampler_texture = nullptr;
         nk::f32 m_shininess = 0.0f;
         nk::u8 m_shader_trace[64]{};
@@ -588,6 +595,7 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
     TestRenderSystems systems{allocator, renderer};
     ASSERT_TRUE(systems.init());
+    renderer.set_view(glm::mat4{1.0f}, glm::vec3{3.0f, 4.0f, 5.0f});
 
     nk::Geometry world_geometry{};
     world_geometry.material = &systems.materials->default_material();
@@ -620,7 +628,7 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
 
     ASSERT_TRUE(frame);
     constexpr nk::u8 world_protocol[] = {
-        1, 2, 3, 3, 6, 6, 6, 4, 5, 6, 7, 7, 6, 8, 9, 9,
+        1, 2, 3, 3, 6, 6, 6, 6, 4, 5, 6, 7, 7, 6, 8, 9, 9,
     };
     constexpr nk::u8 ui_protocol[] = {
         1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
@@ -647,6 +655,7 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
     EXPECT_EQ(
         renderer.directional_light_color(),
         glm::vec4(0.7f, 0.6f, 0.5f, 1.0f));
+    EXPECT_EQ(renderer.view_position(), glm::vec3(3.0f, 4.0f, 5.0f));
     EXPECT_EQ(renderer.pass_trace(), 1234u);
     EXPECT_EQ(renderer.world_global_updates(), 1u);
     EXPECT_EQ(renderer.ui_global_updates(), 1u);
@@ -1297,6 +1306,7 @@ TEST(MaterialSystem, UpdatesInstanceDataOncePerFrameAndInvalidatesChanges) {
         nk::MaterialType::world,
         glm::mat4{1.0f},
         glm::mat4{1.0f},
+        glm::vec3{0.0f},
         nk::SceneLighting{}));
 
     ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));

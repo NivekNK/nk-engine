@@ -77,6 +77,7 @@ namespace nk {
             MaterialType type,
             const glm::mat4& projection,
             const glm::mat4& view,
+            const glm::vec3& view_position,
             const SceneLighting& lighting);
         [[nodiscard]] result<void, material_error> apply_instance(
             Material& material,
@@ -119,6 +120,7 @@ namespace nk {
             ShaderUniformHandle normal_matrix{};
             ShaderUniformHandle specular_texture{};
             ShaderUniformHandle shininess{};
+            ShaderUniformHandle view_position{};
 
             [[nodiscard]] bool valid(MaterialType type) const noexcept {
                 const bool common_valid =
@@ -131,7 +133,7 @@ namespace nk {
                       directional_light_direction.valid() &&
                       directional_light_color.valid() &&
                       normal_matrix.valid() && specular_texture.valid() &&
-                      shininess.valid()));
+                      shininess.valid() && view_position.valid()));
             }
         };
 

@@ -14,7 +14,7 @@ namespace {
     };
     const nk::ShaderDescriptorBindingConfig global_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
-         nk::ShaderStage::vertex | nk::ShaderStage::fragment, 176},
+         nk::ShaderStage::vertex | nk::ShaderStage::fragment, 188},
     };
     const nk::ShaderDescriptorBindingConfig instance_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
@@ -49,6 +49,8 @@ namespace {
          nk::ShaderScope::instance, 1, 1, 0},
         {"shininess", nk::ShaderUniformType::f32,
          nk::ShaderScope::instance, 0, 16, 0},
+        {"view_position", nk::ShaderUniformType::f32_3,
+         nk::ShaderScope::global, 0, 176, 0},
     };
     const nk::ShaderPushConstantConfig push_constants[] = {
         {nk::ShaderStage::vertex, 0, 128},

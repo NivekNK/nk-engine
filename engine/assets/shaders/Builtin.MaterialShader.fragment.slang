@@ -11,6 +11,7 @@ struct GlobalUniformObject
     float4 ambient_color;
     float3 directional_light_direction;
     float4 directional_light_color;
+    float3 view_position;
 };
 
 [[vk::binding(0, 0)]]
@@ -29,6 +30,7 @@ struct dto
 {
     float2 tex_coord;
     float3 normal;
+    float3 world_position;
 };
 
 struct FragmentInput
@@ -62,5 +64,21 @@ float4 main(FragmentInput input) : SV_Target0 {
     float3 ambient = global_ubo.ambient_color.rgb * surface_color.rgb;
     float3 diffuse = global_ubo.directional_light_color.rgb *
         diffuse_factor * surface_color.rgb;
-    return float4(ambient + diffuse, surface_color.a);
+    float3 specular = float3(0.0, 0.0, 0.0);
+    if (diffuse_factor > 0.0) {
+        float3 view_direction = safe_normalize(
+            global_ubo.view_position - input.in_dto.world_position);
+        float3 half_direction = safe_normalize(
+            view_direction - light_to_surface);
+        float specular_factor = pow(
+            max(dot(normal, half_direction), 0.0),
+            max(object_ubo.shininess, 1.0));
+        float3 specular_sample =
+            material_samplers[specular_sampler_index]
+                .Sample(input.in_dto.tex_coord)
+                .rgb;
+        specular = global_ubo.directional_light_color.rgb *
+            specular_factor * specular_sample;
+    }
+    return float4(ambient + diffuse + specular, surface_color.a);
 };

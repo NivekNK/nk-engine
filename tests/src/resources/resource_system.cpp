@@ -93,11 +93,11 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(shader_config.vertex_stride, 32u);
     ASSERT_EQ(shader_config.descriptor_sets.length(), 2u);
     ASSERT_EQ(shader_config.descriptor_sets[0].bindings.length(), 1u);
-    EXPECT_EQ(shader_config.descriptor_sets[0].bindings[0].element_size, 176u);
+    EXPECT_EQ(shader_config.descriptor_sets[0].bindings[0].element_size, 188u);
     ASSERT_EQ(shader_config.descriptor_sets[1].bindings.length(), 2u);
     EXPECT_EQ(shader_config.descriptor_sets[1].bindings[0].element_size, 20u);
     EXPECT_EQ(shader_config.descriptor_sets[1].bindings[1].count, 2u);
-    ASSERT_EQ(shader_config.uniforms.length(), 11u);
+    ASSERT_EQ(shader_config.uniforms.length(), 12u);
     EXPECT_EQ(shader_config.uniforms[1].offset, 64u);
     EXPECT_EQ(shader_config.uniforms[3].type, nk::ShaderUniformType::sampler_2d);
     EXPECT_EQ(shader_config.uniforms[3].offset, 0u);
@@ -112,6 +112,7 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
         nk::ShaderUniformType::sampler_2d);
     EXPECT_EQ(shader_config.uniforms[9].offset, 1u);
     EXPECT_EQ(shader_config.uniforms[10].offset, 16u);
+    EXPECT_EQ(shader_config.uniforms[11].offset, 176u);
     EXPECT_EQ(shader_config.push_constants[0].size, 128u);
     EXPECT_EQ(resources->active_resource_count(), 6u);
 

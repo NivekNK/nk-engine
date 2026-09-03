@@ -62,6 +62,7 @@ namespace nk {
             glm::radians(45.0f), aspect, renderer->m_near_clip, renderer->m_far_clip);
         renderer->m_view = glm::inverse(
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -30.0f)));
+        renderer->m_view_position = glm::vec3(0.0f, 0.0f, -30.0f);
         renderer->m_ui_projection = glm::ortho(
             0.0f,
             static_cast<f32>(platform->width()),
@@ -105,6 +106,7 @@ namespace nk {
             RenderPassKind::world,
             m_projection,
             m_view,
+            m_view_position,
             packet.lighting,
             packet.geometry_count,
             packet.geometries);
@@ -116,6 +118,7 @@ namespace nk {
             RenderPassKind::ui,
             m_ui_projection,
             m_ui_view,
+            glm::vec3{0.0f},
             packet.lighting,
             packet.ui_geometry_count,
             packet.ui_geometries);
@@ -130,6 +133,7 @@ namespace nk {
         const RenderPassKind pass,
         const glm::mat4& projection,
         const glm::mat4& view,
+        const glm::vec3& view_position,
         const SceneLighting& lighting,
         const u32 geometry_count,
         const GeometryRenderData* geometries) {
@@ -148,6 +152,7 @@ namespace nk {
             expected_material_type,
             projection,
             view,
+            view_position,
             lighting);
         if (!globals_applied)
             return fail({

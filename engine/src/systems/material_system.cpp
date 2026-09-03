@@ -243,6 +243,10 @@ namespace nk {
             if (!shininess)
                 return err(translate_shader_error(shininess.error()));
             resolved.shininess = *shininess;
+            auto view_position = m_shaders->uniform(*shader, "view_position");
+            if (!view_position)
+                return err(translate_shader_error(view_position.error()));
+            resolved.view_position = *view_position;
         }
         return ok(resolved);
     }
@@ -541,6 +545,7 @@ namespace nk {
         const MaterialType type,
         const glm::mat4& projection,
         const glm::mat4& view,
+        const glm::vec3& view_position,
         const SceneLighting& lighting) {
         if (!m_initialized)
             return err(material_error{material_error_code::not_initialized, 0});
@@ -563,6 +568,11 @@ namespace nk {
         if (!view_set)
             return err(translate_shader_error(view_set.error()));
         if (type == MaterialType::world) {
+            auto view_position_set = m_shaders->set_uniform(
+                uniform->view_position,
+                view_position);
+            if (!view_position_set)
+                return err(translate_shader_error(view_position_set.error()));
             auto ambient_set = m_shaders->set_uniform(
                 uniform->ambient_color,
                 lighting.ambient_color);

@@ -132,6 +132,7 @@ namespace nk {
         inline constexpr ShaderUniformHandle normal_matrix{8};
         inline constexpr ShaderUniformHandle specular_texture{9};
         inline constexpr ShaderUniformHandle shininess{10};
+        inline constexpr ShaderUniformHandle view_position{11};
     }
 }
 

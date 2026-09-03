@@ -81,7 +81,7 @@ public:
 
         update_camera_transform();
 
-        nk::Camera::set_view(m_view);
+        nk::Camera::set_view(m_view, m_camera_position);
 
         return true;
     }

@@ -120,7 +120,10 @@ namespace nk {
             cl::slice<const u32> indices) = 0;
         virtual void destroy_geometry(Geometry& geometry) = 0;
 
-        void set_view(glm::mat4 view) { m_view = view; }
+        void set_view(glm::mat4 view, glm::vec3 position) {
+            m_view = view;
+            m_view_position = position;
+        }
 
     protected:
         Renderer(
@@ -161,6 +164,7 @@ namespace nk {
 
         glm::mat4 m_projection;
         glm::mat4 m_view;
+        glm::vec3 m_view_position{};
         glm::mat4 m_ui_projection;
         glm::mat4 m_ui_view{1.0f};
         f32 m_near_clip = 0.0f;
@@ -173,6 +177,7 @@ namespace nk {
             RenderPassKind pass,
             const glm::mat4& projection,
             const glm::mat4& view,
+            const glm::vec3& view_position,
             const SceneLighting& lighting,
             u32 geometry_count,
             const GeometryRenderData* geometries);

@@ -10,11 +10,11 @@ namespace nk {
         camera.m_renderer = renderer;
     }
 
-    void Camera::set_view(glm::mat4 view) {
+    void Camera::set_view(glm::mat4 view, glm::vec3 position) {
         Camera& camera = get();
         if (!camera.m_renderer)
             return;
 
-        camera.m_renderer->set_view(view);
+        camera.m_renderer->set_view(view, position);
     }
 }
