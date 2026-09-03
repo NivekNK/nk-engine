@@ -21,6 +21,14 @@ namespace nk {
                 (bits & ~static_cast<u8>(graphics_stages)) == 0;
         }
 
+        bool stages_are_configured(
+            const ShaderStage stages,
+            const ShaderStage configured_stages) noexcept {
+            const u8 requested = static_cast<u8>(stages);
+            const u8 configured = static_cast<u8>(configured_stages);
+            return (requested & ~configured) == 0;
+        }
+
         const ShaderDescriptorSetConfig* find_set(
             const ShaderConfig& config,
             const ShaderScope scope) noexcept {
@@ -88,6 +96,15 @@ namespace nk {
                     return err(
                         shader_config_error::duplicate_attribute_location);
                 }
+                const ShaderAttributeConfig& other =
+                    config.attributes[previous];
+                if (ranges_overlap(
+                        attribute.offset,
+                        size,
+                        other.offset,
+                        shader_attribute_size(other.type))) {
+                    return err(shader_config_error::invalid_vertex_layout);
+                }
             }
         }
 
@@ -102,15 +119,15 @@ namespace nk {
                 config.descriptor_sets[set_index];
             if (set.scope == ShaderScope::local || set.bindings.empty())
                 return err(shader_config_error::invalid_descriptor_set);
-            if ((set.scope == ShaderScope::global && set_index != 0) ||
-                (set.scope == ShaderScope::instance && set_index != 1)) {
-                return err(shader_config_error::unsupported_layout);
-            }
             for (u64 previous = 0; previous < set_index; ++previous) {
                 if (config.descriptor_sets[previous].scope == set.scope) {
                     return err(
                         shader_config_error::duplicate_descriptor_scope);
                 }
+            }
+            if ((set.scope == ShaderScope::global && set_index != 0) ||
+                (set.scope == ShaderScope::instance && set_index != 1)) {
+                return err(shader_config_error::unsupported_layout);
             }
 
             u32 uniform_buffer_count = 0;
@@ -121,6 +138,8 @@ namespace nk {
                     set.bindings[binding_index];
                 if (binding.count == 0 ||
                     !valid_graphics_stages(binding.stages) ||
+                    !stages_are_configured(
+                        binding.stages, configured_stages) ||
                     (binding.type == ShaderDescriptorType::uniform_buffer &&
                      (binding.count != 1 || binding.element_size == 0)) ||
                     (binding.type == ShaderDescriptorType::sampler &&
@@ -214,6 +233,7 @@ namespace nk {
             const ShaderPushConstantConfig& range =
                 config.push_constants[index];
             if (!valid_graphics_stages(range.stages) || range.size == 0 ||
+                !stages_are_configured(range.stages, configured_stages) ||
                 (range.offset % 4) != 0 || (range.size % 4) != 0 ||
                 range.offset > numeric::u32_max - range.size) {
                 return err(shader_config_error::invalid_push_constant);

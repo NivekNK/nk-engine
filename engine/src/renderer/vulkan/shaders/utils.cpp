@@ -7,32 +7,59 @@
 #include "vulkan/device.h"
 
 namespace nk {
-    result<void, shader_error> create_shader_module(
-        const cstr name,
-        const cstr type,
+    namespace {
+        VkShaderStageFlagBits to_vulkan_stage(
+            const ShaderStage stage) noexcept {
+            switch (stage) {
+                case ShaderStage::vertex:
+                    return VK_SHADER_STAGE_VERTEX_BIT;
+                case ShaderStage::geometry:
+                    return VK_SHADER_STAGE_GEOMETRY_BIT;
+                case ShaderStage::fragment:
+                    return VK_SHADER_STAGE_FRAGMENT_BIT;
+                case ShaderStage::compute:
+                    return VK_SHADER_STAGE_COMPUTE_BIT;
+                case ShaderStage::none:
+                    break;
+            }
+            return static_cast<VkShaderStageFlagBits>(0);
+        }
+    }
+
+    result<void, renderer_error> create_shader_module(
+        const strview name,
+        const ShaderStageConfig& config,
         ResourceSystem& resources,
         Device* device,
         VkAllocationCallbacks* allocator,
-        const VkShaderStageFlagBits stage,
-        ShaderStage* out_stage) {
-        strbuf<512> shader_path;
-        if (!format_to(shader_path, "shaders/{}.{}.spv", name, type))
-            return err(shader_error{
-                .code = shader_error_code::path_format_failed,
-                .resource = {
-                    resource_error_code::invalid_name,
-                    0,
-                },
-                .native_code = VK_SUCCESS,
+        VulkanShaderStage* out_stage) {
+        if (device == nullptr || out_stage == nullptr ||
+            out_stage->module != nullptr ||
+            !out_stage->entry_point.assign(config.entry_point)) {
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = 0,
             });
+        }
+
+        strbuf<512> shader_path;
+        if (!format_to(
+                shader_path,
+                "shaders/{}.{}.spv",
+                name,
+                config.file_suffix)) {
+            return err(renderer_error{
+                .code = renderer_error_code::shader_path_failed,
+                .native_code = 0,
+            });
+        }
         out_stage->module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 
         auto loaded = resources.load(shader_path.view(), ResourceType::binary);
         if (!loaded) {
-            return err(shader_error{
-                .code = shader_error_code::resource_failed,
-                .resource = loaded.error(),
-                .native_code = VK_SUCCESS,
+            return err(renderer_error{
+                .code = renderer_error_code::shader_file_failed,
+                .native_code = static_cast<i32>(loaded.error().code),
             });
         }
 
@@ -41,13 +68,9 @@ namespace nk {
             (binary->length() % sizeof(u32)) != 0 ||
             (reinterpret_cast<std::uintptr_t>(binary->data()) % alignof(u32)) != 0) {
             (void)resources.unload(*loaded);
-            return err(shader_error{
-                .code = shader_error_code::invalid_binary,
-                .resource = {
-                    resource_error_code::invalid_data,
-                    0,
-                },
-                .native_code = VK_SUCCESS,
+            return err(renderer_error{
+                .code = renderer_error_code::shader_binary_invalid,
+                .native_code = 0,
             });
         }
 
@@ -71,26 +94,21 @@ namespace nk {
                     allocator);
                 out_stage->module = nullptr;
             }
-            return err(shader_error{
-                .code = shader_error_code::resource_failed,
-                .resource = unloaded.error(),
-                .native_code = VK_SUCCESS,
+            return err(renderer_error{
+                .code = renderer_error_code::shader_file_failed,
+                .native_code = static_cast<i32>(unloaded.error().code),
             });
         }
         if (creation_result != VK_SUCCESS)
-            return err(shader_error{
-                .code = shader_error_code::module_creation_failed,
-                .resource = {
-                    resource_error_code::invalid_data,
-                    0,
-                },
-                .native_code = creation_result,
+            return err(renderer_error{
+                .code = renderer_error_code::shader_module_creation_failed,
+                .native_code = static_cast<i32>(creation_result),
             });
 
         out_stage->pipeline_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        out_stage->pipeline_create_info.stage = stage;
+        out_stage->pipeline_create_info.stage = to_vulkan_stage(config.stage);
         out_stage->pipeline_create_info.module = out_stage->module;
-        out_stage->pipeline_create_info.pName = "main";
+        out_stage->pipeline_create_info.pName = out_stage->entry_point.cstr();
 
         return ok();
     }

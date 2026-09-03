@@ -42,7 +42,9 @@ namespace nk {
             const PipelineCreateInfo& create_info);
         void shutdown();
 
-        void bind(CommandBuffer* command_buffer, VkPipelineBindPoint bind_point);
+        void bind(
+            const CommandBuffer* command_buffer,
+            VkPipelineBindPoint bind_point);
 
         VkPipelineLayout get_layout() const { return m_layout; }
 

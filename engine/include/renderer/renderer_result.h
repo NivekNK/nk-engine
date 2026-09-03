@@ -6,6 +6,7 @@ namespace nk {
     enum class renderer_error_code : u8 {
         out_of_memory,
         initialization_failed,
+        shader_config_invalid,
         shader_path_failed,
         shader_file_failed,
         shader_binary_invalid,

@@ -3,6 +3,7 @@
 #include "vulkan/vulkan_renderer.h"
 
 #include "platform/platform.h"
+#include "renderer/material_uniform_object.h"
 #include "systems/resource_system.h"
 #include "vulkan/utils.h"
 #include "vulkan/resources/texture_data.h"
@@ -142,10 +143,113 @@ namespace nk {
             return err(sync_created.error());
         InfoLog("Vulkan Sync Objects created.");
 
+        const ShaderStageConfig shader_stages[] = {
+            {ShaderStage::vertex, "vertex", "main"},
+            {ShaderStage::fragment, "fragment", "main"},
+        };
+        const ShaderDescriptorBindingConfig global_bindings[] = {
+            {
+                0,
+                ShaderDescriptorType::uniform_buffer,
+                1,
+                ShaderStage::vertex,
+                sizeof(GlobalUniformObject),
+            },
+        };
+        const ShaderDescriptorBindingConfig instance_bindings[] = {
+            {
+                0,
+                ShaderDescriptorType::uniform_buffer,
+                1,
+                ShaderStage::fragment,
+                sizeof(MaterialUniformObject),
+            },
+            {
+                1,
+                ShaderDescriptorType::sampler,
+                1,
+                ShaderStage::fragment,
+                0,
+            },
+        };
+        const ShaderDescriptorSetConfig descriptor_sets[] = {
+            {ShaderScope::global, global_bindings},
+            {ShaderScope::instance, instance_bindings},
+        };
+        const ShaderUniformConfig shader_uniforms[] = {
+            {
+                "projection",
+                ShaderUniformType::mat4,
+                ShaderScope::global,
+                0,
+                offsetof(GlobalUniformObject, projection),
+                0,
+            },
+            {
+                "view",
+                ShaderUniformType::mat4,
+                ShaderScope::global,
+                0,
+                offsetof(GlobalUniformObject, view),
+                0,
+            },
+            {
+                "diffuse_color",
+                ShaderUniformType::f32_4,
+                ShaderScope::instance,
+                0,
+                offsetof(MaterialUniformObject, diffuse_color),
+                0,
+            },
+            {
+                "diffuse_texture",
+                ShaderUniformType::sampler_2d,
+                ShaderScope::instance,
+                1,
+                0,
+                0,
+            },
+            {
+                "model",
+                ShaderUniformType::mat4,
+                ShaderScope::local,
+                0,
+                0,
+                0,
+            },
+        };
+        const ShaderPushConstantConfig push_constants[] = {
+            {ShaderStage::vertex, 0, sizeof(glm::mat4)},
+        };
+        const ShaderAttributeConfig material_attributes[] = {
+            {
+                "position",
+                ShaderAttributeType::f32_3,
+                0,
+                offsetof(glm::Vertex3D, position),
+            },
+            {
+                "texcoord",
+                ShaderAttributeType::f32_2,
+                1,
+                offsetof(glm::Vertex3D, texcoord),
+            },
+        };
+        const ShaderConfig material_shader_config{
+            .name = "Builtin.MaterialShader",
+            .stages = shader_stages,
+            .attributes = material_attributes,
+            .descriptor_sets = descriptor_sets,
+            .uniforms = shader_uniforms,
+            .push_constants = push_constants,
+            .vertex_stride = sizeof(glm::Vertex3D),
+            .max_instances = MaterialShader::max_material_count,
+            .wireframe = false,
+            .depth_test_enabled = true,
+        };
+
         auto shader_initialized = m_material_shader.init(
-            "Builtin.MaterialShader",
-            ShaderVertexLayout::vertex_3d,
-            true,
+            material_shader_config,
             m_framebuffer_width,
             m_framebuffer_height,
             image_count,
@@ -159,10 +263,35 @@ namespace nk {
             return err(shader_initialized.error());
         InfoLog("Vulkan Material Shader created.");
 
+        const ShaderAttributeConfig ui_attributes[] = {
+            {
+                "position",
+                ShaderAttributeType::f32_2,
+                0,
+                offsetof(glm::Vertex2D, position),
+            },
+            {
+                "texcoord",
+                ShaderAttributeType::f32_2,
+                1,
+                offsetof(glm::Vertex2D, texcoord),
+            },
+        };
+        const ShaderConfig ui_shader_config{
+            .name = "Builtin.UIShader",
+            .stages = shader_stages,
+            .attributes = ui_attributes,
+            .descriptor_sets = descriptor_sets,
+            .uniforms = shader_uniforms,
+            .push_constants = push_constants,
+            .vertex_stride = sizeof(glm::Vertex2D),
+            .max_instances = MaterialShader::max_material_count,
+            .wireframe = false,
+            .depth_test_enabled = false,
+        };
+
         auto ui_shader_initialized = m_ui_shader.init(
-            "Builtin.UIShader",
-            ShaderVertexLayout::vertex_2d,
-            false,
+            ui_shader_config,
             m_framebuffer_width,
             m_framebuffer_height,
             image_count,
@@ -446,7 +575,8 @@ namespace nk {
 
         // TODO: Other ubo properties
 
-        m_material_shader.update_global_state(m_graphics_command_buffers, m_image_index, m_frame_delta_time);
+        m_material_shader.update_global_state(
+            *command_buffer, m_image_index);
     }
 
     void VulkanRenderer::update_global_ui_state(
@@ -461,7 +591,7 @@ namespace nk {
         global_ubo.view = view;
         m_ui_shader.set_global_ubo(global_ubo);
         m_ui_shader.update_global_state(
-            m_graphics_command_buffers, m_image_index, m_frame_delta_time);
+            *command_buffer, m_image_index);
     }
 
     void VulkanRenderer::draw_geometry(

@@ -61,6 +61,14 @@ namespace nk {
         bool supports_device_local_host_visible() const noexcept {
             return m_supports_device_local_host_visible;
         }
+        u64 uniform_buffer_offset_alignment() const noexcept {
+            const u64 alignment =
+                m_properties.limits.minUniformBufferOffsetAlignment;
+            return alignment == 0 ? 1 : alignment;
+        }
+        u32 max_push_constant_size() const noexcept {
+            return m_properties.limits.maxPushConstantsSize;
+        }
         mem::Allocator* allocator() const { return m_allocator; }
 
         VkDevice get() { return m_logical_device; }

@@ -227,7 +227,9 @@ namespace nk {
         InfoLog("Vulkan Graphics Pipeline destroyed.");
     }
 
-    void Pipeline::bind(CommandBuffer* command_buffer, VkPipelineBindPoint bind_point) {
+    void Pipeline::bind(
+        const CommandBuffer* command_buffer,
+        const VkPipelineBindPoint bind_point) {
         vkCmdBindPipeline(command_buffer->get(), bind_point, m_pipeline);
     }
 }

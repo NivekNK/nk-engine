@@ -86,6 +86,22 @@ TEST(ShaderConfig, RejectsDuplicateStagesAndAttributeLocations) {
         nk::shader_config_error::duplicate_attribute_location);
 }
 
+TEST(ShaderConfig, RejectsOverlappingAttributes) {
+    const nk::ShaderAttributeConfig overlapping_attributes[] = {
+        {"position", nk::ShaderAttributeType::f32_3, 0, 0},
+        {"texcoord", nk::ShaderAttributeType::f32_2, 1, 8},
+    };
+    nk::ShaderConfig config = valid_config();
+    config.attributes = overlapping_attributes;
+
+    const auto validated = nk::validate_shader_config(config);
+
+    ASSERT_FALSE(validated);
+    EXPECT_EQ(
+        validated.error(),
+        nk::shader_config_error::invalid_vertex_layout);
+}
+
 TEST(ShaderConfig, RejectsOutOfBoundsAttributesAndUniforms) {
     nk::ShaderConfig config = valid_config();
     config.vertex_stride = 16;
@@ -119,7 +135,7 @@ TEST(ShaderConfig, RejectsDescriptorScopeAndBindingConflicts) {
     ASSERT_FALSE(scope_result);
     EXPECT_EQ(
         scope_result.error(),
-        nk::shader_config_error::unsupported_layout);
+        nk::shader_config_error::duplicate_descriptor_scope);
 
     const nk::ShaderDescriptorBindingConfig duplicate_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
@@ -138,6 +154,36 @@ TEST(ShaderConfig, RejectsDescriptorScopeAndBindingConflicts) {
     EXPECT_EQ(
         binding_result.error(),
         nk::shader_config_error::duplicate_descriptor_binding);
+}
+
+TEST(ShaderConfig, RejectsBindingsForMissingStages) {
+    const nk::ShaderDescriptorBindingConfig invalid_global_bindings[] = {
+        {0, nk::ShaderDescriptorType::uniform_buffer, 1,
+         nk::ShaderStage::geometry, 256},
+    };
+    const nk::ShaderDescriptorSetConfig invalid_sets[] = {
+        {nk::ShaderScope::global, invalid_global_bindings},
+        {nk::ShaderScope::instance, instance_bindings},
+    };
+    nk::ShaderConfig config = valid_config();
+    config.descriptor_sets = invalid_sets;
+
+    auto descriptor_result = nk::validate_shader_config(config);
+    ASSERT_FALSE(descriptor_result);
+    EXPECT_EQ(
+        descriptor_result.error(),
+        nk::shader_config_error::invalid_descriptor_binding);
+
+    const nk::ShaderPushConstantConfig invalid_push_constants[] = {
+        {nk::ShaderStage::geometry, 0, 64},
+    };
+    config = valid_config();
+    config.push_constants = invalid_push_constants;
+    auto push_result = nk::validate_shader_config(config);
+    ASSERT_FALSE(push_result);
+    EXPECT_EQ(
+        push_result.error(),
+        nk::shader_config_error::invalid_push_constant);
 }
 
 TEST(ShaderConfig, RequiresLocalUniformsInsidePushConstantRanges) {
