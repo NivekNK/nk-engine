@@ -22,7 +22,9 @@ namespace nk {
         image_create_info.extent.width = m_extent.width;
         image_create_info.extent.height = m_extent.height;
         image_create_info.extent.depth = 1; // TODO: Support configurable depth.
-        image_create_info.mipLevels = 4;    // TODO: Support mip mapping
+        // Only level zero is uploaded, transitioned and exposed by the view.
+        // Additional levels must not be declared until mip generation exists.
+        image_create_info.mipLevels = 1;
         image_create_info.arrayLayers = 1;  // TODO: Support number of layers in the image.
         image_create_info.format = m_format;
         image_create_info.tiling = create_info.tiling;
