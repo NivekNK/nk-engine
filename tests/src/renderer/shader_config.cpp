@@ -14,7 +14,7 @@ namespace {
     };
     const nk::ShaderDescriptorBindingConfig global_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
-         nk::ShaderStage::vertex, 256},
+         nk::ShaderStage::vertex | nk::ShaderStage::fragment, 176},
     };
     const nk::ShaderDescriptorBindingConfig instance_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
@@ -37,9 +37,17 @@ namespace {
          nk::ShaderScope::instance, 1, 0, 0},
         {"model", nk::ShaderUniformType::mat4,
          nk::ShaderScope::local, 0, 0, 0},
+        {"ambient_color", nk::ShaderUniformType::f32_4,
+         nk::ShaderScope::global, 0, 128, 0},
+        {"directional_light_direction", nk::ShaderUniformType::f32_3,
+         nk::ShaderScope::global, 0, 144, 0},
+        {"directional_light_color", nk::ShaderUniformType::f32_4,
+         nk::ShaderScope::global, 0, 160, 0},
+        {"normal_matrix", nk::ShaderUniformType::mat4,
+         nk::ShaderScope::local, 0, 64, 0},
     };
     const nk::ShaderPushConstantConfig push_constants[] = {
-        {nk::ShaderStage::vertex, 0, 64},
+        {nk::ShaderStage::vertex, 0, 128},
     };
 
     nk::ShaderConfig valid_config() {
@@ -176,7 +184,7 @@ TEST(ShaderConfig, RejectsBindingsForMissingStages) {
         nk::shader_config_error::invalid_descriptor_binding);
 
     const nk::ShaderPushConstantConfig invalid_push_constants[] = {
-        {nk::ShaderStage::geometry, 0, 64},
+        {nk::ShaderStage::geometry, 0, 128},
     };
     config = valid_config();
     config.push_constants = invalid_push_constants;
@@ -195,7 +203,7 @@ TEST(ShaderConfig, RequiresLocalUniformsInsidePushConstantRanges) {
     EXPECT_EQ(missing.error(), nk::shader_config_error::invalid_uniform);
 
     const nk::ShaderPushConstantConfig overlapping[] = {
-        {nk::ShaderStage::vertex, 0, 64},
+        {nk::ShaderStage::vertex, 0, 128},
         {nk::ShaderStage::fragment, 32, 16},
     };
     config = valid_config();

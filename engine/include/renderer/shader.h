@@ -126,6 +126,10 @@ namespace nk {
         inline constexpr ShaderUniformHandle diffuse_color{2};
         inline constexpr ShaderUniformHandle diffuse_texture{3};
         inline constexpr ShaderUniformHandle model{4};
+        inline constexpr ShaderUniformHandle ambient_color{5};
+        inline constexpr ShaderUniformHandle directional_light_direction{6};
+        inline constexpr ShaderUniformHandle directional_light_color{7};
+        inline constexpr ShaderUniformHandle normal_matrix{8};
     }
 }
 

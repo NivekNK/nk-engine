@@ -6,6 +6,7 @@
 
 #include "resources/texture.h"
 #include "renderer/geometry_render_data.h"
+#include "renderer/lighting.h"
 #include "renderer/renderer_result.h"
 #include "renderer/shader.h"
 #include "core/result.h"
@@ -19,6 +20,7 @@ namespace nk {
 
     struct RenderPacket {
         f64 delta_time;
+        SceneLighting lighting{};
         u32 geometry_count = 0;
         const GeometryRenderData* geometries = nullptr;
         u32 ui_geometry_count = 0;
@@ -171,6 +173,7 @@ namespace nk {
             RenderPassKind pass,
             const glm::mat4& projection,
             const glm::mat4& view,
+            const SceneLighting& lighting,
             u32 geometry_count,
             const GeometryRenderData* geometries);
         [[nodiscard]] result<frame_outcome, renderer_error> end_frame_impl(

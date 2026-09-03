@@ -14,6 +14,8 @@
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
 
+#include <glm/gtc/matrix_transform.hpp>
+
 // TODO: Temporal include
 #include "core/camera.h"
 
@@ -446,7 +448,10 @@ namespace nk {
                 }
 
                 GeometryRenderData geometry{
-                    .model = glm::mat4{1.0f},
+                    .model = glm::rotate(
+                        glm::mat4{1.0f},
+                        static_cast<f32>(current_time),
+                        glm::vec3{0.0f, 1.0f, 0.0f}),
                     .geometry = m_test_geometry,
                 };
                 GeometryRenderData ui_geometry{

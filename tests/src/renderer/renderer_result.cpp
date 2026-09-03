@@ -65,6 +65,13 @@ namespace {
         nk::u8 shader_trace(nk::u32 index) const {
             return m_shader_trace[index];
         }
+        const glm::vec4& ambient_color() const { return m_ambient_color; }
+        const glm::vec3& directional_light_direction() const {
+            return m_directional_light_direction;
+        }
+        const glm::vec4& directional_light_color() const {
+            return m_directional_light_color;
+        }
         nk::result<nk::ShaderHandle, nk::renderer_error> create_shader(
             const nk::ShaderConfig&,
             const nk::RenderPassKind pass) override {
@@ -250,15 +257,32 @@ namespace {
         }
 
         nk::result<void, nk::renderer_error> set_shader_uniform_raw(
-            nk::ShaderHandle,
+            const nk::ShaderHandle shader,
             const nk::ShaderUniformHandle uniform,
             nk::ShaderUniformType,
-            const void*,
-            nk::u32) override {
+            const void* data,
+            const nk::u32 size) override {
+            if (shader == m_world_test_shader && data != nullptr) {
+                if (uniform == nk::builtin_shader_uniform::ambient_color &&
+                    size == sizeof(glm::vec4)) {
+                    m_ambient_color = *static_cast<const glm::vec4*>(data);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::directional_light_direction &&
+                    size == sizeof(glm::vec3)) {
+                    m_directional_light_direction =
+                        *static_cast<const glm::vec3*>(data);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::directional_light_color &&
+                    size == sizeof(glm::vec4)) {
+                    m_directional_light_color =
+                        *static_cast<const glm::vec4*>(data);
+                }
+            }
             if (uniform == nk::builtin_shader_uniform::projection ||
                 uniform == nk::builtin_shader_uniform::view) {
                 append_shader_trace(3);
-            } else if (uniform == nk::builtin_shader_uniform::model) {
+            } else if (uniform == nk::builtin_shader_uniform::model ||
+                       uniform == nk::builtin_shader_uniform::normal_matrix) {
                 append_shader_trace(9);
             } else {
                 append_shader_trace(6);
@@ -318,6 +342,9 @@ namespace {
         nk::u32 m_instance_update_count = 0;
         nk::u32 m_created_geometries = 0;
         nk::u32 m_destroyed_geometries = 0;
+        glm::vec4 m_ambient_color{};
+        glm::vec3 m_directional_light_direction{};
+        glm::vec4 m_directional_light_color{};
         nk::u8 m_shader_trace[32]{};
         nk::u32 m_shader_trace_length = 0;
     };
@@ -523,7 +550,7 @@ TEST(RendererResult, RunsWorldAndUiPassesInOrder) {
     EXPECT_EQ(renderer.ui_object_updates(), 1u);
 }
 
-TEST(RendererResult, UsesTheSameShaderProtocolForWorldAndUiGeometry) {
+TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
     TestRenderSystems systems{allocator, renderer};
@@ -545,6 +572,13 @@ TEST(RendererResult, UsesTheSameShaderProtocolForWorldAndUiGeometry) {
 
     auto frame = renderer.draw_frame(*systems.materials, {
         .delta_time = 1.0 / 60.0,
+        .lighting = {
+            .ambient_color = {0.1f, 0.2f, 0.3f, 1.0f},
+            .directional = {
+                .direction = {-1.0f, -2.0f, -3.0f},
+                .color = {0.7f, 0.6f, 0.5f, 1.0f},
+            },
+        },
         .geometry_count = 1,
         .geometries = &world_data,
         .ui_geometry_count = 1,
@@ -552,20 +586,34 @@ TEST(RendererResult, UsesTheSameShaderProtocolForWorldAndUiGeometry) {
     });
 
     ASSERT_TRUE(frame);
-    constexpr nk::u8 pass_protocol[] = {
+    constexpr nk::u8 world_protocol[] = {
+        1, 2, 3, 3, 6, 6, 6, 4, 5, 6, 7, 8, 9, 9,
+    };
+    constexpr nk::u8 ui_protocol[] = {
         1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
     };
-    ASSERT_EQ(renderer.shader_trace_length(), 20u);
-    for (nk::u32 pass = 0; pass < 2; ++pass) {
-        for (nk::u32 operation = 0;
-             operation < std::size(pass_protocol);
-             ++operation) {
-            EXPECT_EQ(
-                renderer.shader_trace(
-                    pass * std::size(pass_protocol) + operation),
-                pass_protocol[operation]);
-        }
+    ASSERT_EQ(
+        renderer.shader_trace_length(),
+        std::size(world_protocol) + std::size(ui_protocol));
+    for (nk::u32 operation = 0;
+         operation < std::size(world_protocol);
+         ++operation) {
+        EXPECT_EQ(renderer.shader_trace(operation), world_protocol[operation]);
     }
+    for (nk::u32 operation = 0;
+         operation < std::size(ui_protocol);
+         ++operation) {
+        EXPECT_EQ(
+            renderer.shader_trace(std::size(world_protocol) + operation),
+            ui_protocol[operation]);
+    }
+    EXPECT_EQ(renderer.ambient_color(), glm::vec4(0.1f, 0.2f, 0.3f, 1.0f));
+    EXPECT_EQ(
+        renderer.directional_light_direction(),
+        glm::vec3(-1.0f, -2.0f, -3.0f));
+    EXPECT_EQ(
+        renderer.directional_light_color(),
+        glm::vec4(0.7f, 0.6f, 0.5f, 1.0f));
     EXPECT_EQ(renderer.pass_trace(), 1234u);
     EXPECT_EQ(renderer.world_global_updates(), 1u);
     EXPECT_EQ(renderer.ui_global_updates(), 1u);
@@ -1106,7 +1154,8 @@ TEST(MaterialSystem, UpdatesInstanceDataOncePerFrameAndInvalidatesChanges) {
     ASSERT_TRUE(systems.materials->apply_global(
         nk::MaterialType::world,
         glm::mat4{1.0f},
-        glm::mat4{1.0f}));
+        glm::mat4{1.0f},
+        nk::SceneLighting{}));
 
     ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));
     ASSERT_TRUE(systems.materials->apply_instance(*(*material), 7));

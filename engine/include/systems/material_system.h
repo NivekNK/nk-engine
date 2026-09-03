@@ -4,6 +4,7 @@
 #include "collections/map.h"
 #include "core/result.h"
 #include "core/str.h"
+#include "renderer/lighting.h"
 #include "resources/material.h"
 
 #include <glm/ext/matrix_float4x4.hpp>
@@ -69,7 +70,8 @@ namespace nk {
         [[nodiscard]] result<void, material_error> apply_global(
             MaterialType type,
             const glm::mat4& projection,
-            const glm::mat4& view);
+            const glm::mat4& view,
+            const SceneLighting& lighting);
         [[nodiscard]] result<void, material_error> apply_instance(
             Material& material,
             u64 frame_number);
@@ -105,11 +107,22 @@ namespace nk {
             ShaderUniformHandle diffuse_color{};
             ShaderUniformHandle diffuse_texture{};
             ShaderUniformHandle model{};
+            ShaderUniformHandle ambient_color{};
+            ShaderUniformHandle directional_light_direction{};
+            ShaderUniformHandle directional_light_color{};
+            ShaderUniformHandle normal_matrix{};
 
-            [[nodiscard]] bool valid() const noexcept {
-                return shader.valid() && projection.valid() && view.valid() &&
+            [[nodiscard]] bool valid(MaterialType type) const noexcept {
+                const bool common_valid =
+                    shader.valid() && projection.valid() && view.valid() &&
                     diffuse_color.valid() && diffuse_texture.valid() &&
                     model.valid();
+                return common_valid &&
+                    (type == MaterialType::ui ||
+                     (ambient_color.valid() &&
+                      directional_light_direction.valid() &&
+                      directional_light_color.valid() &&
+                      normal_matrix.valid()));
             }
         };
 
@@ -122,7 +135,7 @@ namespace nk {
         void shutdown();
         [[nodiscard]] result<void, material_error> create_default_materials();
         [[nodiscard]] result<UniformBindings, material_error>
-        resolve_bindings(strview shader_name);
+        resolve_bindings(strview shader_name, MaterialType type);
         [[nodiscard]] const UniformBindings* bindings(
             MaterialType type) const noexcept;
         [[nodiscard]] result<void, material_error> load_material(

@@ -2,6 +2,7 @@
 
 #include "systems/material_system.h"
 
+#include "core/math.h"
 #include "memory/allocator.h"
 #include "systems/resource_system.h"
 #include "systems/shader_system.h"
@@ -117,7 +118,9 @@ namespace nk {
             return err(material_error{material_error_code::out_of_memory, 0});
         }
 
-        auto world_bindings = resolve_bindings(builtin_material_shader_name);
+        auto world_bindings = resolve_bindings(
+            builtin_material_shader_name,
+            MaterialType::world);
         if (!world_bindings) {
             const material_error error = world_bindings.error();
             shutdown();
@@ -125,7 +128,9 @@ namespace nk {
         }
         m_world_bindings = *world_bindings;
 
-        auto ui_bindings = resolve_bindings(builtin_ui_shader_name);
+        auto ui_bindings = resolve_bindings(
+            builtin_ui_shader_name,
+            MaterialType::ui);
         if (!ui_bindings) {
             const material_error error = ui_bindings.error();
             shutdown();
@@ -177,7 +182,9 @@ namespace nk {
     }
 
     result<MaterialSystem::UniformBindings, material_error>
-    MaterialSystem::resolve_bindings(const strview shader_name) {
+    MaterialSystem::resolve_bindings(
+        const strview shader_name,
+        const MaterialType type) {
         auto shader = m_shaders->handle(shader_name);
         if (!shader)
             return err(translate_shader_error(shader.error()));
@@ -205,6 +212,29 @@ namespace nk {
         if (!model)
             return err(translate_shader_error(model.error()));
         resolved.model = *model;
+
+        if (type == MaterialType::world) {
+            auto ambient_color = m_shaders->uniform(*shader, "ambient_color");
+            if (!ambient_color)
+                return err(translate_shader_error(ambient_color.error()));
+            resolved.ambient_color = *ambient_color;
+            auto light_direction = m_shaders->uniform(
+                *shader,
+                "directional_light_direction");
+            if (!light_direction)
+                return err(translate_shader_error(light_direction.error()));
+            resolved.directional_light_direction = *light_direction;
+            auto light_color = m_shaders->uniform(
+                *shader,
+                "directional_light_color");
+            if (!light_color)
+                return err(translate_shader_error(light_color.error()));
+            resolved.directional_light_color = *light_color;
+            auto normal_matrix = m_shaders->uniform(*shader, "normal_matrix");
+            if (!normal_matrix)
+                return err(translate_shader_error(normal_matrix.error()));
+            resolved.normal_matrix = *normal_matrix;
+        }
         return ok(resolved);
     }
 
@@ -213,7 +243,7 @@ namespace nk {
         const UniformBindings* resolved = type == MaterialType::world
             ? &m_world_bindings
             : &m_ui_bindings;
-        return resolved->valid() ? resolved : nullptr;
+        return resolved->valid(type) ? resolved : nullptr;
     }
 
     result<void, material_error> MaterialSystem::create_default_materials() {
@@ -435,7 +465,8 @@ namespace nk {
     result<void, material_error> MaterialSystem::apply_global(
         const MaterialType type,
         const glm::mat4& projection,
-        const glm::mat4& view) {
+        const glm::mat4& view,
+        const SceneLighting& lighting) {
         if (!m_initialized)
             return err(material_error{material_error_code::not_initialized, 0});
         const UniformBindings* uniform = bindings(type);
@@ -456,6 +487,23 @@ namespace nk {
         auto view_set = m_shaders->set_uniform(uniform->view, view);
         if (!view_set)
             return err(translate_shader_error(view_set.error()));
+        if (type == MaterialType::world) {
+            auto ambient_set = m_shaders->set_uniform(
+                uniform->ambient_color,
+                lighting.ambient_color);
+            if (!ambient_set)
+                return err(translate_shader_error(ambient_set.error()));
+            auto direction_set = m_shaders->set_uniform(
+                uniform->directional_light_direction,
+                lighting.directional.direction);
+            if (!direction_set)
+                return err(translate_shader_error(direction_set.error()));
+            auto light_color_set = m_shaders->set_uniform(
+                uniform->directional_light_color,
+                lighting.directional.color);
+            if (!light_color_set)
+                return err(translate_shader_error(light_color_set.error()));
+        }
         auto applied = m_shaders->apply_globals();
         if (!applied)
             return err(translate_shader_error(applied.error()));
@@ -535,6 +583,14 @@ namespace nk {
         auto set = m_shaders->set_uniform(uniform->model, model);
         if (!set)
             return err(translate_shader_error(set.error()));
+        if (material.type == MaterialType::world) {
+            const glm::mat4 normal_matrix = math::normal_matrix(model);
+            auto normal_set = m_shaders->set_uniform(
+                uniform->normal_matrix,
+                normal_matrix);
+            if (!normal_set)
+                return err(translate_shader_error(normal_set.error()));
+        }
         return ok();
     }
 

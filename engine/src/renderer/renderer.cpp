@@ -105,6 +105,7 @@ namespace nk {
             RenderPassKind::world,
             m_projection,
             m_view,
+            packet.lighting,
             packet.geometry_count,
             packet.geometries);
         if (!world_drawn)
@@ -115,6 +116,7 @@ namespace nk {
             RenderPassKind::ui,
             m_ui_projection,
             m_ui_view,
+            packet.lighting,
             packet.ui_geometry_count,
             packet.ui_geometries);
         if (!ui_drawn)
@@ -128,6 +130,7 @@ namespace nk {
         const RenderPassKind pass,
         const glm::mat4& projection,
         const glm::mat4& view,
+        const SceneLighting& lighting,
         const u32 geometry_count,
         const GeometryRenderData* geometries) {
         begin_render_pass(pass);
@@ -144,7 +147,8 @@ namespace nk {
         auto globals_applied = materials.apply_global(
             expected_material_type,
             projection,
-            view);
+            view,
+            lighting);
         if (!globals_applied)
             return fail({
                 renderer_error_code::material_failed,
