@@ -35,7 +35,8 @@ Engine
 ├── Platform
 ├── Renderer ───────→ Platform, ResourceSystem
 ├── TextureSystem ──→ Renderer, ResourceSystem
-├── MaterialSystem ─→ Renderer, TextureSystem, ResourceSystem
+├── ShaderSystem ───→ Renderer, ResourceSystem, TextureSystem defaults
+├── MaterialSystem ─→ ShaderSystem, TextureSystem, ResourceSystem
 ├── GeometrySystem ─→ Renderer, MaterialSystem
 └── frame-local RenderPacket views
 ```
@@ -44,23 +45,18 @@ Arrows show borrowed lifetime dependencies, not memory ownership. All systems
 are allocated by the root allocator. `Renderer` additionally owns an internal
 allocator used by its backend implementation.
 
-`ShaderSystem` is available as an explicitly caller-owned component, but is not
-yet part of the `Engine` object graph. A caller that creates it must place it
-after both `ResourceSystem` and `Renderer`, and destroy it before either:
-
-```text
-caller-owned ShaderSystem ──→ Renderer, ResourceSystem
-```
-
-The engine-level integration, including the transfer of built-in shader
-ownership from `Renderer`, is intentionally deferred until the material path is
-migrated to the generic system.
+`TextureSystem` is constructed before `ShaderSystem` so every generic backend
+shader can use a live default texture. Material instances may also bind texture
+slots owned by that system. Although the public `ShaderSystem` API does not take
+`TextureSystem` directly, active backend descriptors make this an indirect
+lifetime dependency.
 
 Shutdown is the exact reverse:
 
 ```text
 GeometrySystem
 → MaterialSystem
+→ ShaderSystem
 → TextureSystem
 → Renderer
 → ResourceSystem
@@ -76,7 +72,8 @@ These orderings are invariants:
 - `Platform` outlives `Renderer`, because the Vulkan surface depends on the
   platform window and display connection.
 - `Renderer` outlives every system that asks it to destroy GPU resources.
-- `TextureSystem` outlives every material that borrows or retains a texture.
+- `TextureSystem` outlives every material and shader that borrows a texture.
+- `ShaderSystem` outlives every material that owns a shader instance ID.
 - `MaterialSystem` outlives every geometry that borrows or retains a material.
 - A failed partial initialization uses the same reverse order and every
   `shutdown` remains safe to call more than once.
@@ -90,15 +87,15 @@ These orderings are invariants:
 | `ShaderResourceConfig` payload | Built-in `ShaderResourceLoader` as a loaded `Resource` | Inline strings and configuration slices contained in the same payload | `ResourceSystem::unload`; no view may survive it |
 | `Renderer` | `Engine` through the root allocator | `Platform`, `ResourceSystem`, default texture | `Renderer::destroy` |
 | Vulkan backend objects | Active `Renderer` | Platform surface and renderer resources | The Vulkan renderer during resource destruction or shutdown |
-| `ShaderHandle` slot | Vulkan renderer shader registry | Compatible render pass, device, resources and default texture | `Renderer::destroy_shader` or renderer shutdown |
-| `ShaderSystem` registry | Its explicit caller through the caller-provided allocator | `Renderer` and `ResourceSystem` | `ShaderSystem::destroy` before either borrowed system |
+| `ShaderHandle` slot | Vulkan renderer shader registry | Compatible render pass, device, resources and live textures bound by descriptors | `ShaderSystem::destroy(shader)` through `Renderer::destroy_shader`, or renderer shutdown as a defensive fallback |
+| `ShaderSystem` registry | `Engine` through the root allocator | `Renderer`, `ResourceSystem` and indirect texture lifetime | `ShaderSystem::destroy` after materials and before textures/renderer/resources |
 | `ShaderSystem::ShaderRecord` | Its `ShaderSystem` fixed-capacity registry | Backend `ShaderHandle`; copied immutable metadata and owned lookup names | `ShaderSystem::destroy(shader)` or system shutdown |
 | Shader instance ID | Its shader slot, borrowed by one `Material` | Per-image descriptor sets and the shader's instance UBO | `Renderer::release_shader_instance` through material destruction |
 | Vulkan object vertex/index buffers | Vulkan renderer | Device plus renderer allocator for range metadata | Vulkan renderer after all geometry ranges are released |
 | `VulkanGeometryData` ranges | Vulkan geometry slot | Suballocators of the object vertex/index buffers | Vulkan renderer after graphics work using the ranges completes |
 | `Texture` slot | `TextureSystem` | No high-level resource; opaque backend data belongs to `Renderer` | `TextureSystem`, through `Renderer::destroy_texture` |
 | `TextureMap::texture` | Borrowed by its `Material` | `TextureSystem` slot or default texture | Never by `TextureMap`; its material releases the acquired texture reference |
-| `Material` slot | `MaterialSystem` | `TextureSystem`, `Renderer`, texture maps | `MaterialSystem`, through `Renderer::destroy_material` and texture release |
+| `Material` slot | `MaterialSystem` | `ShaderSystem` instance, `TextureSystem` and texture maps | `MaterialSystem`, through `ShaderSystem::release_instance` and texture release |
 | `Geometry` slot | `GeometrySystem` | `MaterialSystem`, `Renderer`, material | `GeometrySystem`, through `Renderer::destroy_geometry` and material release |
 | `RenderPacket` arrays | Caller of `Renderer::draw_frame` | Geometries and materials referenced by the packet | Caller; renderer only reads them during the call |
 
@@ -133,8 +130,8 @@ identity alone does not make a stale handle valid.
   push-constant ranges before validating the neutral `ShaderConfig`. Syntax and
   layout failures preserve a typed parser error through `ResourceSystem`.
 - `ShaderSystem::create` receives an explicit allocator and borrows `Renderer`
-  and `ResourceSystem`. It is currently caller-owned and must be destroyed
-  before either dependency. It is not yet constructed by `Engine`.
+  and `ResourceSystem`. `Engine` owns the active registry and loads both built-in
+  shader resources after the default texture exists and before materials.
 - Loading copies the resource's names and compact immutable uniform metadata
   into fixed-capacity system storage before unloading the temporary resource.
   No resource payload or borrowed configuration slice is retained.
@@ -148,6 +145,15 @@ identity alone does not make a stale handle valid.
 - A failed resource load, metadata copy or backend creation leaves no registry
   entry. Temporary resources are unloaded and a newly-created backend shader is
   destroyed during rollback.
+- The generic Vulkan shader owns uniform CPU storage, aligned global/instance
+  UBO regions, descriptor layouts and per-instance descriptor state. Instance
+  strides respect the device's minimum uniform-buffer offset alignment, and all
+  byte ranges are checked before mapping or copying.
+- Global and instance samplers, including array elements, route through the same
+  metadata-driven path. Local uniforms route to validated push-constant ranges.
+- `ShaderSystem` must not destroy or replace a shader while a live material owns
+  one of its instance IDs. Material destruction is the synchronization point
+  before shader destruction or reload.
 
 ## TextureSystem contract
 
@@ -173,15 +179,27 @@ identity alone does not make a stale handle valid.
 - The system owns material slots and name-based reference counts. Material
   pointers returned by `acquire` are borrowed.
 - A material retains one reference to each non-default texture it successfully
-  acquires. Material destruction releases those references after destroying the
-  renderer-side material state.
+  acquires. Material destruction first returns its instance ID to `ShaderSystem`
+  and then releases those texture references.
 - Default world and UI materials live for the entire MaterialSystem lifetime and
-  borrow the TextureSystem default texture without incrementing its count.
+  borrow the TextureSystem default texture without incrementing its count. Their
+  shader instances are acquired transactionally; failure to create the second
+  default releases the first.
+- Material resources declare `shader=`. Omission remains backward-compatible by
+  selecting the built-in world or UI shader. The current material contract only
+  accepts the matching built-in shader for each `MaterialType`, because those
+  are the two uniform layouts understood by `MaterialSystem`.
+- `apply_global`, `apply_instance` and `apply_local` resolve uniforms by name once
+  during initialization and route all runtime work through `ShaderSystem`.
+- Per-material apply state caches frame number, material/texture generations,
+  shader and instance ID. An unchanged material still binds its descriptor set
+  for each draw, but uploads instance UBO data and rewrites descriptors at most
+  once per frame. Any cached identity or generation change invalidates it.
 - `set_diffuse_texture` acquires the replacement before publishing it, updates
   the material generation and only then releases the previous texture. Failure
   leaves the original binding intact.
 - A missing diffuse texture during material loading currently degrades to the
-  default texture and logs a warning. Invalid material configuration and renderer
+  default texture and logs a warning. Invalid material configuration and shader
   failures remain hard errors returned through `result`.
 
 ## GeometrySystem contract
@@ -216,9 +234,10 @@ identity alone does not make a stale handle valid.
 - `Renderer::create` constructs the selected backend and returns it through the
   renderer-neutral base. `Renderer::destroy` must receive the allocator used to
   create that object.
-- Texture, material and geometry create operations are fallible and publish a
+- Texture, shader and geometry create operations are fallible and publish a
   valid handle only after backend creation succeeds. Their matching destroy
-  operation is the sole path that interprets opaque backend state.
+  operation is the sole path that interprets opaque backend state. Materials no
+  longer have a renderer-specific create/destroy path.
 - Shader creation is also transactional. The public `ShaderHandle` contains a
   compact slot index and generation; native shader, pipeline and descriptor
   objects remain private to the backend. Destroying a slot advances its
@@ -232,9 +251,9 @@ identity alone does not make a stale handle valid.
   binding and array-length conversions to 8 bits, are checked before
   publication. Typed setters verify the value type and byte width; custom
   uniforms require an explicit byte count.
-- Materials borrow shader instance IDs. Material creation acquires the ID only
-  after its descriptor sets exist, and material destruction returns it before
-  the shader registry or device is destroyed.
+- Materials borrow shader instance IDs through `ShaderSystem`. Material creation
+  publishes only after the descriptor sets exist, and material destruction
+  returns the ID before the shader registry or device is destroyed.
 - `RenderPacket` is a non-owning view. Its arrays and every referenced resource
   remain alive and unchanged for the duration of `draw_frame`.
 - World geometry is recorded before UI geometry. Both passes belong to one frame
@@ -279,12 +298,10 @@ resource handle after its final release until those APIs gain the same property.
   object buffers now use the last of these directly for GPU offsets while
   preserving explicit metadata ownership and the shutdown order above.
 - Chapter 46 introduced the backend-owned shader registry and renderer-neutral
-  handles. Chapter 47 added a caller-owned `ShaderSystem` that borrows
-  `Renderer` and `ResourceSystem`; this keeps backend and orchestration ownership
-  separate while the existing material path remains active. Chapter 48 must
-  integrate it into `Engine`, make it outlive materials, migrate built-in shader
-  ownership out of `Renderer`, and remove the temporary `MaterialShader` bridge
-  only after both world and UI paths use the generic system.
+  handles. Chapter 47 added `ShaderSystem`. Chapter 48 integrated it into
+  `Engine`, made it outlive materials, transferred built-in shader ownership out
+  of `Renderer`, migrated both material passes and removed the temporary
+  `MaterialShader` bridge.
 - Chapters 49–52 may expand vertex/material layouts without changing ownership.
 - Chapters 53–56 must define whether `Mesh` owns geometry references or merely
   borrows them; that decision must be added to the ownership matrix.

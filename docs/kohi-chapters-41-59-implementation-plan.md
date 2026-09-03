@@ -500,21 +500,47 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Completar set/update de uniformes y el binding global/instance/local.
-- [ ] Calcular strides UBO desde las propiedades físicas del dispositivo y validar
+- [x] Completar set/update de uniformes y el binding global/instance/local.
+- [x] Calcular strides UBO desde las propiedades físicas del dispositivo y validar
   todos los offsets antes de map/copy.
-- [ ] Migrar MaterialSystem y los shaders world/UI al `ShaderSystem` genérico.
-- [ ] Eliminar `MaterialShader` únicamente cuando ambas rutas hayan pasado el
+- [x] Migrar MaterialSystem y los shaders world/UI al `ShaderSystem` genérico.
+- [x] Eliminar `MaterialShader` únicamente cuando ambas rutas hayan pasado el
   mismo smoke test; no conservar dos implementaciones activas.
-- [ ] Aplicar cada material una vez por frame cuando no cambie, pero invalidar el
+- [x] Aplicar cada material una vez por frame cuando no cambie, pero invalidar el
   cache ante cambios de generación, shader, mapa o descriptor.
-- [ ] Cubrir destrucción, reload y cierre en orden inverso de dependencias.
+- [x] Cubrir destrucción, reload y cierre en orden inverso de dependencias.
 
 ### Validación y commits
 
-- [ ] Render world/UI, cambio de textura, resize y cierre con Validation Layers.
-- [ ] Commits sugeridos: `feat(renderer): complete shader uniform binding` y
+- [x] Render world/UI, cambio de textura, resize y cierre con Validation Layers.
+- [x] Commits sugeridos: `feat(renderer): complete shader uniform binding` y
   `refactor(materials): route materials through the shader system`.
+
+### Estado NK
+
+- Completado en `62c2b62` y `2d0c891`.
+- `VulkanShader` es ahora la única implementación de shaders. Posee metadata,
+  storage CPU, UBOs global/instance con stride alineado desde las propiedades
+  físicas, descriptor layouts/pools/sets, samplers simples o en array y push
+  constants locales. Los rangos y multiplicaciones se comprueban antes de todo
+  map/copy, y la antigua clase `MaterialShader` fue eliminada.
+- `Engine` posee `ShaderSystem`, carga los built-ins después de `TextureSystem` y
+  antes de `MaterialSystem`, y destruye Geometry → Material → Shader → Texture →
+  Renderer. `Renderer` ya no crea materiales ni es dueño de los shaders world/UI.
+- Los `.kmt` declaran su shader, con fallback compatible según `MaterialType`.
+  `MaterialSystem` resuelve los uniformes una vez, adquiere/libera instancias por
+  `ShaderSystem` y mantiene el protocolo global/instance/local para world y UI.
+- El cache de material evita reescribir UBO/descriptores más de una vez por frame
+  cuando no hay cambios, pero siempre enlaza el descriptor requerido por el draw.
+  Se invalida por frame, generación del material o textura, shader e instance ID.
+- Pasaron 189/189 tests en Debug y en Debug con ASan/UBSan, y 180/180 en Release.
+  El build puro `nix build --offline .#nk-engine --no-link` también pasó.
+- El smoke nativo Wayland/xdg-shell bajo niri renderizó world/UI durante 5 frames
+  con Validation Layers, cero allocations en los 4 frames estables y cero fugas.
+  Una segunda ejecución cambió la ventana de 936×999 a 700×999 y luego 700×720,
+  ejercitó los frames de recreación del swapchain y cerró sin errores de Vulkan.
+- No se añadieron librerías ni assets externos; sólo se extendió el metadata de
+  los materiales existentes.
 
 ## Capítulo 49 — Directional Lighting
 
