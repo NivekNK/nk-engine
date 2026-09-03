@@ -552,25 +552,44 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
   [`532a8af`](https://github.com/travisvroman/kohi/commit/532a8af4ba4a3501ab204d9d151c6063a4e9b925)
 - Merges de integración: [`3d76931`](https://github.com/travisvroman/kohi/commit/3d76931b339f79d7f484b6723669c338c7768c34) y
   [`0f6edd7`](https://github.com/travisvroman/kohi/commit/0f6edd7daad0600511aa2ec6ad55643101c6b4a5)
+- Estado NK: completado en `95e2cd5` y `9f8c6bc`; convenciones en
+  [`renderer-coordinate-conventions.md`](renderer-coordinate-conventions.md).
 
 ### Plan
 
-- [ ] Añadir normal a `Vertex3D` y actualizar layout, generación de planos/cubos y
+- [x] Añadir normal a `Vertex3D` y actualizar layout, generación de planos/cubos y
   cargas existentes.
-- [ ] Implementar generación/normalización segura de normales y probar winding,
+- [x] Implementar generación/normalización segura de normales y probar winding,
   degenerados y transformaciones no uniformes.
-- [ ] Definir `DirectionalLight` renderer-neutral y su contrato de uniformes.
-- [ ] Extender el shader material con ambient + diffuse direccional y mantener
+- [x] Definir `DirectionalLight` renderer-neutral y su contrato de uniformes.
+- [x] Extender el shader material con ambient + diffuse direccional y mantener
   color/textura/alfa del material.
-- [ ] Fijar una convención documentada para handedness, orden de matrices,
+- [x] Fijar una convención documentada para handedness, orden de matrices,
   dirección de luz y ángulos. El commit de math se usa como regresión.
-- [ ] No incorporar assets si los PNG ya presentes permiten demostrar el resultado.
+- [x] No incorporar assets si los PNG ya presentes permiten demostrar el resultado.
 
 ### Validación y commits
 
-- [ ] Tests matemáticos de normales y layout CPU/GPU; smoke con una malla rotando.
-- [ ] Commits sugeridos: `feat(geometry): generate vertex normals` y
+- [x] Tests matemáticos de normales y layout CPU/GPU; smoke con una malla rotando.
+- [x] Commits sugeridos: `feat(geometry): generate vertex normals` y
   `feat(renderer): add directional material lighting`.
+
+### Resultado
+
+- `Vertex3D` usa un layout de 32 bytes y `GeometrySystem` genera normales
+  area-weighted sin allocations temporales, valida la topología antes de mutar y
+  omite triángulos degenerados sin producir NaN. El cubo usa 24 vértices y 36
+  índices para conservar normales planas por cara.
+- `SceneLighting` viaja en `RenderPacket`; `MaterialSystem` resuelve los uniformes
+  una sola vez y sólo los aplica al shader world. UI permanece sin cambios.
+- La normal matrix se calcula una vez por draw en CPU y se envía junto a model en
+  128 bytes de push constants. Es correcta con escalas no uniformes y devuelve
+  cero ante transformaciones singulares.
+- El shader conserva RGB y alfa de material/textura, y agrega ambient más diffuse
+  direccional con normalización segura. No se añadieron librerías ni assets.
+- Pasaron 194/194 tests en Debug y con ASan/UBSan, y 185/185 en Release. El smoke
+  Wayland/xdg-shell bajo niri completó 120 frames con Validation Layers, cero
+  eventos de allocation en los 119 frames estables y cero fugas reportadas.
 
 ## Capítulo 50 — Specular Lighting
 
