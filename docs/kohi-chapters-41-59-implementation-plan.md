@@ -604,22 +604,49 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Añadir `TextureUse::specular` con valor único y mapa specular a config,
+- [x] Añadir `TextureUse::specular` con valor único y mapa specular a config,
   material, loader y lifecycle.
-- [ ] Crear una textura specular por defecto y usarla cuando el asset no declare
+- [x] Crear una textura specular por defecto y usarla cuando el asset no declare
   mapa; no compartir ownership de forma que se libere el default.
-- [ ] Exponer shininess y view position mediante uniformes tipados.
-- [ ] Implementar iluminación specular coherente con el modelo elegido y con la
+- [x] Exponer shininess y view position mediante uniformes tipados.
+- [x] Implementar iluminación specular coherente con el modelo elegido y con la
   dirección del capítulo 49.
-- [ ] Hacer acquisition transaccional: si falla el segundo sampler, liberar sólo
+- [x] Hacer acquisition transaccional: si falla el segundo sampler, liberar sólo
   lo adquirido por esa operación.
-- [ ] Usar los PNG finales; no importar los JPG transitorios de la rama de trabajo.
+- [x] Usar los PNG finales; no importar los JPG transitorios de la rama de trabajo.
 
 ### Validación y commits
 
-- [ ] Tests de parsing/defaults/release y smoke comparando material con y sin mapa.
-- [ ] Commits sugeridos: `feat(materials): support specular texture maps` y
+- [x] Tests de parsing/defaults/release y actualización transaccional; smoke del
+  material con mapa y regresión sin mapa mediante el default negro.
+- [x] Commits sugeridos: `feat(materials): support specular texture maps` y
   `feat(renderer): add specular material lighting`.
+
+### Estado NK
+
+- Completado en `3ff43a3`, `5104ebc`, `3b2aa18` y `6f7b731`.
+- `MaterialConfig` y `.kmt` exponen `specular_map_name` y `shininess`;
+  `TextureUse::specular` usa un valor distinto de diffuse. El default specular
+  es negro opaco de 1×1, no tiene ownership por material y desactiva el reflejo
+  de forma determinista cuando el mapa se omite.
+- La carga de ambos mapas publica el material sólo después de adquirirlos y
+  revierte el diffuse si falla el specular. `set_texture_maps` aplica el mismo
+  contrato al cambio interactivo y la tecla `T` recorre las parejas
+  cobblestone, paving y paving2 con sus respectivos `_SPEC`.
+- El shader world usa dos elementos del mismo binding de samplers y Blinn-Phong
+  con normal, posición world, posición de cámara y shininess. La luz conserva la
+  convención del capítulo 49, el specular no tiñe el diffuse ni altera alfa y el
+  pase UI permanece sin cambios.
+- Se importaron únicamente los PNG finales `cobblestone_SPEC`,
+  `orange_lines_512_SPEC`, `paving_SPEC` y `paving2_SPEC`. No se añadieron
+  librerías ni fue necesario modificar el inventario CSV.
+- Validation Layers detectó que las imágenes declaraban cuatro mip levels sin
+  generarlos; `5104ebc` fija un único nivel, coherente con uploads, image views y
+  samplers actuales.
+- Pasaron 198/198 tests en Debug y con ASan/UBSan, y 189/189 en Release. El
+  paquete `nix build --offline .#nk-engine --no-link` también pasó.
+- El smoke Wayland/xdg-shell bajo niri completó 120 frames con Validation Layers,
+  cero eventos de allocation en los 119 frames estables y cero fugas reportadas.
 
 ## Capítulo 51 — Normal Maps
 
