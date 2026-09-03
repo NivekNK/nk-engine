@@ -1294,6 +1294,50 @@ TEST(MaterialSystem, RebindsMaterialPropertiesWithoutLeakingReferences) {
     systems.shutdown();
 }
 
+TEST(MaterialSystem, RebindsTextureMapsTransactionally) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    auto material = systems.materials->acquire("test_material");
+    ASSERT_TRUE(material);
+
+    const nk::u32 initial_generation = (*material)->generation;
+    auto failed = systems.materials->set_texture_maps(
+        *(*material),
+        "cobblestone",
+        "missing_SPEC");
+    ASSERT_FALSE(failed);
+    EXPECT_EQ(failed.error().code, nk::material_error_code::texture_failed);
+    EXPECT_EQ((*material)->diffuse_map_name.view(), nk::strview{"paving"});
+    EXPECT_EQ(
+        (*material)->specular_map_name.view(),
+        nk::strview{"paving_SPEC"});
+    EXPECT_EQ((*material)->generation, initial_generation);
+    EXPECT_EQ(systems.textures->reference_count("cobblestone"), 0u);
+    EXPECT_EQ(systems.textures->reference_count("paving"), 1u);
+    EXPECT_EQ(systems.textures->reference_count("paving_SPEC"), 1u);
+
+    ASSERT_TRUE(systems.materials->set_texture_maps(
+        *(*material),
+        "cobblestone",
+        "cobblestone_SPEC"));
+    EXPECT_EQ(
+        (*material)->diffuse_map_name.view(),
+        nk::strview{"cobblestone"});
+    EXPECT_EQ(
+        (*material)->specular_map_name.view(),
+        nk::strview{"cobblestone_SPEC"});
+    EXPECT_EQ((*material)->generation, initial_generation + 1);
+    EXPECT_EQ(systems.textures->reference_count("paving"), 0u);
+    EXPECT_EQ(systems.textures->reference_count("paving_SPEC"), 0u);
+    EXPECT_EQ(systems.textures->reference_count("cobblestone"), 1u);
+    EXPECT_EQ(systems.textures->reference_count("cobblestone_SPEC"), 1u);
+
+    systems.materials->release("test_material");
+    systems.shutdown();
+}
+
 TEST(MaterialSystem, UpdatesInstanceDataOncePerFrameAndInvalidatesChanges) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};

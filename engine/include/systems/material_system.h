@@ -63,6 +63,10 @@ namespace nk {
         [[nodiscard]] result<void, material_error> set_diffuse_texture(
             Material& material,
             strview texture_name);
+        [[nodiscard]] result<void, material_error> set_texture_maps(
+            Material& material,
+            strview diffuse_texture_name,
+            strview specular_texture_name);
         [[nodiscard]] result<void, material_error> set_specular_texture(
             Material& material,
             strview texture_name);

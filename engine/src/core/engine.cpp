@@ -369,22 +369,27 @@ namespace nk {
         if (m_material_system == nullptr || m_test_material == nullptr)
             return;
 
-        constexpr strview texture_names[]{
-            {"cobblestone", 11},
-            {"paving", 6},
-            {"paving2", 7},
+        struct DebugTextureSet {
+            strview diffuse;
+            strview specular;
+        };
+        constexpr DebugTextureSet texture_sets[]{
+            {{"cobblestone", 11}, {"cobblestone_SPEC", 16}},
+            {{"paving", 6}, {"paving_SPEC", 11}},
+            {{"paving2", 7}, {"paving2_SPEC", 12}},
         };
         constexpr u8 texture_count =
-            sizeof(texture_names) / sizeof(texture_names[0]);
-        const strview next_name = texture_names[m_debug_texture_index];
+            sizeof(texture_sets) / sizeof(texture_sets[0]);
+        const DebugTextureSet& next = texture_sets[m_debug_texture_index];
 
-        auto changed = m_material_system->set_diffuse_texture(
+        auto changed = m_material_system->set_texture_maps(
             *m_test_material,
-            next_name);
+            next.diffuse,
+            next.specular);
         if (!changed) {
             const material_error error = changed.error();
             ErrorLog(
-                "Texture cycle failed: material_error={}, native_code={}",
+                "Texture map cycle failed: material_error={}, native_code={}",
                 static_cast<u32>(error.code),
                 error.native_code);
             return;

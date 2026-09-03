@@ -465,6 +465,91 @@ namespace nk {
         return ok();
     }
 
+    result<void, material_error> MaterialSystem::set_texture_maps(
+        Material& material,
+        const strview diffuse_texture_name,
+        const strview specular_texture_name) {
+        if (!m_initialized)
+            return err(material_error{material_error_code::not_initialized, 0});
+        if (!material.valid() || material.type != MaterialType::world ||
+            diffuse_texture_name.empty() || specular_texture_name.empty()) {
+            return err(material_error{material_error_code::invalid_name, 0});
+        }
+
+        const bool diffuse_changed =
+            material.diffuse_map_name.view() != diffuse_texture_name;
+        const bool specular_changed =
+            material.specular_map_name.view() != specular_texture_name;
+        if (!diffuse_changed && !specular_changed)
+            return ok();
+
+        Texture* diffuse_replacement = material.diffuse_map.texture;
+        bool diffuse_acquired = false;
+        if (diffuse_changed) {
+            if (diffuse_texture_name == default_texture_name) {
+                diffuse_replacement = &m_textures->default_texture();
+            } else {
+                auto acquired = m_textures->acquire(diffuse_texture_name, true);
+                if (!acquired) {
+                    return err(material_error{
+                        material_error_code::texture_failed,
+                        acquired.error().native_code,
+                    });
+                }
+                diffuse_replacement = *acquired;
+                diffuse_acquired = true;
+            }
+        }
+
+        Texture* specular_replacement = material.specular_map.texture;
+        if (specular_changed) {
+            if (specular_texture_name == default_specular_texture_name) {
+                specular_replacement = &m_textures->default_specular_texture();
+            } else {
+                auto acquired = m_textures->acquire(specular_texture_name, true);
+                if (!acquired) {
+                    if (diffuse_acquired)
+                        m_textures->release(diffuse_texture_name);
+                    return err(material_error{
+                        material_error_code::texture_failed,
+                        acquired.error().native_code,
+                    });
+                }
+                specular_replacement = *acquired;
+            }
+        }
+
+        const strbuf<texture_name_capacity> previous_diffuse_name =
+            material.diffuse_map_name;
+        const strbuf<texture_name_capacity> previous_specular_name =
+            material.specular_map_name;
+
+        if (diffuse_changed) {
+            material.diffuse_map.texture = diffuse_replacement;
+            material.diffuse_map.use = TextureUse::diffuse;
+            material.diffuse_map_name.assign(diffuse_texture_name);
+        }
+        if (specular_changed) {
+            material.specular_map.texture = specular_replacement;
+            material.specular_map.use = TextureUse::specular;
+            material.specular_map_name.assign(specular_texture_name);
+        }
+
+        ++material.generation;
+        if (material.generation == numeric::invalid_id)
+            material.generation = 0;
+
+        if (diffuse_changed && !previous_diffuse_name.empty() &&
+            previous_diffuse_name.view() != default_texture_name) {
+            m_textures->release(previous_diffuse_name.view());
+        }
+        if (specular_changed && !previous_specular_name.empty() &&
+            previous_specular_name.view() != default_specular_texture_name) {
+            m_textures->release(previous_specular_name.view());
+        }
+        return ok();
+    }
+
     result<void, material_error> MaterialSystem::set_diffuse_color(
         Material& material,
         const glm::vec4& color) {
