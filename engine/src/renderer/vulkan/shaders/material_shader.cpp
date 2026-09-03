@@ -230,6 +230,12 @@ namespace nk {
             m_object_descriptor_set_layout,
         };
 
+        VkPushConstantRange push_constant_range{
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(glm::mat4),
+        };
+
         // Stages
         // NOTE: Should match the number of shader stages in the shader.
         VkPipelineShaderStageCreateInfo stages[shader_stage_count];
@@ -246,6 +252,8 @@ namespace nk {
             .attributes = attribute_descriptions,
             .descriptor_set_layout_count = descriptor_set_layout_count,
             .descriptor_set_layouts = layouts,
+            .push_constant_range_count = 1,
+            .push_constant_ranges = &push_constant_range,
             .stage_count = shader_stage_count,
             .stages = stages,
             .viewport = viewport,

@@ -17,6 +17,8 @@ namespace nk {
         VkVertexInputAttributeDescription* attributes;
         u32 descriptor_set_layout_count;
         VkDescriptorSetLayout* descriptor_set_layouts;
+        u32 push_constant_range_count;
+        VkPushConstantRange* push_constant_ranges;
         u32 stage_count;
         VkPipelineShaderStageCreateInfo* stages;
         VkViewport viewport;
@@ -29,7 +31,7 @@ namespace nk {
     class Pipeline {
     public:
         Pipeline() = default;
-        ~Pipeline() = default;
+        ~Pipeline() { shutdown(); }
 
         Pipeline(const Pipeline&) = delete;
         Pipeline& operator=(const Pipeline&) = delete;

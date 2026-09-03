@@ -7,10 +7,23 @@
 #include "vulkan/command_buffer.h"
 #include "vulkan/utils.h"
 
-#include <glm/ext/matrix_float4x4.hpp>
-
 namespace nk {
     result<void, renderer_error> Pipeline::init(const PipelineCreateInfo& create_info) {
+        if (m_device != nullptr || create_info.device == nullptr ||
+            create_info.render_pass == nullptr ||
+            create_info.attribute_count == 0 ||
+            create_info.attributes == nullptr ||
+            create_info.stage_count == 0 || create_info.stages == nullptr ||
+            (create_info.descriptor_set_layout_count != 0 &&
+             create_info.descriptor_set_layouts == nullptr) ||
+            (create_info.push_constant_range_count != 0 &&
+             create_info.push_constant_ranges == nullptr) ||
+            create_info.vertex_stride == 0) {
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = 0,
+            });
+        }
         m_device = create_info.device;
         m_vulkan_allocator = create_info.vulkan_allocator;
 
@@ -126,12 +139,10 @@ namespace nk {
         pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
         // Push constants
-        VkPushConstantRange push_constant;
-        push_constant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        push_constant.offset = sizeof(glm::mat4) * 0;
-        push_constant.size = sizeof(glm::mat4) * 2;
-        pipeline_layout_create_info.pushConstantRangeCount = 1;
-        pipeline_layout_create_info.pPushConstantRanges = &push_constant;
+        pipeline_layout_create_info.pushConstantRangeCount =
+            create_info.push_constant_range_count;
+        pipeline_layout_create_info.pPushConstantRanges =
+            create_info.push_constant_ranges;
 
         // Descriptor set layouts
         pipeline_layout_create_info.setLayoutCount = create_info.descriptor_set_layout_count;
@@ -145,11 +156,14 @@ namespace nk {
             create_info.vulkan_allocator,
             &m_layout
         );
-        if (result != VK_SUCCESS)
+        if (result != VK_SUCCESS) {
+            m_device = nullptr;
+            m_vulkan_allocator = nullptr;
             return err(renderer_error{
                 .code = renderer_error_code::pipeline_creation_failed,
                 .native_code = static_cast<i32>(result),
             });
+        }
 
         DebugLog("Pipeline layout created.");
 
@@ -183,10 +197,12 @@ namespace nk {
             &m_pipeline
         );
         if (!vk::is_success(result)) {
-            return err(renderer_error{
+            const renderer_error error{
                 .code = renderer_error_code::pipeline_creation_failed,
                 .native_code = static_cast<i32>(result),
-            });
+            };
+            shutdown();
+            return err(error);
         }
 
         InfoLog("Vulkan Graphics Pipeline created.");
@@ -206,6 +222,7 @@ namespace nk {
             m_layout = nullptr;
         }
         m_device = nullptr;
+        m_vulkan_allocator = nullptr;
 
         InfoLog("Vulkan Graphics Pipeline destroyed.");
     }
