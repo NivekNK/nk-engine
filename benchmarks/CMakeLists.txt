@@ -41,3 +41,17 @@ target_compile_definitions(optimization_baseline PRIVATE
 )
 
 target_link_libraries(optimization_baseline PRIVATE engine)
+
+add_executable(allocator_benchmark EXCLUDE_FROM_ALL
+    allocator_benchmark.cpp
+)
+
+set_target_properties(allocator_benchmark PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin/${OPERATIVE_SYSTEM}-${CMAKE_BUILD_TYPE}/benchmarks"
+)
+
+target_compile_definitions(allocator_benchmark PRIVATE
+    NK_BENCHMARK_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+)
+
+target_link_libraries(allocator_benchmark PRIVATE engine)
