@@ -392,21 +392,45 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Definir la interfaz renderer-neutral para create/destroy/use, bind globals,
+- [x] Definir la interfaz renderer-neutral para create/destroy/use, bind globals,
   bind instance, apply y set uniform.
-- [ ] Separar handles/IDs públicos de los punteros Vulkan internos.
-- [ ] Compactar metadata con anchos comprobados, sin truncar tamaños u offsets;
+- [x] Separar handles/IDs públicos de los punteros Vulkan internos.
+- [x] Compactar metadata con anchos comprobados, sin truncar tamaños u offsets;
   representar uniformes custom de forma explícita.
-- [ ] Mover la creación temporal del shader fuera del frontend y preparar la
+- [x] Mover la creación temporal del shader fuera del frontend y preparar la
   entrada del sistema del capítulo 47.
-- [ ] Mantener el pipeline asociado a un render pass compatible, no a nombres
+- [x] Mantener el pipeline asociado a un render pass compatible, no a nombres
   hardcodeados.
 
 ### Validación y commit
 
-- [ ] Probar que material y UI usan la misma interfaz sin alterar el orden de sus
+- [x] Probar que material y UI usan la misma interfaz sin alterar el orden de sus
   render passes.
-- [ ] Commit sugerido: `refactor(renderer): expose backend-neutral shader operations`.
+- [x] Commit sugerido: `refactor(renderer): expose backend-neutral shader operations`.
+
+### Estado NK
+
+- Completado en `7f0ba49` y `b3cb0c1`.
+- La API de `Renderer` expone create/destroy/use, bind/apply global e instance,
+  adquisición/liberación de instance IDs, samplers y setters tipados o custom.
+  `ShaderHandle` ocupa 4 bytes y combina índice con generación; Vulkan conserva
+  los punteros y rechaza handles inválidos, obsoletos o usados fuera del render
+  pass compatible.
+- `ShaderUniformMetadata` ocupa 8 bytes. La conversión de cantidad, offset,
+  tamaño y binding se comprueba antes de reducirla a 16 bits, y los uniformes
+  custom conservan su tamaño explícito. Un fallo de validación o asignación no
+  publica metadata parcial.
+- La creación temporal de los built-ins permanece en `VulkanRenderer`, detrás
+  de la API neutral y fuera del frontend. `MaterialShader` sigue siendo un
+  adaptador interno temporal, previsto para retirarse al finalizar el sistema
+  de shaders, no una segunda API pública.
+- World y UI ejecutan el mismo protocolo neutral en el orden use, globals,
+  instance, local y draw. Un test de backend fake comprueba tanto el protocolo
+  como el orden world → UI.
+- Pasaron 178/178 tests en Debug y en Debug con ASan/UBSan, y 169/169 en Release.
+  El smoke nativo Wayland/xdg-shell bajo niri renderizó 5 frames con Validation
+  Layers, cero allocations en los 4 frames estables y cero fugas al cerrar.
+- No se añadieron dependencias ni assets externos.
 
 ## Capítulo 47 — Shader System, parte 3
 

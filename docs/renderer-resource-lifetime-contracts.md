@@ -77,6 +77,8 @@ These orderings are invariants:
 | `Resource` payload | Its selected `ResourceLoader`, allocated from the ResourceSystem allocator | Owning `ResourceSystem` and loader | `ResourceSystem::unload` delegates to the same loader |
 | `Renderer` | `Engine` through the root allocator | `Platform`, `ResourceSystem`, default texture | `Renderer::destroy` |
 | Vulkan backend objects | Active `Renderer` | Platform surface and renderer resources | The Vulkan renderer during resource destruction or shutdown |
+| `ShaderHandle` slot | Vulkan renderer shader registry | Compatible render pass, device, resources and default texture | `Renderer::destroy_shader` or renderer shutdown |
+| Shader instance ID | Its shader slot, borrowed by one `Material` | Per-image descriptor sets and the shader's instance UBO | `Renderer::release_shader_instance` through material destruction |
 | Vulkan object vertex/index buffers | Vulkan renderer | Device plus renderer allocator for range metadata | Vulkan renderer after all geometry ranges are released |
 | `VulkanGeometryData` ranges | Vulkan geometry slot | Suballocators of the object vertex/index buffers | Vulkan renderer after graphics work using the ranges completes |
 | `Texture` slot | `TextureSystem` | No high-level resource; opaque backend data belongs to `Renderer` | `TextureSystem`, through `Renderer::destroy_texture` |
@@ -177,6 +179,21 @@ identity alone does not make a stale handle valid.
 - Texture, material and geometry create operations are fallible and publish a
   valid handle only after backend creation succeeds. Their matching destroy
   operation is the sole path that interprets opaque backend state.
+- Shader creation is also transactional. The public `ShaderHandle` contains a
+  compact slot index and generation; native shader, pipeline and descriptor
+  objects remain private to the backend. Destroying a slot advances its
+  generation so stale handles fail before any native object is accessed.
+- A shader slot records the render pass against which its pipeline was created.
+  `use_shader` rejects a handle when another pass is active, independently of
+  the shader's name. Bind, apply and uniform operations only accept the shader
+  most recently selected in that pass.
+- Shader uniform handles are compact indices into immutable metadata created
+  from a validated `ShaderConfig`. Offset, size and binding conversions to 16
+  bits are checked before publication. Typed setters verify the value type and
+  byte width; custom uniforms require an explicit byte count.
+- Materials borrow shader instance IDs. Material creation acquires the ID only
+  after its descriptor sets exist, and material destruction returns it before
+  the shader registry or device is destroyed.
 - `RenderPacket` is a non-owning view. Its arrays and every referenced resource
   remain alive and unchanged for the duration of `draw_frame`.
 - World geometry is recorded before UI geometry. Both passes belong to one frame
@@ -207,11 +224,11 @@ The current systems are single-threaded. Reference maps, slot arrays, resource
 loaders, renderer commands and generation counters require external serialization.
 Thread safety must not be inferred from const methods or fixed-capacity storage.
 
-Current APIs expose borrowed pointers and, for geometry, numeric slot IDs. Slot
-reuse means these are not permanent identities. A future stable handle must pair
-an index with a generation and validate both before access or release. Until that
-change is implemented, callers must strictly stop using a handle after its final
-release.
+Current resource APIs expose borrowed pointers and, for geometry and material
+instances, numeric slot IDs. Slot reuse means these are not permanent identities.
+Shader handles are the exception: they already pair an index with a generation
+and validate both before access. Other callers must strictly stop using a
+resource handle after its final release until those APIs gain the same property.
 
 ## Requirements for the next roadmap items
 
@@ -220,9 +237,10 @@ release.
   [`memory-allocation-contracts.md`](memory-allocation-contracts.md). Vulkan
   object buffers now use the last of these directly for GPU offsets while
   preserving explicit metadata ownership and the shutdown order above.
-- Chapters 45–48 must decide whether `ShaderSystem` is owned by `Renderer` or by
-  `Engine` before exposing it. In either case it must outlive materials and die
-  before `ResourceSystem` and the renderer resources on which it depends.
+- Chapter 46 introduced the backend-owned shader registry and renderer-neutral
+  handles. Chapters 47–48 must decide whether the higher-level `ShaderSystem`
+  is owned by `Renderer` or by `Engine`; it must outlive materials and release
+  its handles before renderer and `ResourceSystem` teardown.
 - Chapters 49–52 may expand vertex/material layouts without changing ownership.
 - Chapters 53–56 must define whether `Mesh` owns geometry references or merely
   borrows them; that decision must be added to the ownership matrix.
