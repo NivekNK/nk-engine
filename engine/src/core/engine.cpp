@@ -364,7 +364,9 @@ namespace nk {
         f64 target_frame_seconds = 1.0f / 60;
         u64 smoke_test_frames = 0;
 #if NK_MEMORY_TRACKING_ENABLED
-        u64 stable_frame_allocation_baseline = 0;
+        u64 stable_frame_allocation_events = 0;
+        u64 stable_frames_checked = 0;
+        bool stable_frame_warmed_up = false;
 #endif
         if (const cstr configured_frames = std::getenv("NK_SMOKE_TEST_FRAMES");
             configured_frames != nullptr) {
@@ -380,6 +382,10 @@ namespace nk {
             }
 
             if (!m_platform->suspended()) {
+#if NK_MEMORY_TRACKING_ENABLED
+                const u64 frame_allocation_baseline =
+                    mem::MemorySystem::get().allocation_event_count();
+#endif
                 // Update clock and get delta time
                 m_clock.update();
                 f64 current_time = m_clock.elapsed();
@@ -445,9 +451,16 @@ namespace nk {
 
                 ++frame_count;
 #if NK_MEMORY_TRACKING_ENABLED
-                if (smoke_test_frames > 1 && frame_count == 1) {
-                    stable_frame_allocation_baseline =
-                        mem::MemorySystem::get().allocation_event_count();
+                if (smoke_test_frames > 1 &&
+                    *frame == frame_outcome::rendered) {
+                    if (stable_frame_warmed_up) {
+                        stable_frame_allocation_events +=
+                            mem::MemorySystem::get().allocation_event_count() -
+                            frame_allocation_baseline;
+                        ++stable_frames_checked;
+                    } else {
+                        stable_frame_warmed_up = true;
+                    }
                 }
 #endif
                 if (smoke_test_frames != 0 && frame_count >= smoke_test_frames)
@@ -460,18 +473,15 @@ namespace nk {
 
 #if NK_MEMORY_TRACKING_ENABLED
         if (smoke_test_frames > 1) {
-            const u64 allocation_events =
-                mem::MemorySystem::get().allocation_event_count() -
-                stable_frame_allocation_baseline;
-            if (allocation_events == 0) {
+            if (stable_frame_allocation_events == 0) {
                 InfoLog(
                     "Stable-frame allocation check: 0 allocation events across {} checked frame(s).",
-                    smoke_test_frames - 1);
+                    stable_frames_checked);
             } else {
                 ErrorLog(
                     "Stable-frame allocation check: {} unexpected allocation event(s) across {} checked frame(s).",
-                    allocation_events,
-                    smoke_test_frames - 1);
+                    stable_frame_allocation_events,
+                    stable_frames_checked);
             }
         }
 #endif
