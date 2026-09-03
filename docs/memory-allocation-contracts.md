@@ -46,7 +46,9 @@ backing store.
   public operation.
 - A successful reservation uses the lowest-offset free range that can both fit
   the aligned request and be represented by the available metadata. Alignment
-  must be a nonzero power of two; any prefix padding remains free.
+  must be a nonzero power of two. The optional alignment bias aligns
+  `bias + offset`, which lets a client align an absolute address even when its
+  backing store is not naturally aligned. Any prefix padding remains free.
 - A release rejects zero-sized, overflowing, out-of-bounds and already-free
   ranges. It may merge with the previous range, the next range or both.
 - Every operation is transactional. Capacity exhaustion, fragmentation,
@@ -72,6 +74,51 @@ Allocators layered on top of `FreeList` must validate their own allocation
 headers or generation metadata before release when exact block identity is a
 requirement. They must not weaken the overlap, bounds or transactional checks
 provided by the free list.
+
+## FreeListAllocator ownership and lifetime
+
+`nk::mem::FreeListAllocator` layers reusable CPU allocations over a fixed
+contiguous backing store. It supports two explicit ownership modes:
+
+- The owning form obtains the backing block from an injected backing allocator
+  and returns it during destruction.
+- The borrowing form receives an external block and never releases it.
+
+In both forms, a separately injected metadata allocator owns the fixed range
+array used by `FreeList`. The backing and metadata allocators, or the borrowed
+block, must outlive the `FreeListAllocator`. Self-dependencies are rejected at
+initialization. No parent allocation occurs after a successful initialization.
+
+The allocator is movable but not copyable. Move construction transfers backing
+ownership, metadata and live allocation state. Move assignment is accepted only
+when the destination has no live allocations; its previous empty backing and
+metadata are released before the source state is transferred.
+
+## FreeListAllocator allocation contract
+
+- Every allocation consumes the requested payload plus one 8-byte guard header.
+  Alignment applies to the returned payload address, including when a borrowed
+  backing address is misaligned. Alignment prefixes remain reusable.
+- The caller still supplies the exact payload size to `free`, as required by the
+  base `Allocator` API. The guard binds backing address, range offset and size,
+  so wrong-size, interior, foreign and duplicate frees are rejected even when
+  `MemorySystem` tracking is disabled.
+- The guard detects API misuse; it is not a security boundary. A stale pointer
+  has the same ABA limitation after the identical range and size are allocated
+  again.
+- Allocation and release are transactional. Overflow, out-of-space,
+  fragmentation, metadata exhaustion or invalid release do not change the
+  allocator statistics or free ranges.
+- `reserved_bytes` is the complete pool size. `used_bytes`, `peak_used_bytes`
+  and active allocations describe payloads only. `occupied_space()` includes
+  live payload headers, while `free_space()` reports all reusable pool bytes.
+
+This allocator is intended for explicit fixed-lifetime domains and reusable
+heaps. It does not replace `MallocAllocator` globally: the current
+`MemorySystem` bootstrap and injected allocator topology avoid a circular
+dependency, and measurements show that neither implementation wins for every
+allocation size. Vulkan buffer suballocation continues to use `FreeList`
+directly because those offsets describe GPU buffers rather than CPU pointers.
 
 ## Concurrency and complexity
 

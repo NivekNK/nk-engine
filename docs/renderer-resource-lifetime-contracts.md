@@ -200,8 +200,9 @@ release.
 ## Requirements for the next roadmap items
 
 - Chapter 42 introduced the renderer-neutral `FreeList` described in
-  [`memory-allocation-contracts.md`](memory-allocation-contracts.md). Chapters
-  43–44 may layer CPU and GPU suballocators on it, but must preserve its explicit
+  [`memory-allocation-contracts.md`](memory-allocation-contracts.md). Chapter 43
+  now layers `FreeListAllocator` over it for explicit CPU heaps. Chapter 44 may
+  use `FreeList` directly for GPU buffer offsets, but must preserve its explicit
   metadata dependency and the high-level shutdown order above.
 - Chapters 45–48 must decide whether `ShaderSystem` is owned by `Renderer` or by
   `Engine` before exposing it. In either case it must outlive materials and die

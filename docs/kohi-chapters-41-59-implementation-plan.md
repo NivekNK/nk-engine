@@ -227,28 +227,51 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Diseño NK
 
-- [ ] Comparar el comportamiento requerido con `Allocator`, `MallocAllocator`,
+- [x] Comparar el comportamiento requerido con `Allocator`, `MallocAllocator`,
   `LinearAllocator`, `AllocatorOwner` y el tracking ya implementado.
-- [ ] No reemplazar el sistema global por la implementación C de Kohi. Añadir
+- [x] No reemplazar el sistema global por la implementación C de Kohi. Añadir
   `nk::mem::FreeListAllocator` sólo para el caso que falta: un heap fijo capaz de
   liberar y reutilizar bloques.
-- [ ] Hacerlo derivar de `Allocator`, conservar tracking, alineación, estadísticas,
+- [x] Hacerlo derivar de `Allocator`, conservar tracking, alineación, estadísticas,
   ownership/move y macros de source location existentes.
-- [ ] Usar `FreeList` del capítulo 42 para los rangos y almacenar un header mínimo
+- [x] Usar `FreeList` del capítulo 42 para los rangos y almacenar un header mínimo
   sólo si es imprescindible para validar `free`; evitar búsquedas o metadata
   redundante en el fast path.
-- [ ] Mantener el arranque de `MemorySystem` actual. El backing store y la metadata
+- [x] Mantener el arranque de `MemorySystem` actual. El backing store y la metadata
   se inyectan al `init`, eliminando una dependencia circular.
-- [ ] Si el allocator actual ya cubre todo el uso real, cerrar el capítulo como
+- [x] Si el allocator actual ya cubre todo el uso real, cerrar el capítulo como
   auditoría y tests, sin crear una clase redundante.
 
 ### Validación y commits
 
-- [ ] Tests: distintas alineaciones, reuse, fragmentación, OOM, tamaño cero,
+- [x] Tests: distintas alineaciones, reuse, fragmentación, OOM, tamaño cero,
   overflow, free inválido, tracking balanceado, move y shutdown.
-- [ ] Benchmark separado frente a `MallocAllocator` para cargas repetidas; no usar
+- [x] Benchmark separado frente a `MallocAllocator` para cargas repetidas; no usar
   el benchmark como sustituto de las pruebas de corrección.
-- [ ] Commit sugerido: `feat(memory): add a reusable free-list allocator`.
+- [x] Commits: `f7abafa feat(memory): add a reusable free-list allocator` y
+  `f5bb8d5 perf(memory): benchmark reusable pool allocations`.
+
+### Resultado
+
+- `FreeListAllocator` admite backing propio o prestado, deriva de `Allocator` y
+  reutiliza bloques mediante la `FreeList` existente. Su único coste por bloque
+  es un guard de 8 bytes que valida dirección, offset y tamaño incluso sin
+  tracking.
+- `FreeList` ahora es movable y permite un sesgo de alineación; así el allocator
+  devuelve direcciones absolutas alineadas sin desperdiciar permanentemente el
+  prefijo de cada rango.
+- El backing y la metadata se inyectan explícitamente. Tras `init`, los caminos
+  `allocate`/`free` no solicitan memoria a los allocators padre y no introducen
+  una dependencia de bootstrap con `MemorySystem`.
+- Se cubrieron 18 tests de `FreeList` y 12 de `FreeListAllocator`. La suite pasó
+  160/160 en Debug y con ASan/UBSan, y 151/151 en Release; LeakSanitizer se
+  desactivó bajo el entorno instrumentado por su uso de `ptrace`.
+- En tres ejecuciones Release aisladas de 200.000 ciclos allocate/free, la
+  mediana del pool permaneció entre 19,097 y 19,205 ns/op. `MallocAllocator`
+  obtuvo 12,071–12,452 ns/op para 16 B, 15,453–17,660 para 256 B y
+  54,547–57,362 para 4 KiB. El resultado justifica conservar ambos: no se migra
+  el allocator global y el pool queda disponible para dominios donde la
+  reutilización, el límite fijo o bloques mayores compensen su metadata.
 
 ## Capítulo 44 — Dynamic Vulkan Buffers
 
