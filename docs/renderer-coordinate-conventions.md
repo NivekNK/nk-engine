@@ -13,8 +13,14 @@ matemáticas y de layout.
   generan con `cross(b - a, c - a)` y apuntan hacia el exterior de la malla.
 - Vulkan mantiene `VK_FRONT_FACE_COUNTER_CLOCKWISE`; el viewport de altura
   negativa adapta el eje vertical al framebuffer.
-- `Vertex3D` almacena `position`, `normal` y `texcoord`, con offsets `0`, `12` y
-  `24`, respectivamente, y stride total de 32 bytes.
+- `Vertex3D` almacena `position`, `normal`, `texcoord` y `tangent`, con offsets
+  `0`, `12`, `24` y `32`, respectivamente, y stride total de 48 bytes. La parte
+  xyz de la tangente vive en object space y `w` conserva el handedness
+  bitangent (`+1` o `-1`).
+- Las tangentes se acumulan por vértice, se ortogonalizan contra la normal con
+  Gram-Schmidt y usan un eje fallback determinista cuando la parametrización UV
+  es degenerada. Topología inválida u OOM no dejan el buffer parcialmente
+  modificado.
 
 ## Matrices y ángulos
 
@@ -60,9 +66,23 @@ matemáticas y de layout.
   1×1, por lo que conserva el resultado ambient + diffuse sin un branch ni una
   variante de shader.
 - Declarar un mapa inexistente es un error de carga tipado. La adquisición de
-  los mapas diffuse/specular y el cambio conjunto usado por la tecla `T` son
-  transaccionales: el material y sus referencias anteriores no se modifican si
-  falla cualquiera de las dos adquisiciones.
+  los mapas diffuse/specular/normal y el cambio conjunto usado por la tecla `T`
+  son transaccionales: el material y sus referencias anteriores no se modifican
+  si falla cualquiera de las tres adquisiciones.
+
+## Normal mapping
+
+- Un normal map se interpreta en tangent space como `rgb * 2 - 1`. El default
+  opaco de 1×1 es `(128, 128, 255, 255)`, equivalente de forma discreta a una
+  normal plana orientada hacia `+Z`, y no tiene ownership por material.
+- El shader vuelve a ortogonalizar la tangente interpolada contra la normal
+  geométrica. La bitangente se obtiene con `cross(N, T) * tangent.w` y el TBN
+  transforma la muestra al mismo world space usado por la iluminación.
+- La normal usa inverse-transpose y la tangente la parte lineal de `model`. El
+  signo de la tangente también incorpora la orientación de `model`, por lo que
+  una transformación reflejada no invierte incorrectamente el normal map.
+- Normal, tangente, bitangente y resultado TBN se normalizan de forma segura;
+  entradas degeneradas o no finitas no propagan NaN.
 
 ## Contrato CPU–GPU
 
@@ -71,11 +91,12 @@ matemáticas y de layout.
   lógico es 188 bytes.
 - El UBO instance world coloca `diffuse_color` en `0` y `shininess` en `16`;
   el descriptor reserva 64 bytes por instancia. El binding `1` contiene un
-  array de dos samplers: diffuse en el elemento `0` y specular en el `1`.
+  array de tres samplers: diffuse en el elemento `0`, specular en el `1` y
+  normal en el `2`.
 - Los push constants world contienen model en `0` y normal matrix en `64`, con
   128 bytes totales.
 - `Camera::set_view` recibe conjuntamente la matriz view y su posición world.
   `Renderer` las propaga al shader world; el pase UI no usa posición de cámara,
-  luz ni mapa specular.
+  luz ni mapas specular/normal.
 - La iluminación forma parte de `RenderPacket` mediante `SceneLighting`. El
   pase UI ignora estos datos y conserva su shader y layout anteriores.

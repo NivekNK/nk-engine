@@ -658,23 +658,46 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Añadir tangent con handedness a `Vertex3D`; revisar ABI/layout de pipeline.
-- [ ] Generar tangentes desde posiciones/UV/índices, acumulando y ortogonalizando;
+- [x] Añadir tangent con handedness a `Vertex3D`; revisar ABI/layout de pipeline.
+- [x] Generar tangentes desde posiciones/UV/índices, acumulando y ortogonalizando;
   manejar UV degeneradas sin NaN.
-- [ ] Añadir `TextureUse::normal`, config/material map y textura normal por defecto
+- [x] Añadir `TextureUse::normal`, config/material map y textura normal por defecto
   `(0.5, 0.5, 1.0)` en espacio tangente.
-- [ ] Construir TBN de forma consistente en shader y transformar la muestra a
+- [x] Construir TBN de forma consistente en shader y transformar la muestra a
   espacio de iluminación.
-- [ ] Actualizar las configuraciones built-in y el formato de materiales.
-- [ ] No aplicar por separado los tres commits de referencia: `8d3a9d2` ya contiene
+- [x] Actualizar las configuraciones built-in y el formato de materiales.
+- [x] No aplicar por separado los tres commits de referencia: `8d3a9d2` ya contiene
   el feature y el fix del default.
 
 ### Validación y commits
 
-- [ ] Tests de tangentes, degenerados, defaults y layout; smoke con los normal maps
+- [x] Tests de tangentes, degenerados, defaults y layout; smoke con los normal maps
   PNG finales.
-- [ ] Commits sugeridos: `feat(geometry): generate tangent space` y
+- [x] Commits sugeridos: `feat(geometry): generate tangent space` y
   `feat(materials): support normal texture maps`.
+
+### Estado NK
+
+- Completado en `d5e31c3` y `a96d3f9`.
+- `Vertex3D` usa un layout de 48 bytes y conserva una tangente `vec4`: xyz es
+  ortogonal a la normal y `w` codifica handedness. La generación acumula por
+  vértice, tolera UV degeneradas con fallback determinista y conserva el estado
+  anterior frente a topología inválida u OOM.
+- `MaterialConfig`, `.kmt`, `TextureMap` y `MaterialSystem` incorporan
+  `normal_map_name`. La carga y el cambio interactivo de diffuse, specular y
+  normal son transaccionales, actualizan una sola generación y mantienen
+  referencias/ownership simétricos.
+- El default normal usa exactamente `(128, 128, 255, 255)`, incluido el fix de
+  `2544589`. El shader world expande el binding instance a tres samplers,
+  reconstruye un TBN robusto y aplica el normal map en world space; el pase UI
+  no cambia.
+- Se importaron los PNG finales `cobblestone_NRM`, `paving_NRM` y `paving2_NRM`
+  de la referencia. No se añadieron librerías ni se modificó el inventario CSV.
+- Pasaron 204/204 tests en Debug y con ASan/UBSan, y 195/195 en Release. El
+  paquete `nix build --offline .#nk-engine --no-link` también pasó.
+- El smoke Wayland/xdg-shell bajo niri cargó `paving_NRM`, completó 120 frames
+  con Validation Layers, registró cero allocation events en los 119 frames
+  estables y terminó con cero fugas.
 
 ## Capítulo 52 — Point Lights and Debug Modes
 
