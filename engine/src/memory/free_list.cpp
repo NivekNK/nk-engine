@@ -9,6 +9,21 @@ namespace nk::mem {
         shutdown();
     }
 
+    FreeList::FreeList(FreeList&& other) noexcept
+        : m_ranges{std::move(other.m_ranges)} {
+        move_from(other);
+    }
+
+    FreeList& FreeList::operator=(FreeList&& other) noexcept {
+        if (this == &other)
+            return *this;
+
+        shutdown();
+        m_ranges = std::move(other.m_ranges);
+        move_from(other);
+        return *this;
+    }
+
     result<void, free_list_error> FreeList::init(
         Allocator& metadata_allocator,
         const u64 total_size,
@@ -51,7 +66,8 @@ namespace nk::mem {
 
     result<MemoryRange, free_list_error> FreeList::reserve(
         const u64 size,
-        const u64 alignment) noexcept {
+        const u64 alignment,
+        const u64 alignment_bias) noexcept {
         if (!m_initialized)
             return err(free_list_error::not_initialized);
         if (size == 0)
@@ -62,9 +78,13 @@ namespace nk::mem {
             return err(free_list_error::out_of_space);
 
         bool metadata_blocked = false;
+        const u64 alignment_mask = alignment - 1;
+        const u64 normalized_bias = alignment_bias & alignment_mask;
         for (u64 index = 0; index < m_range_count; ++index) {
             MemoryRange& free = m_ranges[index];
-            const u64 misalignment = free.offset & (alignment - 1);
+            const u64 misalignment =
+                (normalized_bias + (free.offset & alignment_mask)) &
+                alignment_mask;
             const u64 padding = misalignment == 0
                 ? 0
                 : alignment - misalignment;
@@ -274,5 +294,17 @@ namespace nk::mem {
             m_ranges[source - 1] = m_ranges[source];
         --m_range_count;
         m_ranges[m_range_count] = {};
+    }
+
+    void FreeList::move_from(FreeList& other) noexcept {
+        m_total_size = other.m_total_size;
+        m_free_space = other.m_free_space;
+        m_range_count = other.m_range_count;
+        m_initialized = other.m_initialized;
+
+        other.m_total_size = 0;
+        other.m_free_space = 0;
+        other.m_range_count = 0;
+        other.m_initialized = false;
     }
 }

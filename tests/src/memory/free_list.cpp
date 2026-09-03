@@ -135,6 +135,22 @@ TEST(FreeList, AlignsAndSplitsUsingFirstFit) {
     EXPECT_EQ(first_fit->offset, 4);
 }
 
+TEST(FreeList, AppliesAlignmentBiasWithoutWastingThePrefix) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    FreeList list;
+    ASSERT_TRUE(list.init(allocator, 64, 2));
+
+    auto reserved = list.reserve(8, 16, 5);
+    ASSERT_TRUE(reserved);
+    EXPECT_EQ(reserved->offset, 11);
+    EXPECT_EQ((reserved->offset + 5) % 16, 0);
+    ASSERT_EQ(list.range_count(), 2);
+    EXPECT_EQ(list.free_range(0)->offset, 0);
+    EXPECT_EQ(list.free_range(0)->size, 11);
+    EXPECT_EQ(list.free_range(1)->offset, 19);
+    EXPECT_EQ(list.free_range(1)->size, 45);
+}
+
 TEST(FreeList, RejectsInvalidRequestsWithoutMutation) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     FreeList list;
@@ -353,6 +369,33 @@ TEST(FreeList, PerformsNoMetadataAllocationsAfterInitialization) {
     EXPECT_EQ(allocator.get_peak_used_bytes(), peak);
     list.shutdown();
     EXPECT_EQ(allocator.get_active_allocation_count(), 0);
+}
+
+TEST(FreeList, MoveOperationsTransferMetadataAndState) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    FreeList source;
+    ASSERT_TRUE(source.init(allocator, 64, 4));
+    ASSERT_TRUE(source.reserve(16));
+
+    FreeList moved{std::move(source)};
+    EXPECT_FALSE(source.initialized());
+    EXPECT_EQ(source.metadata_capacity(), 0);
+    EXPECT_TRUE(moved.initialized());
+    EXPECT_EQ(moved.total_size(), 64);
+    EXPECT_EQ(moved.used_space(), 16);
+
+    FreeList destination;
+    ASSERT_TRUE(destination.init(allocator, 32, 2));
+    destination = std::move(moved);
+    EXPECT_FALSE(moved.initialized());
+    EXPECT_EQ(moved.metadata_capacity(), 0);
+    EXPECT_TRUE(destination.initialized());
+    EXPECT_EQ(destination.total_size(), 64);
+    EXPECT_EQ(destination.used_space(), 16);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 1);
+
+    ASSERT_TRUE(destination.release({0, 16}));
+    expect_single_free_range(destination, 0, 64);
 }
 
 TEST(FreeList, MatchesAByteModelAcrossDeterministicOperations) {

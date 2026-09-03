@@ -37,8 +37,8 @@ namespace nk::mem {
 
         FreeList(const FreeList&) = delete;
         FreeList& operator=(const FreeList&) = delete;
-        FreeList(FreeList&&) = delete;
-        FreeList& operator=(FreeList&&) = delete;
+        FreeList(FreeList&& other) noexcept;
+        FreeList& operator=(FreeList&& other) noexcept;
 
         [[nodiscard]] result<void, free_list_error> init(
             Allocator& metadata_allocator,
@@ -46,9 +46,14 @@ namespace nk::mem {
             u64 metadata_capacity) noexcept;
         void shutdown() noexcept;
 
+        /**
+         * Reserves a range while aligning `alignment_bias + offset`.
+         * Any alignment prefix remains available as a separate free range.
+         */
         [[nodiscard]] result<MemoryRange, free_list_error> reserve(
             u64 size,
-            u64 alignment = 1) noexcept;
+            u64 alignment = 1,
+            u64 alignment_bias = 0) noexcept;
         [[nodiscard]] result<void, free_list_error> release(
             MemoryRange range) noexcept;
         [[nodiscard]] result<void, free_list_error> resize(
@@ -81,6 +86,7 @@ namespace nk::mem {
         static bool range_end(MemoryRange range, u64& end) noexcept;
         void insert_range(u64 index, MemoryRange range) noexcept;
         void remove_range(u64 index) noexcept;
+        void move_from(FreeList& other) noexcept;
 
         cl::arr<MemoryRange> m_ranges;
         u64 m_total_size = 0;
