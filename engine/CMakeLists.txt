@@ -60,6 +60,7 @@ set(SOURCES
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
     src/memory/linear_allocator.cpp
+    src/memory/free_list.cpp
     src/systems/logging_system.cpp
     src/systems/event_system.cpp
     src/systems/input_system.cpp
