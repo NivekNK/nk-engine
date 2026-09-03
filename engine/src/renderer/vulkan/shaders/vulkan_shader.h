@@ -56,6 +56,11 @@ namespace nk {
             u32 offset,
             u32 size,
             const void* data) const;
+        [[nodiscard]] result<void, renderer_error> push_constant(
+            const CommandBuffer& command_buffer,
+            u32 offset,
+            u32 size,
+            const void* data) const;
 
         [[nodiscard]] result<void, renderer_error>
         allocate_instance_descriptor_sets(cl::arr<VkDescriptorSet>& sets);
@@ -70,6 +75,9 @@ namespace nk {
 
         [[nodiscard]] VkBuffer instance_uniform_buffer() const noexcept {
             return m_instance_uniform_buffer.get();
+        }
+        [[nodiscard]] u64 global_uniform_size() const noexcept {
+            return m_global_uniform_size;
         }
         [[nodiscard]] u64 instance_uniform_size() const noexcept {
             return m_instance_uniform_size;

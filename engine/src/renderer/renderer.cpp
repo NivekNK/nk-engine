@@ -98,25 +98,102 @@ namespace nk {
         if (*begun == frame_outcome::skipped_swapchain_recreation)
             return ok(frame_outcome::skipped_swapchain_recreation);
 
-        begin_render_pass(RenderPassKind::world);
-        update_global_world_state(
+        auto world_drawn = draw_render_pass(
+            RenderPassKind::world,
+            m_world_shader,
             m_projection,
             m_view,
-            glm::vec3(0.0f),
-            glm::vec4(1.0f),
-            0);
+            packet.geometry_count,
+            packet.geometries);
+        if (!world_drawn)
+            return err(world_drawn.error());
 
-        for (u32 index = 0; index < packet.geometry_count; ++index)
-            draw_geometry(RenderPassKind::world, packet.geometries[index]);
-        end_render_pass(RenderPassKind::world);
-
-        begin_render_pass(RenderPassKind::ui);
-        update_global_ui_state(m_ui_projection, m_ui_view, 0);
-        for (u32 index = 0; index < packet.ui_geometry_count; ++index)
-            draw_geometry(RenderPassKind::ui, packet.ui_geometries[index]);
-        end_render_pass(RenderPassKind::ui);
+        auto ui_drawn = draw_render_pass(
+            RenderPassKind::ui,
+            m_ui_shader,
+            m_ui_projection,
+            m_ui_view,
+            packet.ui_geometry_count,
+            packet.ui_geometries);
+        if (!ui_drawn)
+            return err(ui_drawn.error());
 
         return end_frame_impl(packet.delta_time);
+    }
+
+    result<void, renderer_error> Renderer::draw_render_pass(
+        const RenderPassKind pass,
+        const ShaderHandle shader,
+        const glm::mat4& projection,
+        const glm::mat4& view,
+        const u32 geometry_count,
+        const GeometryRenderData* geometries) {
+        begin_render_pass(pass);
+        auto fail = [this, pass](const renderer_error error)
+            -> result<void, renderer_error> {
+            end_render_pass(pass);
+            return err(error);
+        };
+
+        auto used = use_shader(shader);
+        if (!used)
+            return fail(used.error());
+        auto globals_bound = bind_shader_globals(shader);
+        if (!globals_bound)
+            return fail(globals_bound.error());
+        auto projection_set = set_shader_uniform(
+            shader, builtin_shader_uniform::projection, projection);
+        if (!projection_set)
+            return fail(projection_set.error());
+        auto view_set = set_shader_uniform(
+            shader, builtin_shader_uniform::view, view);
+        if (!view_set)
+            return fail(view_set.error());
+        auto globals_applied = apply_shader_globals(shader);
+        if (!globals_applied)
+            return fail(globals_applied.error());
+
+        for (u32 index = 0; index < geometry_count; ++index) {
+            const GeometryRenderData& data = geometries[index];
+            Material* material = data.geometry == nullptr
+                ? nullptr
+                : data.geometry->material;
+            const MaterialType expected_material_type =
+                pass == RenderPassKind::world
+                    ? MaterialType::world
+                    : MaterialType::ui;
+            if (material != nullptr && material->valid() &&
+                material->type == expected_material_type) {
+                auto instance_bound = bind_shader_instance(
+                    shader, material->internal_id);
+                if (!instance_bound)
+                    return fail(instance_bound.error());
+                auto color_set = set_shader_uniform(
+                    shader,
+                    builtin_shader_uniform::diffuse_color,
+                    material->diffuse_color);
+                if (!color_set)
+                    return fail(color_set.error());
+                auto texture_set = set_shader_sampler(
+                    shader,
+                    builtin_shader_uniform::diffuse_texture,
+                    material->diffuse_map.texture);
+                if (!texture_set)
+                    return fail(texture_set.error());
+                auto instance_applied = apply_shader_instance(shader);
+                if (!instance_applied)
+                    return fail(instance_applied.error());
+                auto model_set = set_shader_uniform(
+                    shader,
+                    builtin_shader_uniform::model,
+                    data.model);
+                if (!model_set)
+                    return fail(model_set.error());
+            }
+            draw_geometry(pass, data);
+        }
+        end_render_pass(pass);
+        return ok();
     }
 
     void Renderer::resize(u32 width, u32 height) {

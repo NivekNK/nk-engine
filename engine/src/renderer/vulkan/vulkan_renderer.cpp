@@ -3,6 +3,7 @@
 #include "vulkan/vulkan_renderer.h"
 
 #include "platform/platform.h"
+#include "renderer/global_uniform_object.h"
 #include "renderer/material_uniform_object.h"
 #include "systems/resource_system.h"
 #include "vulkan/utils.h"
@@ -17,6 +18,279 @@ namespace nk {
         m_cached_framebuffer_height = height;
         m_framebuffer_size_generation++;
         DebugLog("nk::VulkanRenderer::on_resized: {}, {}", width, height);
+    }
+
+    MaterialShader* VulkanRenderer::resolve_shader(
+        const ShaderHandle handle) noexcept {
+        if (!handle.valid() || handle.index >= max_shader_count)
+            return nullptr;
+        VulkanShaderSlot& slot = m_shaders[handle.index];
+        if (slot.shader == nullptr || slot.generation != handle.generation)
+            return nullptr;
+        return slot.shader;
+    }
+
+    result<ShaderHandle, renderer_error> VulkanRenderer::create_shader(
+        const ShaderConfig& config,
+        const RenderPassKind render_pass) {
+        if (m_allocator == nullptr || !m_device_initialized ||
+            (render_pass == RenderPassKind::world &&
+             !m_world_render_pass_initialized) ||
+            (render_pass == RenderPassKind::ui &&
+             !m_ui_render_pass_initialized)) {
+            return err(renderer_error{
+                renderer_error_code::shader_state_invalid,
+                0,
+            });
+        }
+
+        u16 slot_index = numeric::u16_max;
+        for (u16 index = 0; index < max_shader_count; ++index) {
+            if (m_shaders[index].shader == nullptr) {
+                slot_index = index;
+                break;
+            }
+        }
+        if (slot_index == numeric::u16_max) {
+            return err(renderer_error{
+                renderer_error_code::shader_capacity_exceeded,
+                0,
+            });
+        }
+
+        MaterialShader* shader = m_allocator->construct_t(MaterialShader);
+        if (shader == nullptr) {
+            return err(renderer_error{
+                renderer_error_code::out_of_memory,
+                0,
+            });
+        }
+
+        RenderPass* compatible_render_pass =
+            render_pass == RenderPassKind::world
+                ? &m_world_render_pass
+                : &m_ui_render_pass;
+        auto initialized = shader->init(
+            config,
+            m_framebuffer_width,
+            m_framebuffer_height,
+            m_swapchain.get_image_count(),
+            compatible_render_pass,
+            &m_device,
+            m_allocator,
+            m_resources,
+            m_vulkan_allocator,
+            m_default_texture);
+        if (!initialized) {
+            (void)m_allocator->deconstruct_t(MaterialShader, shader);
+            return err(initialized.error());
+        }
+
+        VulkanShaderSlot& slot = m_shaders[slot_index];
+        slot.shader = shader;
+        slot.render_pass = render_pass;
+        return ok(ShaderHandle{slot_index, slot.generation});
+    }
+
+    result<void, renderer_error> VulkanRenderer::destroy_shader(
+        const ShaderHandle handle) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr)
+            return err(renderer_error{
+                renderer_error_code::shader_handle_invalid,
+                0,
+            });
+        if (m_active_shader == handle)
+            return err(renderer_error{
+                renderer_error_code::shader_state_invalid,
+                0,
+            });
+
+        const VkResult waited = vkDeviceWaitIdle(m_device);
+        if (waited != VK_SUCCESS) {
+            return err(renderer_error{
+                renderer_error_code::device_wait_failed,
+                static_cast<i32>(waited),
+            });
+        }
+
+        VulkanShaderSlot& slot = m_shaders[handle.index];
+        (void)m_allocator->deconstruct_t(MaterialShader, shader);
+        slot.shader = nullptr;
+        slot.generation = slot.generation + 1 == numeric::u16_max
+            ? 0
+            : static_cast<u16>(slot.generation + 1);
+        if (m_world_shader == handle)
+            m_world_shader = {};
+        if (m_ui_shader == handle)
+            m_ui_shader = {};
+        return ok();
+    }
+
+    void VulkanRenderer::destroy_all_shaders() noexcept {
+        for (VulkanShaderSlot& slot : m_shaders) {
+            if (slot.shader == nullptr)
+                continue;
+            (void)m_allocator->deconstruct_t(MaterialShader, slot.shader);
+            slot.shader = nullptr;
+            slot.generation = slot.generation + 1 == numeric::u16_max
+                ? 0
+                : static_cast<u16>(slot.generation + 1);
+        }
+        m_world_shader = {};
+        m_ui_shader = {};
+        m_active_shader = {};
+    }
+
+    result<void, renderer_error> VulkanRenderer::use_shader(
+        const ShaderHandle handle) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr)
+            return err(renderer_error{
+                renderer_error_code::shader_handle_invalid,
+                0,
+            });
+        if (!m_render_pass_active ||
+            m_shaders[handle.index].render_pass != m_active_render_pass ||
+            m_image_index >= m_graphics_command_buffers.length()) {
+            return err(renderer_error{
+                renderer_error_code::shader_state_invalid,
+                0,
+            });
+        }
+        auto used = shader->use(m_graphics_command_buffers[m_image_index]);
+        if (!used)
+            return err(used.error());
+        m_active_shader = handle;
+        return ok();
+    }
+
+    result<void, renderer_error> VulkanRenderer::bind_shader_globals(
+        const ShaderHandle handle) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr || handle != m_active_shader)
+            return err(renderer_error{
+                shader == nullptr
+                    ? renderer_error_code::shader_handle_invalid
+                    : renderer_error_code::shader_state_invalid,
+                0,
+            });
+        return shader->bind_globals();
+    }
+
+    result<void, renderer_error> VulkanRenderer::bind_shader_instance(
+        const ShaderHandle handle,
+        const u32 instance_id) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr || handle != m_active_shader)
+            return err(renderer_error{
+                shader == nullptr
+                    ? renderer_error_code::shader_handle_invalid
+                    : renderer_error_code::shader_state_invalid,
+                0,
+            });
+        return shader->bind_instance(instance_id);
+    }
+
+    result<void, renderer_error> VulkanRenderer::apply_shader_globals(
+        const ShaderHandle handle) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr || handle != m_active_shader ||
+            m_image_index >= m_graphics_command_buffers.length()) {
+            return err(renderer_error{
+                shader == nullptr
+                    ? renderer_error_code::shader_handle_invalid
+                    : renderer_error_code::shader_state_invalid,
+                0,
+            });
+        }
+        return shader->apply_globals(
+            m_graphics_command_buffers[m_image_index], m_image_index);
+    }
+
+    result<void, renderer_error> VulkanRenderer::apply_shader_instance(
+        const ShaderHandle handle) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr || handle != m_active_shader ||
+            m_image_index >= m_graphics_command_buffers.length()) {
+            return err(renderer_error{
+                shader == nullptr
+                    ? renderer_error_code::shader_handle_invalid
+                    : renderer_error_code::shader_state_invalid,
+                0,
+            });
+        }
+        return shader->apply_instance(
+            m_graphics_command_buffers[m_image_index], m_image_index);
+    }
+
+    result<u32, renderer_error> VulkanRenderer::acquire_shader_instance(
+        const ShaderHandle handle) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr)
+            return err(renderer_error{
+                renderer_error_code::shader_handle_invalid,
+                0,
+            });
+        return shader->acquire_resources();
+    }
+
+    result<void, renderer_error> VulkanRenderer::release_shader_instance(
+        const ShaderHandle handle,
+        const u32 instance_id) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr)
+            return err(renderer_error{
+                renderer_error_code::shader_handle_invalid,
+                0,
+            });
+        return shader->release_resources(instance_id);
+    }
+
+    result<void, renderer_error> VulkanRenderer::set_shader_uniform_raw(
+        const ShaderHandle handle,
+        const ShaderUniformHandle uniform,
+        const ShaderUniformType type,
+        const void* data,
+        const u32 size) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr || handle != m_active_shader ||
+            m_image_index >= m_graphics_command_buffers.length()) {
+            return err(renderer_error{
+                shader == nullptr
+                    ? renderer_error_code::shader_handle_invalid
+                    : renderer_error_code::shader_state_invalid,
+                0,
+            });
+        }
+        return shader->set_uniform(
+            m_graphics_command_buffers[m_image_index],
+            uniform,
+            type,
+            data,
+            size);
+    }
+
+    result<void, renderer_error> VulkanRenderer::set_shader_sampler(
+        const ShaderHandle handle,
+        const ShaderUniformHandle uniform,
+        Texture* texture) {
+        MaterialShader* shader = resolve_shader(handle);
+        if (shader == nullptr || handle != m_active_shader)
+            return err(renderer_error{
+                shader == nullptr
+                    ? renderer_error_code::shader_handle_invalid
+                    : renderer_error_code::shader_state_invalid,
+                0,
+            });
+        return shader->set_sampler(uniform, texture);
+    }
+
+    void VulkanRenderer::on_default_texture_changed(Texture* texture) {
+        for (VulkanShaderSlot& slot : m_shaders) {
+            if (slot.shader != nullptr)
+                slot.shader->set_default_texture(texture);
+        }
     }
 
     result<void, renderer_error> VulkanRenderer::init() {
@@ -248,19 +522,11 @@ namespace nk {
             .depth_test_enabled = true,
         };
 
-        auto shader_initialized = m_material_shader.init(
-            material_shader_config,
-            m_framebuffer_width,
-            m_framebuffer_height,
-            image_count,
-            &m_world_render_pass,
-            &m_device,
-            m_allocator,
-            m_resources,
-            m_vulkan_allocator,
-            m_default_texture);
-        if (!shader_initialized)
-            return err(shader_initialized.error());
+        auto shader_created = create_shader(
+            material_shader_config, RenderPassKind::world);
+        if (!shader_created)
+            return err(shader_created.error());
+        m_world_shader = *shader_created;
         InfoLog("Vulkan Material Shader created.");
 
         const ShaderAttributeConfig ui_attributes[] = {
@@ -290,19 +556,11 @@ namespace nk {
             .depth_test_enabled = false,
         };
 
-        auto ui_shader_initialized = m_ui_shader.init(
-            ui_shader_config,
-            m_framebuffer_width,
-            m_framebuffer_height,
-            image_count,
-            &m_ui_render_pass,
-            &m_device,
-            m_allocator,
-            m_resources,
-            m_vulkan_allocator,
-            m_default_texture);
-        if (!ui_shader_initialized)
-            return err(ui_shader_initialized.error());
+        auto ui_shader_created = create_shader(
+            ui_shader_config, RenderPassKind::ui);
+        if (!ui_shader_created)
+            return err(ui_shader_created.error());
+        m_ui_shader = *ui_shader_created;
         InfoLog("Vulkan UI Shader created.");
 
         auto buffers_created = create_buffers();
@@ -322,8 +580,7 @@ namespace nk {
         m_object_index_buffer.shutdown();
         InfoLog("Vulkan Object Buffers shutdown.");
 
-        m_ui_shader.shutdown();
-        m_material_shader.shutdown();
+        destroy_all_shaders();
         InfoLog("Vulkan Material/UI Shaders shutdown.");
 
         // Clean up per-frame semaphores
@@ -536,14 +793,15 @@ namespace nk {
             case RenderPassKind::world:
                 m_world_render_pass.begin(
                     command_buffer, m_world_framebuffers[m_image_index]);
-                m_material_shader.use(&command_buffer);
                 break;
             case RenderPassKind::ui:
                 m_ui_render_pass.begin(
                     command_buffer, m_ui_framebuffers[m_image_index]);
-                m_ui_shader.use(&command_buffer);
                 break;
         }
+        m_active_shader = {};
+        m_active_render_pass = pass;
+        m_render_pass_active = true;
     }
 
     void VulkanRenderer::end_render_pass(const RenderPassKind pass) {
@@ -557,41 +815,8 @@ namespace nk {
                 m_ui_render_pass.end(command_buffer);
                 break;
         }
-    }
-
-    void VulkanRenderer::update_global_world_state(
-        const glm::mat4 projection,
-        const glm::mat4 view,
-        glm::vec3,
-        glm::vec4,
-        i32) {
-        CommandBuffer* command_buffer = &m_graphics_command_buffers[m_image_index];
-        m_material_shader.use(command_buffer);
-
-        GlobalUniformObject global_ubo{};
-        global_ubo.projection = projection;
-        global_ubo.view = view;
-        m_material_shader.set_global_ubo(global_ubo);
-
-        // TODO: Other ubo properties
-
-        m_material_shader.update_global_state(
-            *command_buffer, m_image_index);
-    }
-
-    void VulkanRenderer::update_global_ui_state(
-        const glm::mat4 projection,
-        const glm::mat4 view,
-        i32) {
-        CommandBuffer* command_buffer =
-            &m_graphics_command_buffers[m_image_index];
-        m_ui_shader.use(command_buffer);
-        GlobalUniformObject global_ubo{};
-        global_ubo.projection = projection;
-        global_ubo.view = view;
-        m_ui_shader.set_global_ubo(global_ubo);
-        m_ui_shader.update_global_state(
-            *command_buffer, m_image_index);
+        m_active_shader = {};
+        m_render_pass_active = false;
     }
 
     void VulkanRenderer::draw_geometry(
@@ -628,13 +853,6 @@ namespace nk {
 
         CommandBuffer* command_buffer =
             &m_graphics_command_buffers[m_image_index];
-        MaterialShader& shader = pass == RenderPassKind::world
-            ? m_material_shader
-            : m_ui_shader;
-        shader.use(command_buffer);
-        shader.set_model(*command_buffer, data.model);
-        shader.apply_material(
-            m_graphics_command_buffers, m_image_index, *data.geometry->material);
 
         VkDeviceSize offsets[1] = {geometry.vertex_range.offset};
         VkBuffer vertex_buffer = m_object_vertex_buffer.get();
@@ -827,19 +1045,31 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::create_material(
         Material& material) {
-        MaterialShader& shader = material.type == MaterialType::world
-            ? m_material_shader
+        const ShaderHandle shader = material.type == MaterialType::world
+            ? m_world_shader
             : m_ui_shader;
-        return shader.acquire_resources(material);
+        auto acquired = acquire_shader_instance(shader);
+        if (!acquired)
+            return err(acquired.error());
+        material.internal_id = *acquired;
+        return ok();
     }
 
     void VulkanRenderer::destroy_material(Material& material) {
         if (material.internal_id == numeric::invalid_id)
             return;
-        MaterialShader& shader = material.type == MaterialType::world
-            ? m_material_shader
+        const ShaderHandle shader = material.type == MaterialType::world
+            ? m_world_shader
             : m_ui_shader;
-        shader.release_resources(material);
+        auto released = release_shader_instance(shader, material.internal_id);
+        if (!released) {
+            ErrorLog(
+                "Failed to release shader instance: renderer_error={}, native_code={}.",
+                static_cast<u32>(released.error().code),
+                released.error().native_code);
+            return;
+        }
+        material.internal_id = numeric::invalid_id;
     }
 
     result<void, renderer_error> VulkanRenderer::create_geometry(

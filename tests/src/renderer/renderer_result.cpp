@@ -23,6 +23,8 @@ namespace {
         TestRenderer(nk::mem::Allocator& allocator, BeginMode begin_mode)
             : Renderer{allocator, nullptr, "test"}, m_begin_mode{begin_mode} {
             m_allocator = &allocator;
+            m_world_shader = {0, 0};
+            m_ui_shader = {1, 0};
         }
 
         nk::u64 frame_number() const { return m_frame_number; }
@@ -45,6 +47,74 @@ namespace {
         nk::u32 destroyed_materials() const { return m_destroyed_materials; }
         nk::u32 created_geometries() const { return m_created_geometries; }
         nk::u32 destroyed_geometries() const { return m_destroyed_geometries; }
+        nk::u32 shader_trace_length() const { return m_shader_trace_length; }
+        nk::u8 shader_trace(nk::u32 index) const {
+            return m_shader_trace[index];
+        }
+        nk::result<nk::ShaderHandle, nk::renderer_error> create_shader(
+            const nk::ShaderConfig&,
+            nk::RenderPassKind) override {
+            return nk::ok(nk::ShaderHandle{2, 0});
+        }
+
+        nk::result<void, nk::renderer_error> destroy_shader(
+            nk::ShaderHandle) override {
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> use_shader(
+            nk::ShaderHandle) override {
+            append_shader_trace(1);
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> bind_shader_globals(
+            nk::ShaderHandle) override {
+            append_shader_trace(2);
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> bind_shader_instance(
+            nk::ShaderHandle,
+            nk::u32) override {
+            append_shader_trace(5);
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> apply_shader_globals(
+            const nk::ShaderHandle shader) override {
+            append_shader_trace(4);
+            if (shader == m_world_shader)
+                ++m_world_global_updates;
+            else
+                ++m_ui_global_updates;
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> apply_shader_instance(
+            nk::ShaderHandle) override {
+            append_shader_trace(8);
+            return nk::ok();
+        }
+
+        nk::result<nk::u32, nk::renderer_error> acquire_shader_instance(
+            nk::ShaderHandle) override {
+            return nk::ok(0u);
+        }
+
+        nk::result<void, nk::renderer_error> release_shader_instance(
+            nk::ShaderHandle,
+            nk::u32) override {
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> set_shader_sampler(
+            nk::ShaderHandle,
+            nk::ShaderUniformHandle,
+            nk::Texture*) override {
+            append_shader_trace(7);
+            return nk::ok();
+        }
         nk::result<void, nk::renderer_error> create_texture(
             nk::strview,
             nk::u32 width,
@@ -145,20 +215,21 @@ namespace {
                 (pass == nk::RenderPassKind::world ? 2 : 4);
         }
 
-        void update_global_world_state(
-            glm::mat4,
-            glm::mat4,
-            glm::vec3,
-            glm::vec4,
-            nk::i32) override {
-            ++m_world_global_updates;
-        }
-
-        void update_global_ui_state(
-            glm::mat4,
-            glm::mat4,
-            nk::i32) override {
-            ++m_ui_global_updates;
+        nk::result<void, nk::renderer_error> set_shader_uniform_raw(
+            nk::ShaderHandle,
+            const nk::ShaderUniformHandle uniform,
+            nk::ShaderUniformType,
+            const void*,
+            nk::u32) override {
+            if (uniform == nk::builtin_shader_uniform::projection ||
+                uniform == nk::builtin_shader_uniform::view) {
+                append_shader_trace(3);
+            } else if (uniform == nk::builtin_shader_uniform::model) {
+                append_shader_trace(9);
+            } else {
+                append_shader_trace(6);
+            }
+            return nk::ok();
         }
 
         void draw_geometry(
@@ -182,6 +253,11 @@ namespace {
         }
 
     private:
+        void append_shader_trace(const nk::u8 value) {
+            ASSERT_LT(m_shader_trace_length, 32u);
+            m_shader_trace[m_shader_trace_length++] = value;
+        }
+
         BeginMode m_begin_mode;
         bool m_fail_end = false;
         bool m_fail_texture_create = false;
@@ -196,6 +272,8 @@ namespace {
         nk::u32 m_destroyed_materials = 0;
         nk::u32 m_created_geometries = 0;
         nk::u32 m_destroyed_geometries = 0;
+        nk::u8 m_shader_trace[32]{};
+        nk::u32 m_shader_trace_length = 0;
     };
 
     class FailingAllocator final : public nk::mem::MallocAllocator {
@@ -308,6 +386,62 @@ TEST(RendererResult, RunsWorldAndUiPassesInOrder) {
 
     ASSERT_TRUE(frame);
     EXPECT_EQ(*frame, nk::frame_outcome::rendered);
+    EXPECT_EQ(renderer.pass_trace(), 1234u);
+    EXPECT_EQ(renderer.world_global_updates(), 1u);
+    EXPECT_EQ(renderer.ui_global_updates(), 1u);
+    EXPECT_EQ(renderer.world_object_updates(), 1u);
+    EXPECT_EQ(renderer.ui_object_updates(), 1u);
+}
+
+TEST(RendererResult, UsesTheSameShaderProtocolForWorldAndUiGeometry) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+
+    nk::Material world_material{};
+    world_material.generation = 0;
+    world_material.internal_id = 4;
+    world_material.type = nk::MaterialType::world;
+    nk::Geometry world_geometry{};
+    world_geometry.material = &world_material;
+    const nk::GeometryRenderData world_data{
+        .model = glm::mat4{1.0f},
+        .geometry = &world_geometry,
+    };
+
+    nk::Material ui_material{};
+    ui_material.generation = 0;
+    ui_material.internal_id = 9;
+    ui_material.type = nk::MaterialType::ui;
+    nk::Geometry ui_geometry{};
+    ui_geometry.material = &ui_material;
+    const nk::GeometryRenderData ui_data{
+        .model = glm::mat4{1.0f},
+        .geometry = &ui_geometry,
+    };
+
+    auto frame = renderer.draw_frame({
+        .delta_time = 1.0 / 60.0,
+        .geometry_count = 1,
+        .geometries = &world_data,
+        .ui_geometry_count = 1,
+        .ui_geometries = &ui_data,
+    });
+
+    ASSERT_TRUE(frame);
+    constexpr nk::u8 pass_protocol[] = {
+        1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
+    };
+    ASSERT_EQ(renderer.shader_trace_length(), 20u);
+    for (nk::u32 pass = 0; pass < 2; ++pass) {
+        for (nk::u32 operation = 0;
+             operation < std::size(pass_protocol);
+             ++operation) {
+            EXPECT_EQ(
+                renderer.shader_trace(
+                    pass * std::size(pass_protocol) + operation),
+                pass_protocol[operation]);
+        }
+    }
     EXPECT_EQ(renderer.pass_trace(), 1234u);
     EXPECT_EQ(renderer.world_global_updates(), 1u);
     EXPECT_EQ(renderer.ui_global_updates(), 1u);

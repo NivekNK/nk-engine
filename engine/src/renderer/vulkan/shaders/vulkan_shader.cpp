@@ -624,6 +624,22 @@ namespace nk {
         return ok();
     }
 
+    result<void, renderer_error> VulkanShader::push_constant(
+        const CommandBuffer& command_buffer,
+        const u32 offset,
+        const u32 size,
+        const void* data) const {
+        for (const ShaderPushConstantConfig& range : m_push_constants) {
+            if (offset >= range.offset &&
+                offset - range.offset <= range.size &&
+                size <= range.size - (offset - range.offset)) {
+                return push_constant(
+                    command_buffer, range.stages, offset, size, data);
+            }
+        }
+        return err(initialization_error());
+    }
+
     result<void, renderer_error>
     VulkanShader::allocate_instance_descriptor_sets(
         cl::arr<VkDescriptorSet>& sets) {

@@ -7,6 +7,7 @@
 #include "resources/texture.h"
 #include "renderer/geometry_render_data.h"
 #include "renderer/renderer_result.h"
+#include "renderer/shader.h"
 #include "core/result.h"
 #include "core/str.h"
 
@@ -43,6 +44,57 @@ namespace nk {
             const RenderPacket& packet);
 
         void resize(u32 width, u32 height);
+
+        [[nodiscard]] virtual result<ShaderHandle, renderer_error> create_shader(
+            const ShaderConfig& config,
+            RenderPassKind render_pass) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> destroy_shader(
+            ShaderHandle shader) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> use_shader(
+            ShaderHandle shader) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> bind_shader_globals(
+            ShaderHandle shader) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> bind_shader_instance(
+            ShaderHandle shader,
+            u32 instance_id) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> apply_shader_globals(
+            ShaderHandle shader) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> apply_shader_instance(
+            ShaderHandle shader) = 0;
+        [[nodiscard]] virtual result<u32, renderer_error>
+        acquire_shader_instance(ShaderHandle shader) = 0;
+        [[nodiscard]] virtual result<void, renderer_error>
+        release_shader_instance(ShaderHandle shader, u32 instance_id) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> set_shader_sampler(
+            ShaderHandle shader,
+            ShaderUniformHandle uniform,
+            Texture* texture) = 0;
+
+        template <ShaderUniformValue T>
+        [[nodiscard]] result<void, renderer_error> set_shader_uniform(
+            const ShaderHandle shader,
+            const ShaderUniformHandle uniform,
+            const T& value) {
+            return set_shader_uniform_raw(
+                shader,
+                uniform,
+                shader_uniform_type<T>(),
+                &value,
+                sizeof(T));
+        }
+
+        [[nodiscard]] result<void, renderer_error> set_shader_uniform_custom(
+            const ShaderHandle shader,
+            const ShaderUniformHandle uniform,
+            const void* data,
+            const u32 size) {
+            return set_shader_uniform_raw(
+                shader,
+                uniform,
+                ShaderUniformType::custom,
+                data,
+                size);
+        }
 
         void set_default_texture(Texture* texture) {
             m_default_texture = texture;
@@ -87,16 +139,13 @@ namespace nk {
             f64 delta_time) = 0;
         virtual void begin_render_pass(RenderPassKind pass) = 0;
         virtual void end_render_pass(RenderPassKind pass) = 0;
-        virtual void update_global_world_state(
-            glm::mat4 projection,
-            glm::mat4 view,
-            glm::vec3 view_position,
-            glm::vec4 ambient_color,
-            i32 mode) = 0;
-        virtual void update_global_ui_state(
-            glm::mat4 projection,
-            glm::mat4 view,
-            i32 mode) = 0;
+        [[nodiscard]] virtual result<void, renderer_error>
+        set_shader_uniform_raw(
+            ShaderHandle shader,
+            ShaderUniformHandle uniform,
+            ShaderUniformType type,
+            const void* data,
+            u32 size) = 0;
         virtual void draw_geometry(
             RenderPassKind pass,
             GeometryRenderData data) = 0;
@@ -120,7 +169,16 @@ namespace nk {
         f32 m_far_clip = 0.0f;
 
         Texture* m_default_texture = nullptr;
+        ShaderHandle m_world_shader;
+        ShaderHandle m_ui_shader;
     private:
+        [[nodiscard]] result<void, renderer_error> draw_render_pass(
+            RenderPassKind pass,
+            ShaderHandle shader,
+            const glm::mat4& projection,
+            const glm::mat4& view,
+            u32 geometry_count,
+            const GeometryRenderData* geometries);
         [[nodiscard]] result<frame_outcome, renderer_error> end_frame_impl(
             f64 delta_time);
 

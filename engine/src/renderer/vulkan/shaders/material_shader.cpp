@@ -2,7 +2,6 @@
 
 #include "vulkan/shaders/material_shader.h"
 
-#include "renderer/material_uniform_object.h"
 #include "vulkan/resources/texture_data.h"
 
 namespace nk {
@@ -15,6 +14,14 @@ namespace nk {
                 renderer_error_code::shader_config_invalid,
                 static_cast<i32>(shader_config_error::unsupported_layout),
             };
+        }
+
+        renderer_error invalid_shader_state() noexcept {
+            return {renderer_error_code::shader_state_invalid, 0};
+        }
+
+        renderer_error invalid_uniform() noexcept {
+            return {renderer_error_code::shader_uniform_invalid, 0};
         }
 
         void release_instance_metadata(
@@ -39,7 +46,8 @@ namespace nk {
         VkAllocationCallbacks* vulkan_allocator,
         Texture* default_texture) {
         if (m_shader.initialized() || allocator == nullptr ||
-            config.max_instances != max_material_count ||
+            config.max_instances == 0 ||
+            config.max_instances > max_material_count ||
             config.descriptor_sets.length() != 2 ||
             config.descriptor_sets[0].scope != ShaderScope::global ||
             config.descriptor_sets[1].scope != ShaderScope::instance ||
@@ -51,7 +59,15 @@ namespace nk {
         m_allocator = allocator;
         m_default_texture = default_texture;
         m_image_count = image_count;
-        auto initialized = m_shader.init(
+        m_max_instances = config.max_instances;
+
+        auto metadata_initialized = m_metadata.init(allocator, config);
+        if (!metadata_initialized) {
+            shutdown();
+            return err(metadata_initialized.error());
+        }
+
+        auto shader_initialized = m_shader.init(
             config,
             width,
             height,
@@ -61,19 +77,34 @@ namespace nk {
             allocator,
             resources,
             vulkan_allocator);
-        if (!initialized) {
-            m_allocator = nullptr;
-            m_default_texture = nullptr;
-            m_image_count = 0;
-            return err(initialized.error());
+        if (!shader_initialized) {
+            shutdown();
+            return err(shader_initialized.error());
         }
 
-        if (m_shader.instance_uniform_binding() == numeric::invalid_id ||
+        if (m_shader.global_uniform_size() == 0 ||
+            m_shader.instance_uniform_binding() == numeric::invalid_id ||
             m_shader.instance_sampler_binding() == numeric::invalid_id ||
-            m_shader.instance_uniform_size() != sizeof(MaterialUniformObject)) {
+            m_shader.instance_uniform_size() == 0 ||
+            m_shader.instance_uniform_size() > numeric::u16_max) {
             shutdown();
             return err(invalid_material_shader_config());
         }
+
+        m_instance_uniform_size = m_shader.instance_uniform_size();
+        if (m_instance_uniform_size >
+                numeric::u64_max / m_max_instances ||
+            !m_global_uniform_data.arr_init(
+                allocator, m_shader.global_uniform_size()) ||
+            !m_instance_uniform_data.arr_init(
+                allocator, m_instance_uniform_size * m_max_instances)) {
+            shutdown();
+            return err(renderer_error{
+                renderer_error_code::out_of_memory,
+                0,
+            });
+        }
+
         return ok();
     }
 
@@ -82,86 +113,154 @@ namespace nk {
             if (instance.descriptor_sets.allocator() != nullptr)
                 release_instance_metadata(instance);
         }
+        (void)m_instance_uniform_data.arr_shutdown();
+        (void)m_global_uniform_data.arr_shutdown();
         m_shader.shutdown();
+        m_metadata.shutdown();
         m_allocator = nullptr;
         m_default_texture = nullptr;
         m_image_count = 0;
-        m_global_ubo = {};
+        m_max_instances = 0;
+        m_bound_instance_id = numeric::invalid_id;
+        m_instance_uniform_size = 0;
+        m_globals_bound = false;
+        for (Texture*& texture : m_instance_textures)
+            texture = nullptr;
     }
 
-    void MaterialShader::use(CommandBuffer* command_buffer) {
-        if (command_buffer != nullptr && m_shader.initialized())
-            m_shader.use(*command_buffer);
+    result<void, renderer_error> MaterialShader::use(
+        CommandBuffer& command_buffer) {
+        if (!m_shader.initialized())
+            return err(invalid_shader_state());
+        m_shader.use(command_buffer);
+        m_globals_bound = false;
+        m_bound_instance_id = numeric::invalid_id;
+        return ok();
     }
 
-    void MaterialShader::update_global_state(
+    result<void, renderer_error> MaterialShader::bind_globals() {
+        if (!m_shader.initialized())
+            return err(invalid_shader_state());
+        m_globals_bound = true;
+        m_bound_instance_id = numeric::invalid_id;
+        return ok();
+    }
+
+    result<void, renderer_error> MaterialShader::bind_instance(
+        const u32 instance_id) {
+        if (!m_shader.initialized() || instance_id >= m_max_instances ||
+            m_instance_states[instance_id].descriptor_sets.allocator() ==
+                nullptr) {
+            return err(invalid_shader_state());
+        }
+        m_bound_instance_id = instance_id;
+        return ok();
+    }
+
+    result<void, renderer_error> MaterialShader::apply_globals(
         CommandBuffer& command_buffer,
         const u32 image_index) {
-        auto applied = m_shader.apply_global_uniform(
+        if (!m_globals_bound)
+            return err(invalid_shader_state());
+        return m_shader.apply_global_uniform(
             command_buffer,
             image_index,
-            &m_global_ubo,
-            sizeof(m_global_ubo));
-        if (!applied) {
-            ErrorLog(
-                "MaterialShader failed to apply globals: renderer_error={}, native_code={}.",
-                static_cast<u32>(applied.error().code),
-                applied.error().native_code);
-        }
+            m_global_uniform_data.data(),
+            m_global_uniform_data.length());
     }
 
-    void MaterialShader::set_model(
+    result<void, renderer_error> MaterialShader::set_uniform(
         CommandBuffer& command_buffer,
-        const glm::mat4& model) {
-        auto pushed = m_shader.push_constant(
-            command_buffer,
-            ShaderStage::vertex,
-            0,
-            sizeof(model),
-            &model);
-        if (!pushed) {
-            ErrorLog(
-                "MaterialShader failed to set the model push constant: renderer_error={}, native_code={}.",
-                static_cast<u32>(pushed.error().code),
-                pushed.error().native_code);
+        const ShaderUniformHandle uniform_handle,
+        const ShaderUniformType type,
+        const void* data,
+        const u32 size) {
+        const ShaderUniformMetadata* uniform =
+            m_metadata.uniform(uniform_handle);
+        if (uniform == nullptr || data == nullptr || size == 0 ||
+            uniform->type != type || uniform->size != size ||
+            type == ShaderUniformType::sampler_2d) {
+            return err(invalid_uniform());
         }
+
+        switch (uniform->scope) {
+            case ShaderScope::global:
+                if (!m_globals_bound ||
+                    uniform->offset > m_global_uniform_data.length() ||
+                    uniform->size >
+                        m_global_uniform_data.length() - uniform->offset) {
+                    return err(invalid_shader_state());
+                }
+                std::memcpy(
+                    m_global_uniform_data.data() + uniform->offset,
+                    data,
+                    size);
+                return ok();
+            case ShaderScope::instance: {
+                if (m_bound_instance_id >= m_max_instances)
+                    return err(invalid_shader_state());
+                const u64 base =
+                    m_instance_uniform_size * m_bound_instance_id;
+                if (uniform->offset > m_instance_uniform_size ||
+                    uniform->size >
+                        m_instance_uniform_size - uniform->offset) {
+                    return err(invalid_shader_state());
+                }
+                std::memcpy(
+                    m_instance_uniform_data.data() + base + uniform->offset,
+                    data,
+                    size);
+                return ok();
+            }
+            case ShaderScope::local:
+                return m_shader.push_constant(
+                    command_buffer,
+                    uniform->offset,
+                    uniform->size,
+                    data);
+        }
+        return err(invalid_uniform());
     }
 
-    void MaterialShader::apply_material(
-        const cl::dyarr<CommandBuffer>& command_buffers,
-        const u32 image_index,
-        Material& material) {
-        if (!material.valid() ||
-            material.internal_id >= max_material_count ||
-            image_index >= command_buffers.length() ||
+    result<void, renderer_error> MaterialShader::set_sampler(
+        const ShaderUniformHandle uniform_handle,
+        Texture* texture) {
+        const ShaderUniformMetadata* uniform =
+            m_metadata.uniform(uniform_handle);
+        if (uniform == nullptr ||
+            uniform->type != ShaderUniformType::sampler_2d ||
+            uniform->scope != ShaderScope::instance) {
+            return err(invalid_uniform());
+        }
+        if (m_bound_instance_id >= m_max_instances)
+            return err(invalid_shader_state());
+        m_instance_textures[m_bound_instance_id] = texture;
+        return ok();
+    }
+
+    result<void, renderer_error> MaterialShader::apply_instance(
+        CommandBuffer& command_buffer,
+        const u32 image_index) {
+        if (m_bound_instance_id >= m_max_instances ||
             image_index >= m_image_count) {
-            ErrorLog(
-                "MaterialShader received an invalid material or image index.");
-            return;
+            return err(invalid_shader_state());
         }
 
-        const CommandBuffer& command_buffer = command_buffers[image_index];
         MaterialShaderInstanceState& instance =
-            m_instance_states[material.internal_id];
-        if (image_index >= instance.descriptor_sets.length()) {
-            ErrorLog("MaterialShader descriptor image index is out of range.");
-            return;
-        }
+            m_instance_states[m_bound_instance_id];
+        if (image_index >= instance.descriptor_sets.length())
+            return err(invalid_shader_state());
+
+        auto loaded = m_shader.load_instance_uniform(
+            m_bound_instance_id,
+            m_instance_uniform_data.data() +
+                m_instance_uniform_size * m_bound_instance_id,
+            m_instance_uniform_size);
+        if (!loaded)
+            return err(loaded.error());
+
         const VkDescriptorSet descriptor_set =
             instance.descriptor_sets[image_index];
-
-        MaterialUniformObject ubo{};
-        ubo.diffuse_color = material.diffuse_color;
-        auto loaded = m_shader.load_instance_uniform(
-            material.internal_id, &ubo, sizeof(ubo));
-        if (!loaded) {
-            ErrorLog(
-                "MaterialShader failed to update an instance uniform: renderer_error={}, native_code={}.",
-                static_cast<u32>(loaded.error().code),
-                loaded.error().native_code);
-            return;
-        }
-
         VkWriteDescriptorSet descriptor_writes[
             MaterialShaderInstanceState::descriptor_count]{};
         u32 descriptor_count = 0;
@@ -170,10 +269,10 @@ namespace nk {
         u32& uniform_generation =
             instance.descriptor_states[uniform_descriptor_index]
                 .generations[image_index];
-        if (uniform_generation != material.generation) {
+        if (uniform_generation == numeric::invalid_id) {
             buffer_info.buffer = m_shader.instance_uniform_buffer();
             buffer_info.offset =
-                m_shader.instance_uniform_stride() * material.internal_id;
+                m_shader.instance_uniform_stride() * m_bound_instance_id;
             buffer_info.range = m_shader.instance_uniform_size();
 
             VkWriteDescriptorSet& descriptor =
@@ -184,16 +283,14 @@ namespace nk {
             descriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             descriptor.descriptorCount = 1;
             descriptor.pBufferInfo = &buffer_info;
-            uniform_generation = material.generation;
+            uniform_generation = 0;
         }
 
-        Texture* texture = material.diffuse_map.texture;
+        Texture* texture = m_instance_textures[m_bound_instance_id];
         if (texture == nullptr || !texture->valid())
             texture = m_default_texture;
-        if (texture == nullptr || !texture->valid()) {
-            ErrorLog("MaterialShader has no valid diffuse texture.");
-            return;
-        }
+        if (texture == nullptr || !texture->valid())
+            return err(invalid_shader_state());
 
         DescriptorState& sampler_state =
             instance.descriptor_states[sampler_descriptor_index];
@@ -221,16 +318,14 @@ namespace nk {
             sampler_id = texture->id;
         }
 
-        m_shader.update_descriptors(
-            descriptor_count, descriptor_writes);
-        m_shader.bind_instance_descriptor_set(
-            command_buffer, descriptor_set);
+        m_shader.update_descriptors(descriptor_count, descriptor_writes);
+        m_shader.bind_instance_descriptor_set(command_buffer, descriptor_set);
+        return ok();
     }
 
-    result<void, renderer_error> MaterialShader::acquire_resources(
-        Material& material) {
+    result<u32, renderer_error> MaterialShader::acquire_resources() {
         u32 instance_id = numeric::invalid_id;
-        for (u32 index = 0; index < max_material_count; ++index) {
+        for (u32 index = 0; index < m_max_instances; ++index) {
             if (m_instance_states[index].descriptor_sets.allocator() == nullptr) {
                 instance_id = index;
                 break;
@@ -261,13 +356,8 @@ namespace nk {
                 auto descriptors_released =
                     m_shader.release_instance_descriptor_sets(
                         instance.descriptor_sets);
-                if (!descriptors_released) {
-                    ErrorLog(
-                        "Failed to roll back material descriptor sets: renderer_error={}, native_code={}.",
-                        static_cast<u32>(descriptors_released.error().code),
-                        descriptors_released.error().native_code);
+                if (!descriptors_released)
                     return err(descriptors_released.error());
-                }
                 return err(renderer_error{
                     renderer_error_code::out_of_memory,
                     0,
@@ -279,33 +369,34 @@ namespace nk {
             }
         }
 
-        material.internal_id = instance_id;
-        return ok();
+        std::memset(
+            m_instance_uniform_data.data() +
+                m_instance_uniform_size * instance_id,
+            0,
+            m_instance_uniform_size);
+        m_instance_textures[instance_id] = nullptr;
+        return ok(instance_id);
     }
 
-    void MaterialShader::release_resources(Material& material) {
-        if (material.internal_id >= max_material_count)
-            return;
-        MaterialShaderInstanceState& instance =
-            m_instance_states[material.internal_id];
-        if (instance.descriptor_sets.allocator() == nullptr) {
-            material.internal_id = numeric::invalid_id;
-            return;
-        }
+    result<void, renderer_error> MaterialShader::release_resources(
+        const u32 instance_id) {
+        if (instance_id >= m_max_instances)
+            return err(invalid_shader_state());
+        MaterialShaderInstanceState& instance = m_instance_states[instance_id];
+        if (instance.descriptor_sets.allocator() == nullptr)
+            return err(invalid_shader_state());
 
         auto released = m_shader.release_instance_descriptor_sets(
             instance.descriptor_sets);
-        if (!released) {
-            ErrorLog(
-                "Failed to free material descriptor sets: renderer_error={}, native_code={}.",
-                static_cast<u32>(released.error().code),
-                released.error().native_code);
-            return;
-        }
+        if (!released)
+            return err(released.error());
         for (DescriptorState& state : instance.descriptor_states) {
             (void)state.generations.arr_shutdown();
             (void)state.ids.arr_shutdown();
         }
-        material.internal_id = numeric::invalid_id;
+        m_instance_textures[instance_id] = nullptr;
+        if (m_bound_instance_id == instance_id)
+            m_bound_instance_id = numeric::invalid_id;
+        return ok();
     }
 }

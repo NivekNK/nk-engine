@@ -27,22 +27,39 @@ namespace nk {
 
         virtual void on_resized(u32 width, u32 height) override;
 
+        [[nodiscard]] virtual result<ShaderHandle, renderer_error> create_shader(
+            const ShaderConfig& config,
+            RenderPassKind render_pass) override;
+        [[nodiscard]] virtual result<void, renderer_error> destroy_shader(
+            ShaderHandle shader) override;
+        [[nodiscard]] virtual result<void, renderer_error> use_shader(
+            ShaderHandle shader) override;
+        [[nodiscard]] virtual result<void, renderer_error> bind_shader_globals(
+            ShaderHandle shader) override;
+        [[nodiscard]] virtual result<void, renderer_error> bind_shader_instance(
+            ShaderHandle shader,
+            u32 instance_id) override;
+        [[nodiscard]] virtual result<void, renderer_error> apply_shader_globals(
+            ShaderHandle shader) override;
+        [[nodiscard]] virtual result<void, renderer_error> apply_shader_instance(
+            ShaderHandle shader) override;
+        [[nodiscard]] virtual result<u32, renderer_error>
+        acquire_shader_instance(ShaderHandle shader) override;
+        [[nodiscard]] virtual result<void, renderer_error>
+        release_shader_instance(
+            ShaderHandle shader,
+            u32 instance_id) override;
+        [[nodiscard]] virtual result<void, renderer_error> set_shader_sampler(
+            ShaderHandle shader,
+            ShaderUniformHandle uniform,
+            Texture* texture) override;
+
         virtual result<void, renderer_error> init() override;
         virtual void shutdown() override;
         virtual result<frame_outcome, renderer_error> begin_frame(
             f64 delta_time) override;
         virtual void begin_render_pass(RenderPassKind pass) override;
         virtual void end_render_pass(RenderPassKind pass) override;
-        virtual void update_global_world_state(
-            glm::mat4 projection,
-            glm::mat4 view,
-            glm::vec3 view_position,
-            glm::vec4 ambient_color,
-            i32 mode) override;
-        virtual void update_global_ui_state(
-            glm::mat4 projection,
-            glm::mat4 view,
-            i32 mode) override;
         virtual void draw_geometry(
             RenderPassKind pass,
             GeometryRenderData data) override;
@@ -72,10 +89,13 @@ namespace nk {
         virtual void destroy_geometry(Geometry& geometry) override;
 
     private:
-        void on_default_texture_changed(Texture* texture) override {
-            m_material_shader.set_default_texture(texture);
-            m_ui_shader.set_default_texture(texture);
-        }
+        void on_default_texture_changed(Texture* texture) override;
+        [[nodiscard]] result<void, renderer_error> set_shader_uniform_raw(
+            ShaderHandle shader,
+            ShaderUniformHandle uniform,
+            ShaderUniformType type,
+            const void* data,
+            u32 size) override;
         [[nodiscard]] result<void, renderer_error> recreate_framebuffers();
         [[nodiscard]] result<void, renderer_error> recreate_command_buffers();
         [[nodiscard]] result<void, renderer_error> recreate_sync_objects();
@@ -111,7 +131,18 @@ namespace nk {
         bool release_geometry_ranges(
             const VulkanGeometryData& geometry) noexcept;
 
+        struct VulkanShaderSlot {
+            MaterialShader* shader = nullptr;
+            u16 generation = 0;
+            RenderPassKind render_pass = RenderPassKind::world;
+        };
+
+        [[nodiscard]] MaterialShader* resolve_shader(
+            ShaderHandle handle) noexcept;
+        void destroy_all_shaders() noexcept;
+
         static constexpr u32 max_geometry_count = 4096;
+        static constexpr u16 max_shader_count = 16;
         static constexpr u64 geometry_range_capacity =
             static_cast<u64>(max_geometry_count) + 2;
 
@@ -147,9 +178,10 @@ namespace nk {
         u32 m_image_index = 0;
         u32 m_current_frame = 0;
 
-        // Shaders
-        MaterialShader m_material_shader;
-        MaterialShader m_ui_shader;
+        VulkanShaderSlot m_shaders[max_shader_count]{};
+        ShaderHandle m_active_shader;
+        RenderPassKind m_active_render_pass = RenderPassKind::world;
+        bool m_render_pass_active = false;
 
         // Buffers
         Buffer m_object_vertex_buffer;
