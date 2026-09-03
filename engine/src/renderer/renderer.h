@@ -24,11 +24,6 @@ namespace nk {
         const GeometryRenderData* ui_geometries = nullptr;
     };
 
-    enum class RenderPassKind : u8 {
-        world,
-        ui,
-    };
-
     class Renderer {
     public:
         virtual ~Renderer() = default;

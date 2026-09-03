@@ -35,7 +35,8 @@ namespace nk {
             const u32 size = shader_uniform_size(uniform);
             if (uniform.offset > numeric::u16_max ||
                 size > numeric::u16_max ||
-                uniform.binding > numeric::u16_max) {
+                uniform.binding > numeric::u8_max ||
+                uniform.array_length > numeric::u8_max) {
                 return err(invalid_metadata(
                     shader_config_error::metadata_limits_exceeded));
             }
@@ -52,7 +53,8 @@ namespace nk {
             m_uniforms[index] = {
                 .offset = static_cast<u16>(uniform.offset),
                 .size = static_cast<u16>(shader_uniform_size(uniform)),
-                .binding = static_cast<u16>(uniform.binding),
+                .binding = static_cast<u8>(uniform.binding),
+                .array_length = static_cast<u8>(uniform.array_length),
                 .type = uniform.type,
                 .scope = uniform.scope,
             };

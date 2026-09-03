@@ -70,4 +70,22 @@ namespace nk {
             mem::Allocator& allocator,
             Resource& resource) const noexcept override;
     };
+
+    class ShaderResourceLoader final : public ResourceLoader {
+    public:
+        [[nodiscard]] ResourceType type() const noexcept override {
+            return ResourceType::shader;
+        }
+        [[nodiscard]] strview type_path() const noexcept override {
+            return {"shaders", 7};
+        }
+        [[nodiscard]] result<void, resource_error> load(
+            mem::Allocator& allocator,
+            strview asset_base_path,
+            strview name,
+            Resource& out_resource) const override;
+        void unload(
+            mem::Allocator& allocator,
+            Resource& resource) const noexcept override;
+    };
 }

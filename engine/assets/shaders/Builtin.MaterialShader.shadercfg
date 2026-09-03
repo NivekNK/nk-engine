@@ -1,0 +1,19 @@
+# NK shader configuration
+version=1
+name=Builtin.MaterialShader
+render_pass=world
+max_instances=1024
+wireframe=false
+depth_test=true
+
+stage=vertex,vertex,main
+stage=fragment,fragment,main
+
+attribute=f32_3,position
+attribute=f32_2,texcoord
+
+uniform=mat4,global,projection
+uniform=mat4,global,view
+uniform=f32_4,instance,diffuse_color
+uniform=sampler_2d,instance,diffuse_texture
+uniform=mat4,local,model

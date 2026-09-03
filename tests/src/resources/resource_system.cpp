@@ -7,6 +7,7 @@
 #include "memory/malloc_allocator.h"
 #include "resources/image_loader.h"
 #include "resources/material.h"
+#include "resources/shader_resource.h"
 #include "systems/resource_system.h"
 
 static_assert(!std::is_copy_constructible_v<nk::Resource>);
@@ -19,7 +20,7 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
         NK_TEST_ASSET_ROOT);
     ASSERT_TRUE(created);
     nk::ResourceSystem* resources = *created;
-    EXPECT_EQ(resources->registered_loader_count(), 4u);
+    EXPECT_EQ(resources->registered_loader_count(), 5u);
 
     auto text = resources->load(
         "materials/test_material.kmt",
@@ -64,8 +65,36 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_EQ(
         ui_material->as<nk::MaterialConfig>()->diffuse_map_name.view(),
         nk::strview{"orange_lines_512"});
-    EXPECT_EQ(resources->active_resource_count(), 5u);
 
+    auto shader = resources->load(
+        "Builtin.MaterialShader",
+        nk::ResourceType::shader);
+    ASSERT_TRUE(shader);
+    const nk::ShaderResourceConfig* shader_resource =
+        shader->as<nk::ShaderResourceConfig>();
+    ASSERT_NE(shader_resource, nullptr);
+    EXPECT_EQ(shader_resource->render_pass(), nk::RenderPassKind::world);
+    const nk::ShaderConfig shader_config = shader_resource->config();
+    EXPECT_EQ(shader_config.name, nk::strview{"Builtin.MaterialShader"});
+    ASSERT_EQ(shader_config.stages.length(), 2u);
+    EXPECT_EQ(shader_config.attributes.length(), 2u);
+    EXPECT_EQ(shader_config.vertex_stride, 20u);
+    ASSERT_EQ(shader_config.descriptor_sets.length(), 2u);
+    ASSERT_EQ(shader_config.descriptor_sets[0].bindings.length(), 1u);
+    EXPECT_EQ(shader_config.descriptor_sets[0].bindings[0].element_size, 128u);
+    ASSERT_EQ(shader_config.descriptor_sets[1].bindings.length(), 2u);
+    EXPECT_EQ(shader_config.descriptor_sets[1].bindings[0].element_size, 16u);
+    EXPECT_EQ(shader_config.descriptor_sets[1].bindings[1].count, 1u);
+    ASSERT_EQ(shader_config.uniforms.length(), 5u);
+    EXPECT_EQ(shader_config.uniforms[1].offset, 64u);
+    EXPECT_EQ(shader_config.uniforms[3].type, nk::ShaderUniformType::sampler_2d);
+    EXPECT_EQ(shader_config.uniforms[3].offset, 0u);
+    EXPECT_EQ(shader_config.uniforms[3].array_length, 1u);
+    ASSERT_EQ(shader_config.push_constants.length(), 1u);
+    EXPECT_EQ(shader_config.push_constants[0].size, 64u);
+    EXPECT_EQ(resources->active_resource_count(), 6u);
+
+    EXPECT_TRUE(resources->unload(*shader));
     EXPECT_TRUE(resources->unload(*ui_material));
     EXPECT_TRUE(resources->unload(*material));
     EXPECT_TRUE(resources->unload(*image));
@@ -73,6 +102,46 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     EXPECT_TRUE(resources->unload(*text));
     EXPECT_EQ(resources->active_resource_count(), 0u);
     EXPECT_FALSE(material->loaded());
+
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(ResourceSystem, ParsesShaderArraysAndReportsTypedConfigErrors) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    auto created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_FIXTURE_ROOT);
+    ASSERT_TRUE(created);
+    nk::ResourceSystem* resources = *created;
+
+    auto array_shader = resources->load(
+        "Test.Array",
+        nk::ResourceType::shader);
+    ASSERT_TRUE(array_shader);
+    const nk::ShaderConfig config =
+        array_shader->as<nk::ShaderResourceConfig>()->config();
+    ASSERT_EQ(config.uniforms.length(), 2u);
+    EXPECT_EQ(config.uniforms[0].type, nk::ShaderUniformType::custom);
+    EXPECT_EQ(config.uniforms[0].array_length, 3u);
+    EXPECT_EQ(nk::shader_uniform_size(config.uniforms[0]), 48u);
+    EXPECT_EQ(config.uniforms[1].array_length, 3u);
+    EXPECT_EQ(config.uniforms[1].offset, 0u);
+    ASSERT_EQ(config.descriptor_sets.length(), 1u);
+    ASSERT_EQ(config.descriptor_sets[0].bindings.length(), 2u);
+    EXPECT_EQ(config.descriptor_sets[0].bindings[1].count, 3u);
+    EXPECT_TRUE(resources->unload(*array_shader));
+
+    auto invalid = resources->load(
+        "Test.Invalid",
+        nk::ResourceType::shader);
+    ASSERT_FALSE(invalid);
+    EXPECT_EQ(invalid.error().code, nk::resource_error_code::invalid_data);
+    EXPECT_EQ(
+        invalid.error().native_code,
+        static_cast<nk::i32>(
+            nk::shader_resource_parse_error::invalid_uniform));
+    EXPECT_EQ(resources->active_resource_count(), 0u);
 
     nk::ResourceSystem::destroy(allocator, resources);
     EXPECT_EQ(allocator.get_active_allocation_count(), 0u);

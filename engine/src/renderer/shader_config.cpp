@@ -167,7 +167,7 @@ namespace nk {
 
         for (u64 index = 0; index < config.uniforms.length(); ++index) {
             const ShaderUniformConfig& uniform = config.uniforms[index];
-            if (uniform.name.empty())
+            if (uniform.name.empty() || uniform.array_length == 0)
                 return err(shader_config_error::invalid_uniform);
             for (u64 previous = 0; previous < index; ++previous) {
                 if (config.uniforms[previous].name == uniform.name)
@@ -175,7 +175,7 @@ namespace nk {
             }
 
             const u32 uniform_size = shader_uniform_size(uniform);
-            if (uniform.type == ShaderUniformType::custom &&
+            if (uniform.type != ShaderUniformType::sampler_2d &&
                 uniform_size == 0) {
                 return err(shader_config_error::invalid_uniform);
             }
@@ -216,7 +216,9 @@ namespace nk {
 
             if (uniform.type == ShaderUniformType::sampler_2d) {
                 if (binding->type != ShaderDescriptorType::sampler ||
-                    uniform.offset >= binding->count) {
+                    uniform.offset >= binding->count ||
+                    uniform.array_length >
+                        binding->count - uniform.offset) {
                     return err(shader_config_error::invalid_uniform);
                 }
             } else if (binding->type !=

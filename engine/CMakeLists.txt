@@ -73,6 +73,7 @@ set(SOURCES
     src/platform/file.cpp
     src/resources/image_loader.cpp
     src/resources/loaders.cpp
+    src/resources/shader_loader.cpp
     src/renderer/renderer.cpp
     src/renderer/buffer_suballocator.cpp
     src/renderer/shader.cpp
@@ -233,6 +234,27 @@ endforeach(SLANG)
 
 add_custom_target(SHADERS DEPENDS ${SPIRV_BINARY_FILES})
 add_dependencies(engine SHADERS)
+
+file(GLOB SHADER_CONFIG_FILES "assets/shaders/*.shadercfg")
+
+foreach(SHADER_CONFIG ${SHADER_CONFIG_FILES})
+    get_filename_component(SHADER_CONFIG_NAME ${SHADER_CONFIG} NAME)
+    set(SHADER_CONFIG_OUTPUT
+        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/shaders/${SHADER_CONFIG_NAME}")
+    add_custom_command(
+        OUTPUT ${SHADER_CONFIG_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/shaders/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${SHADER_CONFIG} ${SHADER_CONFIG_OUTPUT}
+        DEPENDS ${SHADER_CONFIG}
+        VERBATIM
+    )
+    list(APPEND SHADER_CONFIG_BINARY_FILES ${SHADER_CONFIG_OUTPUT})
+endforeach(SHADER_CONFIG)
+
+add_custom_target(SHADER_CONFIGS DEPENDS ${SHADER_CONFIG_BINARY_FILES})
+add_dependencies(engine SHADER_CONFIGS)
 
 file(GLOB MODEL_FILES "assets/models/*.obj")
 

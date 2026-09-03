@@ -79,9 +79,35 @@ TEST(ShaderMetadata, StoresCheckedCompactUniforms) {
     EXPECT_EQ(uniform->offset, 64);
     EXPECT_EQ(uniform->size, 257);
     EXPECT_EQ(uniform->binding, 0);
+    EXPECT_EQ(uniform->array_length, 1);
     EXPECT_EQ(uniform->type, nk::ShaderUniformType::custom);
     EXPECT_EQ(uniform->scope, nk::ShaderScope::global);
     EXPECT_EQ(metadata.uniform({1}), nullptr);
+}
+
+TEST(ShaderMetadata, PreservesUniformArrayLengthAndTotalSize) {
+    const nk::ShaderUniformConfig uniforms[] = {
+        {
+            .name = "values",
+            .type = nk::ShaderUniformType::custom,
+            .scope = nk::ShaderScope::global,
+            .binding = 0,
+            .offset = 16,
+            .custom_size = 12,
+            .array_length = 3,
+        },
+    };
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::ShaderMetadata metadata;
+
+    auto initialized = metadata.init(&allocator, valid_config(uniforms));
+
+    ASSERT_TRUE(initialized);
+    const auto* uniform = metadata.uniform({0});
+    ASSERT_NE(uniform, nullptr);
+    EXPECT_EQ(uniform->offset, 16u);
+    EXPECT_EQ(uniform->size, 36u);
+    EXPECT_EQ(uniform->array_length, 3u);
 }
 
 TEST(ShaderMetadata, RejectsWidthsThatCannotBeRepresented) {

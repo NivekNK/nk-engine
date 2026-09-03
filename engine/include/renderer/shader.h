@@ -40,7 +40,8 @@ namespace nk {
     struct ShaderUniformMetadata {
         u16 offset = 0;
         u16 size = 0;
-        u16 binding = 0;
+        u8 binding = 0;
+        u8 array_length = 1;
         ShaderUniformType type = ShaderUniformType::f32;
         ShaderScope scope = ShaderScope::global;
     };

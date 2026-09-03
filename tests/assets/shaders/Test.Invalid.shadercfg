@@ -1,0 +1,7 @@
+version=1
+name=Test.Invalid
+render_pass=world
+stage=vertex,vertex
+stage=fragment,fragment
+attribute=f32,position
+uniform=not_a_type,global,value

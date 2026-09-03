@@ -65,6 +65,7 @@ namespace nk {
         BinaryResourceLoader m_binary_loader;
         ImageResourceLoader m_image_loader;
         MaterialResourceLoader m_material_loader;
+        ShaderResourceLoader m_shader_loader;
         u32 m_registered_loader_count = 0;
         u64 m_active_resource_count = 0;
         bool m_initialized = false;

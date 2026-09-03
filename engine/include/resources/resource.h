@@ -13,6 +13,7 @@ namespace nk {
         binary,
         image,
         material,
+        shader,
         static_mesh,
         custom,
     };

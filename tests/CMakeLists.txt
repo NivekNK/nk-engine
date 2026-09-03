@@ -15,6 +15,7 @@ target_compile_definitions(${PROJECT_NAME}
 PRIVATE
     NK_TEST_BUILD=1
     NK_TEST_ASSET_ROOT="${CMAKE_SOURCE_DIR}/engine/assets"
+    NK_TEST_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/assets"
 )
 
 if (WIN32)

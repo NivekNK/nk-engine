@@ -5,6 +5,11 @@
 #include "core/strview.h"
 
 namespace nk {
+    enum class RenderPassKind : u8 {
+        world,
+        ui,
+    };
+
     enum class ShaderStage : u8 {
         none = 0,
         vertex = 1 << 0,
@@ -117,6 +122,7 @@ namespace nk {
         u32 binding = 0;
         u32 offset = 0;
         u32 custom_size = 0;
+        u32 array_length = 1;
     };
 
     struct ShaderPushConstantConfig {
@@ -213,29 +219,42 @@ constexpr nk::u32 nk::shader_attribute_size(
 
 constexpr nk::u32 nk::shader_uniform_size(
     const ShaderUniformConfig& uniform) noexcept {
+    u32 element_size = 0;
     switch (uniform.type) {
         case ShaderUniformType::f32:
         case ShaderUniformType::i32:
         case ShaderUniformType::u32:
-            return 4;
+            element_size = 4;
+            break;
         case ShaderUniformType::f32_2:
-            return 8;
+            element_size = 8;
+            break;
         case ShaderUniformType::f32_3:
-            return 12;
+            element_size = 12;
+            break;
         case ShaderUniformType::f32_4:
-            return 16;
+            element_size = 16;
+            break;
         case ShaderUniformType::i8:
         case ShaderUniformType::u8:
-            return 1;
+            element_size = 1;
+            break;
         case ShaderUniformType::i16:
         case ShaderUniformType::u16:
-            return 2;
+            element_size = 2;
+            break;
         case ShaderUniformType::mat4:
-            return 64;
+            element_size = 64;
+            break;
         case ShaderUniformType::sampler_2d:
             return 0;
         case ShaderUniformType::custom:
-            return uniform.custom_size;
+            element_size = uniform.custom_size;
+            break;
     }
-    return 0;
+    if (uniform.array_length == 0 || element_size == 0 ||
+        element_size > numeric::u32_max / uniform.array_length) {
+        return 0;
+    }
+    return element_size * uniform.array_length;
 }

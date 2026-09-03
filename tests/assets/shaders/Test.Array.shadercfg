@@ -1,0 +1,9 @@
+version=1
+name=Test.Array
+render_pass=world
+max_instances=0
+stage=vertex,vertex
+stage=fragment,fragment
+attribute=f32,position
+uniform=custom,global,lights,3,16
+uniform=sampler_2d,global,textures,3

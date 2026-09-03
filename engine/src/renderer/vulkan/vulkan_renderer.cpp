@@ -3,8 +3,7 @@
 #include "vulkan/vulkan_renderer.h"
 
 #include "platform/platform.h"
-#include "renderer/global_uniform_object.h"
-#include "renderer/material_uniform_object.h"
+#include "resources/shader_resource.h"
 #include "systems/resource_system.h"
 #include "vulkan/utils.h"
 #include "vulkan/resources/texture_data.h"
@@ -417,147 +416,58 @@ namespace nk {
             return err(sync_created.error());
         InfoLog("Vulkan Sync Objects created.");
 
-        const ShaderStageConfig shader_stages[] = {
-            {ShaderStage::vertex, "vertex", "main"},
-            {ShaderStage::fragment, "fragment", "main"},
-        };
-        const ShaderDescriptorBindingConfig global_bindings[] = {
-            {
-                0,
-                ShaderDescriptorType::uniform_buffer,
-                1,
-                ShaderStage::vertex,
-                sizeof(GlobalUniformObject),
-            },
-        };
-        const ShaderDescriptorBindingConfig instance_bindings[] = {
-            {
-                0,
-                ShaderDescriptorType::uniform_buffer,
-                1,
-                ShaderStage::fragment,
-                sizeof(MaterialUniformObject),
-            },
-            {
-                1,
-                ShaderDescriptorType::sampler,
-                1,
-                ShaderStage::fragment,
-                0,
-            },
-        };
-        const ShaderDescriptorSetConfig descriptor_sets[] = {
-            {ShaderScope::global, global_bindings},
-            {ShaderScope::instance, instance_bindings},
-        };
-        const ShaderUniformConfig shader_uniforms[] = {
-            {
-                "projection",
-                ShaderUniformType::mat4,
-                ShaderScope::global,
-                0,
-                offsetof(GlobalUniformObject, projection),
-                0,
-            },
-            {
-                "view",
-                ShaderUniformType::mat4,
-                ShaderScope::global,
-                0,
-                offsetof(GlobalUniformObject, view),
-                0,
-            },
-            {
-                "diffuse_color",
-                ShaderUniformType::f32_4,
-                ShaderScope::instance,
-                0,
-                offsetof(MaterialUniformObject, diffuse_color),
-                0,
-            },
-            {
-                "diffuse_texture",
-                ShaderUniformType::sampler_2d,
-                ShaderScope::instance,
-                1,
-                0,
-                0,
-            },
-            {
-                "model",
-                ShaderUniformType::mat4,
-                ShaderScope::local,
-                0,
-                0,
-                0,
-            },
-        };
-        const ShaderPushConstantConfig push_constants[] = {
-            {ShaderStage::vertex, 0, sizeof(glm::mat4)},
-        };
-        const ShaderAttributeConfig material_attributes[] = {
-            {
-                "position",
-                ShaderAttributeType::f32_3,
-                0,
-                offsetof(glm::Vertex3D, position),
-            },
-            {
-                "texcoord",
-                ShaderAttributeType::f32_2,
-                1,
-                offsetof(glm::Vertex3D, texcoord),
-            },
-        };
-        const ShaderConfig material_shader_config{
-            .name = "Builtin.MaterialShader",
-            .stages = shader_stages,
-            .attributes = material_attributes,
-            .descriptor_sets = descriptor_sets,
-            .uniforms = shader_uniforms,
-            .push_constants = push_constants,
-            .vertex_stride = sizeof(glm::Vertex3D),
-            .max_instances = MaterialShader::max_material_count,
-            .wireframe = false,
-            .depth_test_enabled = true,
+        auto create_builtin_shader = [this](
+                                         const strview resource_name,
+                                         const RenderPassKind expected_pass)
+            -> result<ShaderHandle, renderer_error> {
+            auto resource = m_resources->load(
+                resource_name,
+                ResourceType::shader);
+            if (!resource) {
+                return err(renderer_error{
+                    renderer_error_code::shader_file_failed,
+                    static_cast<i32>(resource.error().code),
+                });
+            }
+
+            const ShaderResourceConfig* shader_resource =
+                resource->as<ShaderResourceConfig>();
+            if (shader_resource == nullptr ||
+                shader_resource->render_pass() != expected_pass) {
+                (void)m_resources->unload(*resource);
+                return err(renderer_error{
+                    renderer_error_code::shader_config_invalid,
+                    static_cast<i32>(shader_config_error::unsupported_layout),
+                });
+            }
+
+            auto created = create_shader(
+                shader_resource->config(),
+                expected_pass);
+            auto unloaded = m_resources->unload(*resource);
+            if (!created)
+                return err(created.error());
+            if (!unloaded) {
+                (void)destroy_shader(*created);
+                return err(renderer_error{
+                    renderer_error_code::shader_file_failed,
+                    static_cast<i32>(unloaded.error().code),
+                });
+            }
+            return created;
         };
 
-        auto shader_created = create_shader(
-            material_shader_config, RenderPassKind::world);
+        auto shader_created = create_builtin_shader(
+            "Builtin.MaterialShader",
+            RenderPassKind::world);
         if (!shader_created)
             return err(shader_created.error());
         m_world_shader = *shader_created;
         InfoLog("Vulkan Material Shader created.");
 
-        const ShaderAttributeConfig ui_attributes[] = {
-            {
-                "position",
-                ShaderAttributeType::f32_2,
-                0,
-                offsetof(glm::Vertex2D, position),
-            },
-            {
-                "texcoord",
-                ShaderAttributeType::f32_2,
-                1,
-                offsetof(glm::Vertex2D, texcoord),
-            },
-        };
-        const ShaderConfig ui_shader_config{
-            .name = "Builtin.UIShader",
-            .stages = shader_stages,
-            .attributes = ui_attributes,
-            .descriptor_sets = descriptor_sets,
-            .uniforms = shader_uniforms,
-            .push_constants = push_constants,
-            .vertex_stride = sizeof(glm::Vertex2D),
-            .max_instances = MaterialShader::max_material_count,
-            .wireframe = false,
-            .depth_test_enabled = false,
-        };
-
-        auto ui_shader_created = create_shader(
-            ui_shader_config, RenderPassKind::ui);
+        auto ui_shader_created = create_builtin_shader(
+            "Builtin.UIShader",
+            RenderPassKind::ui);
         if (!ui_shader_created)
             return err(ui_shader_created.error());
         m_ui_shader = *ui_shader_created;
