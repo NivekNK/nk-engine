@@ -126,6 +126,14 @@ They can also receive their first choices as arguments:
 .scripts/add-library.sh engine https://github.com/example/library.git
 ```
 
+## Architecture contracts
+
+The current cross-system ownership, borrowed-handle rules, shutdown order and
+renderer/resource rollback guarantees are documented in
+[`docs/renderer-resource-lifetime-contracts.md`](docs/renderer-resource-lifetime-contracts.md).
+Changes to renderer or resource lifetimes must update that contract alongside
+their implementation and tests.
+
 ## Error and container contracts
 
 Recoverable operations return `nk::result<T, E>` (or

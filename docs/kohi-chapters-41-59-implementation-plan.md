@@ -134,6 +134,8 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 - Vídeo: [Kohi #041](https://youtu.be/SS8Zn13cZus?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
 - Commit funcional: ninguno.
+- Estado NK: completado documentalmente en
+  [`renderer-resource-lifetime-contracts.md`](renderer-resource-lifetime-contracts.md).
 - Lote documental cronológicamente asociado:
   [`7abec4f`](https://github.com/travisvroman/kohi/commit/7abec4fd52902697ad525a87a9c874d271ef423a),
   [`642fe9f`](https://github.com/travisvroman/kohi/commit/642fe9f2413a5ecdc2925bac067de0c0dea60e51),
@@ -144,12 +146,21 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] No crear una implementación ficticia para este capítulo.
-- [ ] Revisar el roadmap sólo para confirmar el orden conceptual 42–59.
-- [ ] Documentar contratos de las APIs nuevas al implementarlas; no portar
+- [x] No crear una implementación ficticia para este capítulo.
+- [x] Revisar el roadmap sólo para confirmar el orden conceptual 42–59.
+- [x] Establecer el documento vivo para contratos de las APIs nuevas; no portar
   Doxygen ni comentarios que describan APIs C inexistentes en NK.
-- [ ] Cerrar mediante un commit documental únicamente si se cambia documentación,
+- [x] Cerrar mediante un commit documental únicamente si se cambia documentación,
   por ejemplo `docs(engine): document renderer resource ownership`.
+
+### Resultado
+
+- Se confirmó la progresión conceptual
+  allocator/rangos → buffers → shaders → iluminación → meshes → texturas/targets.
+- Se documentaron el orden de construcción y destrucción, ownership, referencias,
+  handles prestados, rollback y límites de threading del estado actual.
+- Los requisitos de lifetime que deberán preservar los capítulos 42–59 quedaron
+  registrados sin introducir por adelantado ninguna de sus APIs.
 
 ## Capítulo 42 — Free List
 
