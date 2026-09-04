@@ -777,7 +777,8 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
   geometrías/materiales.
 - [x] Commits: `feat(resources): add owned multi-geometry meshes`,
   `feat(renderer): draw grouped mesh geometry` y
-  `feat(demo): render multiple material meshes`.
+  `feat(demo): render multiple material meshes`; el rollback defensivo del
+  arranque quedó en `fix(core): release meshes before failed startup teardown`.
 
 ### Estado implementado
 
