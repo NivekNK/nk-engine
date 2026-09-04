@@ -707,22 +707,45 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Definir `PointLight` con position, color y atenuación; no dejar luces de
-  producción hardcodeadas en GLSL. Si el tutorial las usa así como demostración,
-  colocarlas en la escena/editor de prueba.
-- [ ] Definir capacidad máxima y count en UBO con layout CPU/GPU comprobado.
-- [ ] Acumular direccional + point lights con diffuse/specular y atenuación.
-- [ ] Crear un `RenderViewMode` tipado para default, lighting-only y normals.
-- [ ] Enlazar los modos a eventos/input portable. Las teclas deben entrar por
+- [x] Definir `PointLight` con position, color y atenuación; no dejar luces de
+  producción hardcodeadas en el shader Slang. Si el tutorial las usa así como
+  demostración, colocarlas en la escena/editor de prueba.
+- [x] Definir capacidad máxima y count en UBO con layout CPU/GPU comprobado.
+- [x] Acumular direccional + point lights con diffuse/specular y atenuación.
+- [x] Crear un `RenderViewMode` tipado para default, lighting-only y normals.
+- [x] Enlazar los modos a eventos/input portable. Las teclas deben entrar por
   `KeyCode`; no copiar `KeySym`/X11 al backend Wayland.
-- [ ] Mantener el modo fuera del backend Vulkan salvo el valor uniforme necesario.
+- [x] Mantener el modo fuera del backend Vulkan salvo el valor uniforme necesario.
 
 ### Validación y commits
 
-- [ ] Tests de atenuación, packing UBO, evento de cambio y teclas Wayland; smoke de
+- [x] Tests de atenuación, packing UBO, evento de cambio y teclas Wayland; smoke de
   todos los modos bajo niri.
-- [ ] Commits sugeridos: `feat(renderer): add point light accumulation` y
+- [x] Commits sugeridos: `feat(renderer): add point light accumulation` y
   `feat(renderer): add lighting debug views`.
+
+### Estado NK
+
+- Completado en `4837280` y `1e44bb5`.
+- `SceneLighting` admite hasta dos `PointLight`; cada luz valida position, color
+  y coeficientes antes del upload. Las dos luces del tutorial viven solamente en
+  la escena de demostración, no dentro del shader.
+- El packing CPU/GPU usa un `PointLightUniform` explícito de 48 bytes. El SPIR-V
+  generado por Slang confirmó offsets `0/12/16/32/36/40`, stride `48`, count en
+  `188`, array en `192` y `RenderViewMode` en `288`.
+- El shader world está escrito en Slang y acumula ambiente una sola vez más luz
+  direccional y luces puntuales Blinn-Phong con atenuación. El modo normals
+  transforma `[-1, 1]` a `[0, 1]`; no existen fuentes GLSL activas.
+- Los controles son `0` para default-lit, `1` para lighting-only y `2` para
+  normals. Pasan por `KeyCode` y `SystemEventCode::SetRenderViewMode`; Wayland
+  traduce el rango XKB numérico a esos códigos sin introducir una dependencia
+  X11 en el backend nativo.
+- Pasaron 208/208 tests en Debug y con ASan/UBSan, y 199/199 en Release. El
+  paquete `nix build --offline .#nk-engine --no-link` también pasó.
+- El smoke Wayland/xdg-shell bajo niri recorrió los tres modos durante 120 frames
+  con Validation Layers, registró cero allocation events en los 119 frames
+  estables y terminó con cero fugas.
+- No se necesitaron dependencias, submódulos ni assets adicionales.
 
 ## Capítulo 53 — Meshes, parte 1
 
