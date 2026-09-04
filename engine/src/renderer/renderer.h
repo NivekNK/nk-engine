@@ -17,6 +17,7 @@ namespace nk {
     class Platform;
     class ResourceSystem;
     class MaterialSystem;
+    class Mesh;
     enum class SystemEventCode : u16;
     struct EventContext;
 
@@ -27,6 +28,8 @@ namespace nk {
         SceneLighting lighting{};
         u32 geometry_count = 0;
         const GeometryRenderData* geometries = nullptr;
+        u32 mesh_count = 0;
+        const Mesh* meshes = nullptr;
         u32 ui_geometry_count = 0;
         const GeometryRenderData* ui_geometries = nullptr;
     };
@@ -195,7 +198,15 @@ namespace nk {
             const glm::vec3& view_position,
             const SceneLighting& lighting,
             u32 geometry_count,
-            const GeometryRenderData* geometries);
+            const GeometryRenderData* geometries,
+            u32 mesh_count,
+            const Mesh* meshes);
+        [[nodiscard]] result<void, renderer_error> draw_render_data(
+            MaterialSystem& materials,
+            RenderPassKind pass,
+            MaterialType expected_material_type,
+            GeometryRenderData data,
+            Material*& bound_material);
         [[nodiscard]] result<frame_outcome, renderer_error> end_frame_impl(
             f64 delta_time);
 

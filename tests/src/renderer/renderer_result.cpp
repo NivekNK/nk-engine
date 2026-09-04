@@ -2241,3 +2241,65 @@ TEST(Mesh, ReleasesCompletedAcquisitionsWhenCreationFailsPartially) {
     systems.shutdown();
     EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
 }
+
+TEST(RendererResult, ExpandsMeshGeometryWithoutRepeatedMaterialUpdates) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    auto geometries_created = nk::GeometrySystem::create(
+        allocator,
+        renderer,
+        *systems.materials,
+        2);
+    ASSERT_TRUE(geometries_created);
+    nk::GeometrySystem* geometries = *geometries_created;
+
+    {
+        auto first = nk::GeometrySystem::generate_plane(
+            allocator,
+            2.0f,
+            2.0f,
+            1,
+            1,
+            1.0f,
+            1.0f,
+            "render_mesh_first",
+            "test_material");
+        auto second = nk::GeometrySystem::generate_cube(
+            allocator,
+            2.0f,
+            2.0f,
+            2.0f,
+            1.0f,
+            1.0f,
+            "render_mesh_second",
+            "test_material");
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(second);
+        nk::GeometryConfig configs[]{
+            std::move(*first),
+            std::move(*second),
+        };
+        auto mesh = nk::Mesh::create(allocator, *geometries, configs);
+        ASSERT_TRUE(mesh);
+
+        auto frame = renderer.draw_frame(*systems.materials, {
+            .delta_time = 1.0 / 60.0,
+            .mesh_count = 1,
+            .meshes = &*mesh,
+        });
+
+        ASSERT_TRUE(frame);
+        EXPECT_EQ(*frame, nk::frame_outcome::rendered);
+        EXPECT_EQ(renderer.world_object_updates(), 2u);
+        EXPECT_EQ(renderer.ui_object_updates(), 0u);
+        EXPECT_EQ(renderer.instance_apply_count(), 1u);
+        EXPECT_EQ(renderer.instance_update_count(), 1u);
+        EXPECT_EQ(renderer.frame_number(), 1u);
+    }
+
+    nk::GeometrySystem::destroy(allocator, geometries);
+    systems.shutdown();
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}

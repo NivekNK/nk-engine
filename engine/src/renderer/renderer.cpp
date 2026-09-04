@@ -8,6 +8,7 @@
 #include "platform/platform.h"
 #include "systems/event_system.h"
 #include "systems/material_system.h"
+#include "resources/mesh.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -130,7 +131,9 @@ namespace nk {
             m_view_position,
             packet.lighting,
             packet.geometry_count,
-            packet.geometries);
+            packet.geometries,
+            packet.mesh_count,
+            packet.meshes);
         if (!world_drawn)
             return err(world_drawn.error());
 
@@ -142,7 +145,9 @@ namespace nk {
             glm::vec3{0.0f},
             packet.lighting,
             packet.ui_geometry_count,
-            packet.ui_geometries);
+            packet.ui_geometries,
+            0,
+            nullptr);
         if (!ui_drawn)
             return err(ui_drawn.error());
 
@@ -157,7 +162,9 @@ namespace nk {
         const glm::vec3& view_position,
         const SceneLighting& lighting,
         const u32 geometry_count,
-        const GeometryRenderData* geometries) {
+        const GeometryRenderData* geometries,
+        const u32 mesh_count,
+        const Mesh* meshes) {
         begin_render_pass(pass);
         auto fail = [this, pass](const renderer_error error)
             -> result<void, renderer_error> {
@@ -184,37 +191,76 @@ namespace nk {
                 globals_applied.error().native_code,
             });
 
+        Material* bound_material = nullptr;
         for (u32 index = 0; index < geometry_count; ++index) {
-            const GeometryRenderData& data = geometries[index];
-            Material* material = data.geometry == nullptr
-                ? nullptr
-                : data.geometry->material;
-            if (material == nullptr || !material->valid() ||
-                material->type != expected_material_type) {
-                material = expected_material_type == MaterialType::world
-                    ? &materials.default_material()
-                    : &materials.default_ui_material();
+            auto drawn = draw_render_data(
+                materials,
+                pass,
+                expected_material_type,
+                geometries[index],
+                bound_material);
+            if (!drawn)
+                return fail({
+                    renderer_error_code::material_failed,
+                    drawn.error().native_code,
+                });
+        }
+        for (u32 mesh_index = 0; mesh_index < mesh_count; ++mesh_index) {
+            const Mesh& mesh = meshes[mesh_index];
+            for (Geometry* geometry : mesh.geometries()) {
+                auto drawn = draw_render_data(
+                    materials,
+                    pass,
+                    expected_material_type,
+                    {
+                        .model = mesh.model(),
+                        .geometry = geometry,
+                    },
+                    bound_material);
+                if (!drawn)
+                    return fail(drawn.error());
             }
+        }
+        end_render_pass(pass);
+        return ok();
+    }
 
+    result<void, renderer_error> Renderer::draw_render_data(
+        MaterialSystem& materials,
+        const RenderPassKind pass,
+        const MaterialType expected_material_type,
+        const GeometryRenderData data,
+        Material*& bound_material) {
+        Material* material = data.geometry == nullptr
+            ? nullptr
+            : data.geometry->material;
+        if (material == nullptr || !material->valid() ||
+            material->type != expected_material_type) {
+            material = expected_material_type == MaterialType::world
+                ? &materials.default_material()
+                : &materials.default_ui_material();
+        }
+
+        if (bound_material != material) {
             auto instance_applied = materials.apply_instance(
                 *material,
                 m_frame_number);
             if (!instance_applied) {
-                return fail({
+                return err(renderer_error{
                     renderer_error_code::material_failed,
                     instance_applied.error().native_code,
                 });
             }
-            auto local_applied = materials.apply_local(*material, data.model);
-            if (!local_applied) {
-                return fail({
-                    renderer_error_code::material_failed,
-                    local_applied.error().native_code,
-                });
-            }
-            draw_geometry(pass, data);
+            bound_material = material;
         }
-        end_render_pass(pass);
+        auto local_applied = materials.apply_local(*material, data.model);
+        if (!local_applied) {
+            return err(renderer_error{
+                renderer_error_code::material_failed,
+                local_applied.error().native_code,
+            });
+        }
+        draw_geometry(pass, data);
         return ok();
     }
 
