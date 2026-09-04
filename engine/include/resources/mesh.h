@@ -1,10 +1,9 @@
 #pragma once
 
-#include <glm/ext/matrix_float4x4.hpp>
-
 #include "collections/dyarr.h"
 #include "collections/slice.h"
 #include "core/result.h"
+#include "core/transform.h"
 #include "resources/geometry.h"
 
 namespace nk {
@@ -39,8 +38,7 @@ namespace nk {
         [[nodiscard]] static result<Mesh, mesh_error> create(
             mem::Allocator& allocator,
             GeometrySystem& geometries,
-            cl::slice<const GeometryConfig> configs,
-            glm::mat4 model = glm::mat4{1.0f});
+            cl::slice<const GeometryConfig> configs);
 
         void reset() noexcept;
 
@@ -55,14 +53,16 @@ namespace nk {
             return {m_geometries.data(), m_geometries.length()};
         }
 
-        [[nodiscard]] const glm::mat4& model() const noexcept {
-            return m_model;
+        [[nodiscard]] Transform& transform() noexcept {
+            return m_transform;
         }
-        void set_model(const glm::mat4& model) noexcept { m_model = model; }
+        [[nodiscard]] const Transform& transform() const noexcept {
+            return m_transform;
+        }
 
     private:
         GeometrySystem* m_geometry_system = nullptr;
         cl::dyarr<Geometry*> m_geometries;
-        glm::mat4 m_model{1.0f};
+        Transform m_transform;
     };
 }

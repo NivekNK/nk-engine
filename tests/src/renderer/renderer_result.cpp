@@ -99,6 +99,7 @@ namespace {
             return m_directional_light_color;
         }
         const glm::vec3& view_position() const { return m_view_position_value; }
+        const glm::mat4& model() const { return m_model; }
         nk::u32 point_light_count() const { return m_point_light_count; }
         const nk::PointLightUniform& point_light(const nk::u32 index) const {
             return m_point_lights[index];
@@ -359,6 +360,10 @@ namespace {
                     size == sizeof(nk::u32)) {
                     m_uploaded_render_view_mode =
                         *static_cast<const nk::u32*>(data);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::model &&
+                    size == sizeof(glm::mat4)) {
+                    m_model = *static_cast<const glm::mat4*>(data);
                 }
             }
             if (uniform == nk::builtin_shader_uniform::projection ||
@@ -434,6 +439,7 @@ namespace {
         glm::vec3 m_directional_light_direction{};
         glm::vec4 m_directional_light_color{};
         glm::vec3 m_view_position_value{};
+        glm::mat4 m_model{1.0f};
         nk::u32 m_point_light_count = 0;
         nk::PointLightUniform m_point_lights[nk::max_point_light_count]{};
         nk::u32 m_uploaded_render_view_mode = 0;
@@ -2116,17 +2122,13 @@ TEST(Mesh, OwnsMultipleGeometryReferencesUntilDestruction) {
             std::move(*first),
             std::move(*second),
         };
-        const glm::mat4 model = glm::translate(
-            glm::mat4{1.0f},
-            glm::vec3{3.0f, 2.0f, 1.0f});
-
         {
             auto mesh = nk::Mesh::create(
                 allocator,
                 *geometries,
-                configs,
-                model);
+                configs);
             ASSERT_TRUE(mesh);
+            mesh->transform().set_position({3.0f, 2.0f, 1.0f});
             EXPECT_TRUE(mesh->valid());
             EXPECT_EQ(mesh->geometry_count(), 2u);
             ASSERT_NE(mesh->geometry(0), nullptr);
@@ -2137,7 +2139,11 @@ TEST(Mesh, OwnsMultipleGeometryReferencesUntilDestruction) {
             EXPECT_EQ(
                 mesh->geometry(1)->name.view(),
                 nk::strview{"mesh_second"});
-            EXPECT_EQ(mesh->model(), model);
+            EXPECT_EQ(
+                mesh->transform().world_matrix(),
+                glm::translate(
+                    glm::mat4{1.0f},
+                    glm::vec3{3.0f, 2.0f, 1.0f}));
             EXPECT_EQ(geometries->loaded_count(), 2u);
             EXPECT_EQ(
                 systems.materials->reference_count("test_material"),
@@ -2283,6 +2289,9 @@ TEST(RendererResult, ExpandsMeshGeometryWithoutRepeatedMaterialUpdates) {
         };
         auto mesh = nk::Mesh::create(allocator, *geometries, configs);
         ASSERT_TRUE(mesh);
+        nk::Transform parent{{3.0f, 0.0f, 0.0f}};
+        mesh->transform().set_position({0.0f, 4.0f, 0.0f});
+        ASSERT_TRUE(mesh->transform().set_parent(&parent));
 
         auto frame = renderer.draw_frame(*systems.materials, {
             .delta_time = 1.0 / 60.0,
@@ -2297,6 +2306,11 @@ TEST(RendererResult, ExpandsMeshGeometryWithoutRepeatedMaterialUpdates) {
         EXPECT_EQ(renderer.instance_apply_count(), 1u);
         EXPECT_EQ(renderer.instance_update_count(), 1u);
         EXPECT_EQ(renderer.frame_number(), 1u);
+        EXPECT_EQ(
+            renderer.model(),
+            glm::translate(
+                glm::mat4{1.0f},
+                glm::vec3{3.0f, 4.0f, 0.0f}));
     }
 
     nk::GeometrySystem::destroy(allocator, geometries);

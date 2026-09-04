@@ -15,7 +15,7 @@
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
 
-#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 // TODO: Temporal include
 #include "core/camera.h"
@@ -259,7 +259,7 @@ namespace nk {
         }
         m_geometry_system = *geometry_system;
 
-        if (!m_test_meshes.dyarr_init(m_allocator, 2)) {
+        if (!m_test_meshes.dyarr_init(m_allocator, 3)) {
             ErrorLog("Test mesh collection allocation failed.");
             shutdown_impl();
             return false;
@@ -319,10 +319,7 @@ namespace nk {
         auto second_mesh = Mesh::create(
             *m_allocator,
             *m_geometry_system,
-            {&*second_cube, 1},
-            glm::translate(
-                glm::mat4{1.0f},
-                glm::vec3{10.0f, 0.0f, 1.0f}));
+            {&*second_cube, 1});
         if (!second_mesh) {
             const mesh_error error = second_mesh.error();
             ErrorLog(
@@ -340,6 +337,61 @@ namespace nk {
         if (!second_added) {
             ErrorLog("Unable to store the second test mesh.");
             second_mesh->reset();
+            shutdown_impl();
+            return false;
+        }
+
+        auto third_cube = GeometrySystem::generate_cube(
+            *m_allocator,
+            2.0f,
+            2.0f,
+            2.0f,
+            1.0f,
+            1.0f,
+            "test geometry 3",
+            "paving2");
+        if (!third_cube) {
+            shutdown_impl();
+            return false;
+        }
+        auto third_mesh = Mesh::create(
+            *m_allocator,
+            *m_geometry_system,
+            {&*third_cube, 1});
+        if (!third_mesh) {
+            const mesh_error error = third_mesh.error();
+            ErrorLog(
+                "Third test mesh creation failed: mesh_error={}, "
+                "geometry_index={}, geometry_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.geometry_index,
+                error.geometry_error,
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        auto third_added = m_test_meshes.dyarr_emplace_back(
+            std::move(*third_mesh));
+        if (!third_added) {
+            ErrorLog("Unable to store the third test mesh.");
+            third_mesh->reset();
+            shutdown_impl();
+            return false;
+        }
+
+        m_test_meshes[1].transform().set_position({10.0f, 0.0f, 1.0f});
+        auto second_parented = m_test_meshes[1].transform().set_parent(
+            &m_test_meshes[0].transform());
+        if (!second_parented) {
+            ErrorLog("Unable to parent the second test mesh.");
+            shutdown_impl();
+            return false;
+        }
+        m_test_meshes[2].transform().set_position({5.0f, 0.0f, 1.0f});
+        auto third_parented = m_test_meshes[2].transform().set_parent(
+            &m_test_meshes[1].transform());
+        if (!third_parented) {
+            ErrorLog("Unable to parent the third test mesh.");
             shutdown_impl();
             return false;
         }
@@ -583,18 +635,11 @@ namespace nk {
                 }
 
                 if (!m_test_meshes.empty()) {
-                    const glm::mat4 rotation = glm::rotate(
-                        glm::mat4{1.0f},
-                        static_cast<f32>(current_time),
+                    const glm::quat rotation = glm::angleAxis(
+                        static_cast<f32>(0.5 * delta),
                         glm::vec3{0.0f, 1.0f, 0.0f});
-                    m_test_meshes[0].set_model(rotation);
-                    if (m_test_meshes.length() > 1) {
-                        m_test_meshes[1].set_model(
-                            glm::translate(
-                                glm::mat4{1.0f},
-                                glm::vec3{10.0f, 0.0f, 1.0f}) *
-                            rotation);
-                    }
+                    for (Mesh& mesh : m_test_meshes)
+                        mesh.transform().rotate(rotation);
                 }
                 GeometryRenderData ui_geometry{
                     .model = glm::mat4{1.0f},

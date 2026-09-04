@@ -213,7 +213,7 @@ namespace nk {
                     pass,
                     expected_material_type,
                     {
-                        .model = mesh.model(),
+                        .model = mesh.transform().world_matrix(),
                         .geometry = geometry,
                     },
                     bound_material);

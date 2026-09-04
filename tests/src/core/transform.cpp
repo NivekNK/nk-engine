@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include "collections/dyarr.h"
 #include "core/transform.h"
+#include "memory/malloc_allocator.h"
 
 #include <concepts>
 #include <utility>
@@ -161,6 +163,37 @@ TEST(Transform, RepairsHierarchyLinksWhenMoved) {
     expect_matrix_near(
         grandchild.world_matrix(),
         glm::translate(glm::mat4{1.0f}, glm::vec3{3.0f, 4.0f, 5.0f}));
+}
+
+TEST(Transform, RepairsParentAndSiblingLinksWhenDyarrRelocates) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::cl::dyarr<nk::Transform> transforms;
+    ASSERT_TRUE(transforms.dyarr_init(&allocator, 3));
+    ASSERT_TRUE(transforms.dyarr_emplace_back(glm::vec3{1.0f, 0.0f, 0.0f}));
+    ASSERT_TRUE(transforms.dyarr_emplace_back(glm::vec3{0.0f, 2.0f, 0.0f}));
+    ASSERT_TRUE(transforms.dyarr_emplace_back(glm::vec3{0.0f, 0.0f, 3.0f}));
+    ASSERT_TRUE(transforms[1].set_parent(&transforms[0]));
+    ASSERT_TRUE(transforms[2].set_parent(&transforms[0]));
+
+    nk::Transform* previous_storage = transforms.data();
+    ASSERT_TRUE(transforms.dyarr_emplace_back(glm::vec3{4.0f, 0.0f, 0.0f}));
+    ASSERT_TRUE(transforms.dyarr_emplace_back(glm::vec3{5.0f, 0.0f, 0.0f}));
+    ASSERT_NE(transforms.data(), previous_storage);
+
+    EXPECT_EQ(transforms[0].child_count(), 2u);
+    EXPECT_EQ(transforms[1].parent(), &transforms[0]);
+    EXPECT_EQ(transforms[2].parent(), &transforms[0]);
+    EXPECT_EQ(transforms[0].first_child(), &transforms[2]);
+    EXPECT_EQ(transforms[2].next_sibling(), &transforms[1]);
+    expect_matrix_near(
+        transforms[1].world_matrix(),
+        glm::translate(glm::mat4{1.0f}, glm::vec3{1.0f, 2.0f, 0.0f}));
+    expect_matrix_near(
+        transforms[2].world_matrix(),
+        glm::translate(glm::mat4{1.0f}, glm::vec3{1.0f, 0.0f, 3.0f}));
+
+    ASSERT_TRUE(transforms.dyarr_shutdown());
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
 }
 
 TEST(Transform, DetachesChildrenBeforeParentLifetimeEnds) {

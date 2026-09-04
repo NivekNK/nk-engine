@@ -15,9 +15,8 @@ namespace nk {
     Mesh::Mesh(Mesh&& other) noexcept
         : m_geometry_system{other.m_geometry_system},
           m_geometries{std::move(other.m_geometries)},
-          m_model{other.m_model} {
+          m_transform{std::move(other.m_transform)} {
         other.m_geometry_system = nullptr;
-        other.m_model = glm::mat4{1.0f};
     }
 
     Mesh& Mesh::operator=(Mesh&& other) noexcept {
@@ -27,20 +26,17 @@ namespace nk {
         reset();
         m_geometry_system = other.m_geometry_system;
         m_geometries = std::move(other.m_geometries);
-        m_model = other.m_model;
+        m_transform = std::move(other.m_transform);
         other.m_geometry_system = nullptr;
-        other.m_model = glm::mat4{1.0f};
         return *this;
     }
 
     result<Mesh, mesh_error> Mesh::create(
         mem::Allocator& allocator,
         GeometrySystem& geometries,
-        const cl::slice<const GeometryConfig> configs,
-        const glm::mat4 model) {
+        const cl::slice<const GeometryConfig> configs) {
         Mesh mesh;
         mesh.m_geometry_system = &geometries;
-        mesh.m_model = model;
 
         if (configs.empty())
             return ok(std::move(mesh));
@@ -77,7 +73,7 @@ namespace nk {
         if (m_geometries.allocator() != nullptr)
             (void)m_geometries.dyarr_shutdown();
         m_geometry_system = nullptr;
-        m_model = glm::mat4{1.0f};
+        m_transform = Transform{};
     }
 
     Geometry* Mesh::geometry(const u64 index) const noexcept {
