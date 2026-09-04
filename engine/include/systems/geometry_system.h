@@ -51,6 +51,10 @@ namespace nk {
             const GeometryConfig& config,
             bool auto_release);
         [[nodiscard]] result<Geometry*, geometry_error> acquire(
+            const GeometryConfig& config,
+            const MaterialConfig& material,
+            bool auto_release);
+        [[nodiscard]] result<Geometry*, geometry_error> acquire(
             const Geometry2DConfig& config,
             bool auto_release);
         void release(Geometry* geometry);
@@ -121,6 +125,7 @@ namespace nk {
             strview name,
             strview material_name,
             MaterialType material_type,
+            const MaterialConfig* material_config,
             bool auto_release);
         template<typename Vertex>
         [[nodiscard]] result<void, geometry_error> create_geometry(
@@ -129,6 +134,7 @@ namespace nk {
             strview name,
             strview material_name,
             MaterialType material_type,
+            const MaterialConfig* material_config,
             Geometry& geometry);
         void destroy_geometry(Geometry& geometry);
         u32 find_free_slot() const noexcept;

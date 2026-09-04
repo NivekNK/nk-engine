@@ -1,0 +1,7 @@
+newmtl red
+Kd 1.0 0.0 0.0
+Ns 16.0
+
+newmtl blue
+Kd 0.0 0.0 1.0
+Ns 32.0

@@ -14,6 +14,9 @@ namespace nk {
         cl::dyarr<u32> indices;
         strbuf<geometry_name_capacity> name;
         strbuf<material_name_capacity> material_name;
+        glm::vec3 center{0.0f};
+        glm::vec3 min_extents{0.0f};
+        glm::vec3 max_extents{0.0f};
     };
 
     struct Geometry2DConfig {

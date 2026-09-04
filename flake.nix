@@ -19,6 +19,11 @@
       url = "github:Nicoshev/rapidhash/bc4b4baa48a15ff52ff4725e1ccdcda62815221c";
       flake = false;
     };
+    tinyobjloader-src = {
+      # Tag: v2.0.0rc13
+      url = "github:tinyobjloader/tinyobjloader/2945a967c5303b2c8c14174117c45f3302591150";
+      flake = false;
+    };
     libspng-src = {
       # Tag: v0.7.4
       url = "github:randy408/libspng/fb768002d4288590083a476af628e51c3f1d47cd";
@@ -82,6 +87,7 @@
               rm -rf engine/vendor/glm
               rm -rf engine/vendor/libspng
               rm -rf engine/vendor/rapidhash
+              rm -rf engine/vendor/tinyobjloader
               rm -rf engine/vendor/zlib
               rm -rf tests/vendor/googletest
 
@@ -89,12 +95,14 @@
               cp -R ${inputs."glm-src"} engine/vendor/glm
               cp -R ${inputs."libspng-src"} engine/vendor/libspng
               cp -R ${inputs."rapidhash-src"} engine/vendor/rapidhash
+              cp -R ${inputs."tinyobjloader-src"} engine/vendor/tinyobjloader
               cp -R ${inputs."zlib-src"} engine/vendor/zlib
               cp -R ${inputs."googletest-src"} tests/vendor/googletest
               chmod -R u+w \
                 engine/vendor/glm \
                 engine/vendor/libspng \
                 engine/vendor/rapidhash \
+                engine/vendor/tinyobjloader \
                 engine/vendor/zlib \
                 tests/vendor/googletest
             '';

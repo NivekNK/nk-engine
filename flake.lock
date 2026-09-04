@@ -91,7 +91,25 @@
         "libspng-src": "libspng-src",
         "nixpkgs": "nixpkgs",
         "rapidhash-src": "rapidhash-src",
+        "tinyobjloader-src": "tinyobjloader-src",
         "zlib-src": "zlib-src"
+      }
+    },
+    "tinyobjloader-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1706312052,
+        "narHash": "sha256-eEgy43IzhovTjEgLz3qNsRnOkp0bcvQdWve7jOidHX4=",
+        "owner": "tinyobjloader",
+        "repo": "tinyobjloader",
+        "rev": "2945a967c5303b2c8c14174117c45f3302591150",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tinyobjloader",
+        "repo": "tinyobjloader",
+        "rev": "2945a967c5303b2c8c14174117c45f3302591150",
+        "type": "github"
       }
     },
     "zlib-src": {

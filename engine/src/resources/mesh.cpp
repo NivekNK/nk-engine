@@ -3,6 +3,7 @@
 #include "resources/mesh.h"
 
 #include "memory/allocator.h"
+#include "resources/static_mesh_resource.h"
 #include "systems/geometry_system.h"
 
 #include <utility>
@@ -62,6 +63,43 @@ namespace nk {
             mesh.m_geometries[index] = *acquired;
         }
 
+        return ok(std::move(mesh));
+    }
+
+    result<Mesh, mesh_error> Mesh::create(
+        mem::Allocator& allocator,
+        GeometrySystem& geometries,
+        const StaticMeshResource& resource) {
+        Mesh mesh;
+        mesh.m_geometry_system = &geometries;
+
+        if (resource.geometries.empty())
+            return ok(std::move(mesh));
+        if (!mesh.m_geometries.dyarr_init_len(
+                &allocator,
+                resource.geometries.length(),
+                resource.geometries.length())) {
+            return err(mesh_error{mesh_error_code::out_of_memory});
+        }
+
+        for (u64 index = 0; index < resource.geometries.length(); ++index) {
+            const GeometryConfig& config = resource.geometries[index];
+            const MaterialConfig* material = resource.material(
+                config.material_name.view());
+            auto acquired = material == nullptr
+                ? geometries.acquire(config, true)
+                : geometries.acquire(config, *material, true);
+            if (!acquired) {
+                const geometry_error error = acquired.error();
+                return err(mesh_error{
+                    mesh_error_code::geometry_failed,
+                    static_cast<u32>(index),
+                    static_cast<u32>(error.code),
+                    error.native_code,
+                });
+            }
+            mesh.m_geometries[index] = *acquired;
+        }
         return ok(std::move(mesh));
     }
 

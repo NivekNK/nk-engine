@@ -75,6 +75,8 @@ set(SOURCES
     src/platform/file.cpp
     src/resources/image_loader.cpp
     src/resources/loaders.cpp
+    src/resources/static_mesh_loader.cpp
+    src/resources/tinyobjloader.cpp
     src/resources/mesh.cpp
     src/resources/shader_loader.cpp
     src/renderer/renderer.cpp
@@ -173,6 +175,23 @@ elseif (UNIX AND NOT APPLE)
 endif()
 
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCES})
+
+set_source_files_properties(
+    src/resources/tinyobjloader.cpp
+    PROPERTIES SKIP_PRECOMPILE_HEADERS TRUE
+)
+
+if (MSVC)
+    set_source_files_properties(
+        src/resources/tinyobjloader.cpp
+        PROPERTIES COMPILE_OPTIONS "/W0"
+    )
+else()
+    set_source_files_properties(
+        src/resources/tinyobjloader.cpp
+        PROPERTIES COMPILE_OPTIONS "-w"
+    )
+endif()
 
 #================== Include Files ==================
 

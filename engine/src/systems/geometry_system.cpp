@@ -218,6 +218,27 @@ namespace nk {
             config.name.view(),
             config.material_name.view(),
             MaterialType::world,
+            nullptr,
+            auto_release);
+    }
+
+    result<Geometry*, geometry_error> GeometrySystem::acquire(
+        const GeometryConfig& config,
+        const MaterialConfig& material,
+        const bool auto_release) {
+        if (config.material_name.view() != material.name.view()) {
+            return err(geometry_error{
+                geometry_error_code::invalid_config,
+                0,
+            });
+        }
+        return acquire_geometry(
+            cl::slice<const glm::Vertex3D>{config.vertices},
+            cl::slice<const u32>{config.indices},
+            config.name.view(),
+            config.material_name.view(),
+            MaterialType::world,
+            &material,
             auto_release);
     }
 
@@ -230,6 +251,7 @@ namespace nk {
             config.name.view(),
             config.material_name.view(),
             MaterialType::ui,
+            nullptr,
             auto_release);
     }
 
@@ -240,6 +262,7 @@ namespace nk {
         const strview name,
         const strview material_name,
         const MaterialType material_type,
+        const MaterialConfig* material_config,
         const bool auto_release) {
         if (!m_initialized)
             return err(geometry_error{geometry_error_code::not_initialized, 0});
@@ -266,6 +289,7 @@ namespace nk {
             name,
             material_name,
             material_type,
+            material_config,
             geometry);
         if (!created)
             return err(created.error());
@@ -306,6 +330,7 @@ namespace nk {
         const strview name,
         const strview material_name,
         const MaterialType material_type,
+        const MaterialConfig* material_config,
         Geometry& geometry) {
         const strview fallback_geometry_name =
             material_type == MaterialType::world
@@ -328,7 +353,27 @@ namespace nk {
         Material* default_material = material_type == MaterialType::world
             ? &m_materials->default_material()
             : &m_materials->default_ui_material();
-        if (material_name.empty() ||
+        if (material_config != nullptr) {
+            if (material_config->type != material_type ||
+                material_config->name.view() != material_name) {
+                m_renderer->destroy_geometry(geometry);
+                geometry = {};
+                return err(geometry_error{
+                    geometry_error_code::invalid_config,
+                    0,
+                });
+            }
+            auto material = m_materials->acquire(*material_config);
+            if (!material) {
+                m_renderer->destroy_geometry(geometry);
+                geometry = {};
+                return err(geometry_error{
+                    geometry_error_code::material_failed,
+                    material.error().native_code,
+                });
+            }
+            geometry.material = *material;
+        } else if (material_name.empty() ||
             material_name == default_material_name ||
             material_name == default_material->name.view()) {
             geometry.material = default_material;

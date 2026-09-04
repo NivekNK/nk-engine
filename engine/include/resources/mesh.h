@@ -8,6 +8,7 @@
 
 namespace nk {
     class GeometrySystem;
+    struct StaticMeshResource;
     namespace mem { class Allocator; }
 
     enum class mesh_error_code : u8 {
@@ -39,6 +40,10 @@ namespace nk {
             mem::Allocator& allocator,
             GeometrySystem& geometries,
             cl::slice<const GeometryConfig> configs);
+        [[nodiscard]] static result<Mesh, mesh_error> create(
+            mem::Allocator& allocator,
+            GeometrySystem& geometries,
+            const StaticMeshResource& resource);
 
         void reset() noexcept;
 

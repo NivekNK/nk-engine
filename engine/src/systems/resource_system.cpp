@@ -42,7 +42,7 @@ namespace nk {
         const u32 max_loader_count) {
         if (asset_base_path.empty())
             return err(resource_error{resource_error_code::invalid_name, 0});
-        if (max_loader_count < 5) {
+        if (max_loader_count < 6) {
             return err(resource_error{
                 resource_error_code::capacity_exceeded,
                 0,
@@ -64,6 +64,7 @@ namespace nk {
             &m_image_loader,
             &m_material_loader,
             &m_shader_loader,
+            &m_static_mesh_loader,
         };
         for (ResourceLoader* loader : known_loaders) {
             auto registered = register_loader(*loader);

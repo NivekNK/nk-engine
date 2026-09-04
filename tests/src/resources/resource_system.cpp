@@ -8,6 +8,8 @@
 #include "resources/image_loader.h"
 #include "resources/material.h"
 #include "resources/shader_resource.h"
+#include "resources/static_mesh_resource.h"
+#include "systems/material_system.h"
 #include "systems/resource_system.h"
 
 static_assert(!std::is_copy_constructible_v<nk::Resource>);
@@ -20,7 +22,7 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
         NK_TEST_ASSET_ROOT);
     ASSERT_TRUE(created);
     nk::ResourceSystem* resources = *created;
-    EXPECT_EQ(resources->registered_loader_count(), 5u);
+    EXPECT_EQ(resources->registered_loader_count(), 6u);
 
     auto text = resources->load(
         "materials/test_material.kmt",
@@ -199,9 +201,13 @@ TEST(ResourceSystem, RejectsMissingAndDuplicateLoadersWithoutPublishingData) {
     EXPECT_EQ(missing.error().code, nk::resource_error_code::file_failed);
     EXPECT_EQ(resources->active_resource_count(), 0u);
 
-    auto unsupported = resources->load("mesh", nk::ResourceType::static_mesh);
-    ASSERT_FALSE(unsupported);
-    EXPECT_EQ(unsupported.error().code, nk::resource_error_code::no_loader);
+    auto missing_mesh = resources->load(
+        "missing",
+        nk::ResourceType::static_mesh);
+    ASSERT_FALSE(missing_mesh);
+    EXPECT_EQ(
+        missing_mesh.error().code,
+        nk::resource_error_code::file_failed);
 
     nk::TextResourceLoader duplicate;
     auto registered = resources->register_loader(duplicate);
@@ -209,6 +215,90 @@ TEST(ResourceSystem, RejectsMissingAndDuplicateLoadersWithoutPublishingData) {
     EXPECT_EQ(
         registered.error().code,
         nk::resource_error_code::duplicate_loader);
+
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(ResourceSystem, LoadsTriangulatesAndGroupsObjMeshesTransactionally) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    auto created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_FIXTURE_ROOT);
+    ASSERT_TRUE(created);
+    nk::ResourceSystem* resources = *created;
+
+    auto loaded = resources->load(
+        "mesh_features",
+        nk::ResourceType::static_mesh);
+    ASSERT_TRUE(loaded);
+    const nk::StaticMeshResource* mesh =
+        loaded->as<nk::StaticMeshResource>();
+    ASSERT_NE(mesh, nullptr);
+    ASSERT_EQ(mesh->geometries.length(), 2u);
+    ASSERT_EQ(mesh->materials.length(), 2u);
+
+    const nk::GeometryConfig& quad = mesh->geometries[0];
+    EXPECT_EQ(quad.indices.length(), 6u);
+    EXPECT_EQ(quad.vertices.length(), 4u);
+    EXPECT_EQ(quad.material_name.view(), nk::strview{"red"});
+    EXPECT_EQ(quad.min_extents, glm::vec3(-2.0f, 0.0f, -1.0f));
+    EXPECT_EQ(quad.max_extents, glm::vec3(2.0f, 0.0f, 1.0f));
+    EXPECT_EQ(quad.center, glm::vec3(0.0f));
+    for (const glm::Vertex3D& vertex : quad.vertices) {
+        EXPECT_NE(vertex.normal, glm::vec3(0.0f));
+        EXPECT_NE(glm::vec3(vertex.tangent), glm::vec3(0.0f));
+    }
+
+    const nk::GeometryConfig& triangle = mesh->geometries[1];
+    EXPECT_EQ(triangle.indices.length(), 3u);
+    EXPECT_EQ(triangle.vertices.length(), 3u);
+    EXPECT_EQ(triangle.material_name.view(), nk::strview{"blue"});
+    EXPECT_EQ(triangle.vertices[0].normal, glm::vec3(0.0f, 1.0f, 0.0f));
+    EXPECT_FLOAT_EQ(mesh->materials[0].shininess, 16.0f);
+    EXPECT_FLOAT_EQ(mesh->materials[1].shininess, 32.0f);
+
+    EXPECT_TRUE(resources->unload(*loaded));
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(ResourceSystem, GeneratesMissingObjNormalsAndRejectsMalformedInput) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    auto created = nk::ResourceSystem::create(
+        allocator,
+        NK_TEST_FIXTURE_ROOT);
+    ASSERT_TRUE(created);
+    nk::ResourceSystem* resources = *created;
+
+    auto loaded = resources->load(
+        "no_material",
+        nk::ResourceType::static_mesh);
+    ASSERT_TRUE(loaded);
+    const nk::StaticMeshResource* mesh =
+        loaded->as<nk::StaticMeshResource>();
+    ASSERT_NE(mesh, nullptr);
+    ASSERT_EQ(mesh->geometries.length(), 1u);
+    EXPECT_EQ(mesh->materials.length(), 0u);
+    EXPECT_EQ(
+        mesh->geometries[0].material_name.view(),
+        nk::default_material_name);
+    for (const glm::Vertex3D& vertex : mesh->geometries[0].vertices) {
+        EXPECT_EQ(vertex.normal, glm::vec3(0.0f, 0.0f, 1.0f));
+        EXPECT_NE(glm::vec3(vertex.tangent), glm::vec3(0.0f));
+    }
+    EXPECT_TRUE(resources->unload(*loaded));
+
+    auto invalid = resources->load(
+        "invalid",
+        nk::ResourceType::static_mesh);
+    ASSERT_FALSE(invalid);
+    EXPECT_EQ(invalid.error().code, nk::resource_error_code::invalid_data);
+    EXPECT_EQ(
+        invalid.error().native_code,
+        static_cast<nk::i32>(nk::static_mesh_parse_error::invalid_index));
+    EXPECT_EQ(resources->active_resource_count(), 0u);
 
     nk::ResourceSystem::destroy(allocator, resources);
     EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
