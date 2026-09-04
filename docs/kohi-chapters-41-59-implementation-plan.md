@@ -867,28 +867,64 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Implementar `MeshResourceLoader` para `ResourceType::static_mesh` usando el
+- [x] Implementar `MeshResourceLoader` para `ResourceType::static_mesh` usando el
   submódulo existente `tinyobjloader` `v2.0.0rc13`.
-- [ ] Convertir OBJ/MTL a structs NK: posiciones, UV, normales, tangentes, índices,
+- [x] Convertir OBJ/MTL a structs NK: posiciones, UV, normales, tangentes, índices,
   grupos por material y extents.
-- [ ] Deduplicar vértices con `nk::cl::map` y rapidhash; incluir en la clave todos
+- [x] Deduplicar vértices con `nk::cl::map` y rapidhash; incluir en la clave todos
   los atributos que distinguen realmente un vértice.
-- [ ] Generar normales/tangentes sólo cuando falten y conservar el winding
+- [x] Generar normales/tangentes sólo cuando falten y conservar el winding
   acordado por NK.
-- [ ] Cargar múltiples submeshes/materiales de forma transaccional y devolver
+- [x] Cargar múltiples submeshes/materiales de forma transaccional y devolver
   errores de parseo, I/O, límites u OOM mediante `result`.
-- [ ] Empezar con fixtures OBJ pequeños ya presentes. No importar ciegamente los
-  ~570 mil renglones de Sponza, `Thumbs.db` ni decenas de TGA/JPG. Antes de añadir
-  assets grandes, verificar licencia, formatos soportados y necesidad del smoke.
-- [ ] Si se necesitan TGA/JPG, evaluar un decoder separado como cambio de
-  dependencia independiente, fijado a tag y CSV; no es requisito para validar OBJ.
+- [x] Validar primero con fixtures OBJ pequeños y después incorporar únicamente
+  Falcon, Sponza y los mapas realmente referenciados. Excluir `Thumbs.db`, mapas
+  de prueba y formatos que el runtime no necesita.
+- [x] Convertir los TGA requeridos a PNG durante la importación del asset; no
+  agregar otro decoder ni una dependencia runtime para TGA/JPG.
 
 ### Validación y commits
 
-- [ ] Tests: OBJ sin material, multi-material, índices negativos, caras no
+- [x] Tests: OBJ sin material, multi-material, índices negativos, caras no
   trianguladas según política, archivo inválido, extents y cleanup.
-- [ ] Commits sugeridos: `feat(resources): load static meshes from OBJ` y, sólo si
-  procede, `assets(meshes): add licensed mesh fixtures`.
+- [x] Commits: `feat(resources): load static meshes from OBJ`,
+  `assets(meshes): add car and Sponza demo models` y
+  `feat(demo): load car and Sponza meshes`.
+
+### Estado implementado
+
+- `StaticMeshResourceLoader` registra `static_mesh` como loader integrado y usa
+  `tinyobjloader` `v2.0.0rc13` sólo como frontera de parseo. La información
+  persistente se transforma a `dyarr`, `map`, `strbuf`, allocators y `result` de
+  NK; el STL de la dependencia no se filtra hacia la API ni los recursos del
+  motor.
+- El importador hace triangulación fan de polígonos, soporta índices OBJ
+  negativos, preserva smoothing groups, voltea V y deduplica por posición,
+  normal, UV y semántica de suavizado mediante el `map` robin-hood de NK con
+  rapidhash. Calcula center/extents y genera normales o tangentes finitas cuando
+  corresponde.
+- Los shapes se agrupan globalmente por material, por lo que Sponza produce 25
+  draw groups en vez de cientos de objetos fragmentados. Los MTL se convierten
+  a `MaterialConfig` inline y `Mesh::create` adquiere geometrías y materiales de
+  manera transaccional; no se escriben `.kmt` durante la ejecución.
+- La dependencia ya existente está fijada por submódulo y CSV, y ahora el flake
+  también inyecta el commit exacto de `tinyobjloader` al construir desde una
+  fuente Git pura.
+- Se añadieron los OBJ/MTL de Falcon y Sponza del commit de referencia junto con
+  67 mapas convertidos a PNG y reducidos para la demo. Se excluyeron archivos no
+  utilizados y mapas de opacidad porque el material actual todavía no implementa
+  transparencia. La procedencia y las limitaciones de redistribución están en
+  `engine/assets/ATTRIBUTION.md`.
+- La escena coloca el automóvil y Sponza juntos como en la referencia, conserva
+  los tres cubos jerárquicos del capítulo anterior y rota sólo estos últimos. La
+  ruta de shaders continúa exclusivamente en Slang.
+- Implementado en `d8decd6`, `a8eacfb` y `5cb10e4`.
+- Pasaron 222/222 tests en Debug y con ASan/UBSan, y 213/213 en Release. También
+  pasó `nix build --offline .#nk-engine --no-link`.
+- El smoke Wayland/xdg-shell bajo niri cargó Falcon como 1 grupo y Sponza como 25,
+  renderizó 120 frames con Validation Layers, recorrió los modos de iluminación,
+  registró cero allocation events en los 119 frames estables y cerró con cero
+  fugas.
 
 ## Capítulo 56 — Custom Binary Mesh File Format
 
