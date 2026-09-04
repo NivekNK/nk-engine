@@ -1,6 +1,6 @@
 # Plan de implementación de Kohi 41–59 en NK Engine
 
-- Estado: propuesto
+- Estado: en progreso; capítulos 41–54 adaptados
 - Fecha de análisis: 2026-09-02
 - Punto de partida de NK Engine: capítulos 34–40 adaptados; rama `feature/textures`
 
@@ -815,19 +815,49 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Crear `Transform` C++ con position, quaternion rotation y scale, métodos de
+- [x] Crear `Transform` C++ con position, quaternion rotation y scale, métodos de
   mutación y cache de matriz local/world marcado dirty.
-- [ ] Representar parent como referencia no propietaria explícita o handle estable;
+- [x] Representar parent como referencia no propietaria explícita o handle estable;
   prohibir self-parent y ciclos.
-- [ ] Propagar invalidación a descendientes sin asignaciones por frame.
-- [ ] Definir con claridad si `Mesh` contiene su transform o recibe uno en el render
+- [x] Propagar invalidación a descendientes sin asignaciones por frame.
+- [x] Definir con claridad si `Mesh` contiene su transform o recibe uno en el render
   packet; evitar dos fuentes de verdad.
-- [ ] Reutilizar GLM ya instalado; no agregar otra biblioteca matemática.
+- [x] Reutilizar GLM ya instalado; no agregar otra biblioteca matemática.
 
 ### Validación y commits
 
-- [ ] Tests de identidad, TRS, parent/child, reparent, dirty cache, ciclos y lifetime.
-- [ ] Commit sugerido: `feat(math): add hierarchical transforms`.
+- [x] Tests de identidad, TRS, parent/child, reparent, dirty cache, ciclos, lifetime
+  y relocalización dentro de `dyarr`.
+- [x] Commits: `feat(math): add safe hierarchical transforms` y
+  `feat(renderer): render hierarchical mesh transforms`.
+
+### Estado implementado
+
+- `Transform` encapsula `glm::vec3`, `glm::quat` y `glm::mat4`, normaliza las
+  rotaciones y compone la matriz local en orden `translation * rotation * scale`.
+  Las matrices local y world se recalculan de forma lazy únicamente al estar
+  marcadas dirty.
+- La jerarquía es intrusiva y no propietaria mediante enlaces parent/child/sibling;
+  no reserva memoria. `set_parent` devuelve `result`, rechaza self-parent y ciclos,
+  y propaga la invalidación a todos los descendientes.
+- El move constructor y move assignment reparan los enlaces de la jerarquía. Esto
+  permite relocalizar transforms dentro de los contenedores propios; al destruir un
+  parent, sus hijos se separan como raíces antes de que el puntero pueda quedar
+  colgando.
+- `Mesh` contiene el único `Transform` autoritativo. Se eliminó su matriz model
+  paralela y el renderer obtiene `world_matrix()` directamente al expandir cada
+  subgeometría.
+- La demo mantiene tres meshes en `dyarr`, con materiales `paving`, `cobblestone`
+  y `paving2`, formando la cadena first → second → third. Cada transform rota con
+  delta time y el parentesco produce el movimiento compuesto.
+- No se agregaron librerías, submódulos, assets ni shaders; la ruta de shaders
+  activa continúa exclusivamente en Slang.
+- Pasaron 220/220 tests en Debug y con ASan/UBSan, y 211/211 en Release. También
+  pasó `nix build --offline .#nk-engine --no-link`.
+- El smoke Wayland/xdg-shell bajo niri renderizó 120 frames con los tres meshes y
+  materiales, recorrió los tres modos de iluminación con Validation Layers,
+  registró cero allocation events en los 119 frames estables y terminó con cero
+  fugas.
 
 ## Capítulo 55 — Meshes, parte 2: OBJ
 
