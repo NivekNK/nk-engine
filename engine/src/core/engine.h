@@ -2,6 +2,8 @@
 
 #include "systems/event_system.h"
 #include "core/clock.h"
+#include "collections/dyarr.h"
+#include "resources/mesh.h"
 
 namespace nk {
     namespace mem { class Allocator; }
@@ -55,7 +57,7 @@ namespace nk {
         ShaderSystem* m_shader_system = nullptr;
         MaterialSystem* m_material_system = nullptr;
         GeometrySystem* m_geometry_system = nullptr;
-        Geometry* m_test_geometry = nullptr;
+        cl::dyarr<Mesh> m_test_meshes;
         Geometry* m_test_ui_geometry = nullptr;
         Material* m_test_material = nullptr;
         u8 m_debug_texture_index = 0;

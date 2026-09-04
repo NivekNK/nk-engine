@@ -1,0 +1,11 @@
+# NK Engine material
+
+version=0.1
+name=paving2
+type=world
+shader=Builtin.MaterialShader
+diffuse_colour=1.0 1.0 1.0 1.0
+diffuse_map_name=paving2
+specular_map_name=paving2_SPEC
+normal_map_name=paving2_NRM
+shininess=32.0

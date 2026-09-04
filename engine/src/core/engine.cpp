@@ -259,6 +259,12 @@ namespace nk {
         }
         m_geometry_system = *geometry_system;
 
+        if (!m_test_meshes.dyarr_init(m_allocator, 2)) {
+            ErrorLog("Test mesh collection allocation failed.");
+            shutdown_impl();
+            return false;
+        }
+
         auto cube = GeometrySystem::generate_cube(
             *m_allocator,
             10.0f,
@@ -267,23 +273,75 @@ namespace nk {
             1.0f,
             1.0f,
             "test geometry",
-            "test_material");
+            "paving");
         if (!cube) {
             shutdown_impl();
             return false;
         }
-        auto test_geometry = m_geometry_system->acquire(*cube, true);
-        if (!test_geometry) {
-            const geometry_error error = test_geometry.error();
+        auto first_mesh = Mesh::create(
+            *m_allocator,
+            *m_geometry_system,
+            {&*cube, 1});
+        if (!first_mesh) {
+            const mesh_error error = first_mesh.error();
             ErrorLog(
-                "Test geometry creation failed: geometry_error={}, native_code={}",
+                "Test mesh creation failed: mesh_error={}, geometry_index={}, "
+                "geometry_error={}, native_code={}",
                 static_cast<u32>(error.code),
+                error.geometry_index,
+                error.geometry_error,
                 error.native_code);
             shutdown_impl();
             return false;
         }
-        m_test_geometry = *test_geometry;
-        m_test_material = m_test_geometry->material;
+        auto first_added = m_test_meshes.dyarr_emplace_back(
+            std::move(*first_mesh));
+        if (!first_added) {
+            ErrorLog("Unable to store the first test mesh.");
+            shutdown_impl();
+            return false;
+        }
+
+        auto second_cube = GeometrySystem::generate_cube(
+            *m_allocator,
+            5.0f,
+            5.0f,
+            5.0f,
+            1.0f,
+            1.0f,
+            "test geometry 2",
+            "cobblestone");
+        if (!second_cube) {
+            shutdown_impl();
+            return false;
+        }
+        auto second_mesh = Mesh::create(
+            *m_allocator,
+            *m_geometry_system,
+            {&*second_cube, 1},
+            glm::translate(
+                glm::mat4{1.0f},
+                glm::vec3{10.0f, 0.0f, 1.0f}));
+        if (!second_mesh) {
+            const mesh_error error = second_mesh.error();
+            ErrorLog(
+                "Second test mesh creation failed: mesh_error={}, "
+                "geometry_index={}, geometry_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.geometry_index,
+                error.geometry_error,
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        auto second_added = m_test_meshes.dyarr_emplace_back(
+            std::move(*second_mesh));
+        if (!second_added) {
+            ErrorLog("Unable to store the second test mesh.");
+            shutdown_impl();
+            return false;
+        }
+        m_test_material = m_test_meshes[0].geometry(0)->material;
 
         Geometry2DConfig ui_config{};
         if (!ui_config.vertices.dyarr_init_list(
@@ -345,12 +403,13 @@ namespace nk {
                 on_render_view_mode);
         }
 
+        if (m_test_meshes.allocator() != nullptr)
+            (void)m_test_meshes.dyarr_shutdown();
+        m_test_material = nullptr;
         if (m_geometry_system != nullptr) {
             GeometrySystem::destroy(*m_allocator, m_geometry_system);
             m_geometry_system = nullptr;
-            m_test_geometry = nullptr;
             m_test_ui_geometry = nullptr;
-            m_test_material = nullptr;
         }
         if (m_material_system != nullptr) {
             MaterialSystem::destroy(*m_allocator, m_material_system);
@@ -521,13 +580,20 @@ namespace nk {
                     break;
                 }
 
-                GeometryRenderData geometry{
-                    .model = glm::rotate(
+                if (!m_test_meshes.empty()) {
+                    const glm::mat4 rotation = glm::rotate(
                         glm::mat4{1.0f},
                         static_cast<f32>(current_time),
-                        glm::vec3{0.0f, 1.0f, 0.0f}),
-                    .geometry = m_test_geometry,
-                };
+                        glm::vec3{0.0f, 1.0f, 0.0f});
+                    m_test_meshes[0].set_model(rotation);
+                    if (m_test_meshes.length() > 1) {
+                        m_test_meshes[1].set_model(
+                            glm::translate(
+                                glm::mat4{1.0f},
+                                glm::vec3{10.0f, 0.0f, 1.0f}) *
+                            rotation);
+                    }
+                }
                 GeometryRenderData ui_geometry{
                     .model = glm::mat4{1.0f},
                     .geometry = m_test_ui_geometry,
@@ -535,8 +601,8 @@ namespace nk {
                 auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
                     .lighting = scene_lighting,
-                    .geometry_count = m_test_geometry == nullptr ? 0u : 1u,
-                    .geometries = &geometry,
+                    .mesh_count = static_cast<u32>(m_test_meshes.length()),
+                    .meshes = m_test_meshes.data(),
                     .ui_geometry_count =
                         m_test_ui_geometry == nullptr ? 0u : 1u,
                     .ui_geometries = &ui_geometry,
