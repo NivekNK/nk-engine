@@ -6,12 +6,15 @@
 
 #include <type_traits>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "memory/malloc_allocator.h"
 #include "core/input_codes.h"
 #include "core/render_view_controls.h"
 #include "renderer/renderer.h"
 #include "renderer/vulkan/swapchain.h"
 #include "renderer/vulkan/vulkan_renderer.h"
+#include "resources/mesh.h"
 #include "resources/shader_resource.h"
 #include "systems/texture_system.h"
 #include "systems/event_system.h"
@@ -2072,4 +2075,169 @@ TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     nk::GeometrySystem::destroy(allocator, geometries);
     systems.shutdown();
     EXPECT_EQ(renderer.destroyed_geometries(), 5u);
+}
+
+TEST(Mesh, OwnsMultipleGeometryReferencesUntilDestruction) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    auto geometries_created = nk::GeometrySystem::create(
+        allocator,
+        renderer,
+        *systems.materials,
+        2);
+    ASSERT_TRUE(geometries_created);
+    nk::GeometrySystem* geometries = *geometries_created;
+
+    {
+        auto first = nk::GeometrySystem::generate_cube(
+            allocator,
+            2.0f,
+            2.0f,
+            2.0f,
+            1.0f,
+            1.0f,
+            "mesh_first",
+            "test_material");
+        auto second = nk::GeometrySystem::generate_plane(
+            allocator,
+            2.0f,
+            2.0f,
+            1,
+            1,
+            1.0f,
+            1.0f,
+            "mesh_second",
+            "test_material");
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(second);
+        nk::GeometryConfig configs[]{
+            std::move(*first),
+            std::move(*second),
+        };
+        const glm::mat4 model = glm::translate(
+            glm::mat4{1.0f},
+            glm::vec3{3.0f, 2.0f, 1.0f});
+
+        {
+            auto mesh = nk::Mesh::create(
+                allocator,
+                *geometries,
+                configs,
+                model);
+            ASSERT_TRUE(mesh);
+            EXPECT_TRUE(mesh->valid());
+            EXPECT_EQ(mesh->geometry_count(), 2u);
+            ASSERT_NE(mesh->geometry(0), nullptr);
+            ASSERT_NE(mesh->geometry(1), nullptr);
+            EXPECT_EQ(
+                mesh->geometry(0)->name.view(),
+                nk::strview{"mesh_first"});
+            EXPECT_EQ(
+                mesh->geometry(1)->name.view(),
+                nk::strview{"mesh_second"});
+            EXPECT_EQ(mesh->model(), model);
+            EXPECT_EQ(geometries->loaded_count(), 2u);
+            EXPECT_EQ(
+                systems.materials->reference_count("test_material"),
+                2u);
+        }
+
+        EXPECT_EQ(geometries->loaded_count(), 0u);
+        EXPECT_EQ(systems.materials->loaded_count(), 0u);
+        EXPECT_EQ(renderer.destroyed_geometries(), 2u);
+    }
+
+    nk::GeometrySystem::destroy(allocator, geometries);
+    systems.shutdown();
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(Mesh, SupportsEmptyGeometryGroups) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(2));
+    auto geometries_created = nk::GeometrySystem::create(
+        allocator,
+        renderer,
+        *systems.materials,
+        1);
+    ASSERT_TRUE(geometries_created);
+    nk::GeometrySystem* geometries = *geometries_created;
+
+    {
+        auto mesh = nk::Mesh::create(allocator, *geometries, {});
+        ASSERT_TRUE(mesh);
+        EXPECT_TRUE(mesh->valid());
+        EXPECT_EQ(mesh->geometry_count(), 0u);
+        EXPECT_EQ(mesh->geometry(0), nullptr);
+        EXPECT_TRUE(mesh->geometries().empty());
+        EXPECT_EQ(geometries->loaded_count(), 0u);
+    }
+
+    nk::GeometrySystem::destroy(allocator, geometries);
+    systems.shutdown();
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(Mesh, ReleasesCompletedAcquisitionsWhenCreationFailsPartially) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    auto geometries_created = nk::GeometrySystem::create(
+        allocator,
+        renderer,
+        *systems.materials,
+        1);
+    ASSERT_TRUE(geometries_created);
+    nk::GeometrySystem* geometries = *geometries_created;
+
+    {
+        auto first = nk::GeometrySystem::generate_plane(
+            allocator,
+            2.0f,
+            2.0f,
+            1,
+            1,
+            1.0f,
+            1.0f,
+            "partial_first",
+            "test_material");
+        auto second = nk::GeometrySystem::generate_plane(
+            allocator,
+            4.0f,
+            4.0f,
+            1,
+            1,
+            1.0f,
+            1.0f,
+            "partial_second",
+            "test_material");
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(second);
+        nk::GeometryConfig configs[]{
+            std::move(*first),
+            std::move(*second),
+        };
+
+        auto mesh = nk::Mesh::create(allocator, *geometries, configs);
+
+        ASSERT_FALSE(mesh);
+        EXPECT_EQ(mesh.error().code, nk::mesh_error_code::geometry_failed);
+        EXPECT_EQ(mesh.error().geometry_index, 1u);
+        EXPECT_EQ(
+            mesh.error().geometry_error,
+            static_cast<nk::u32>(
+                nk::geometry_error_code::capacity_exceeded));
+        EXPECT_EQ(geometries->loaded_count(), 0u);
+        EXPECT_EQ(systems.materials->loaded_count(), 0u);
+        EXPECT_EQ(renderer.destroyed_geometries(), 1u);
+    }
+
+    nk::GeometrySystem::destroy(allocator, geometries);
+    systems.shutdown();
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
 }

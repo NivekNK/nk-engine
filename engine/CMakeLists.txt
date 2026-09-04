@@ -74,6 +74,7 @@ set(SOURCES
     src/platform/file.cpp
     src/resources/image_loader.cpp
     src/resources/loaders.cpp
+    src/resources/mesh.cpp
     src/resources/shader_loader.cpp
     src/renderer/renderer.cpp
     src/renderer/buffer_suballocator.cpp
