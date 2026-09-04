@@ -298,6 +298,7 @@ namespace nk {
             std::move(*first_mesh));
         if (!first_added) {
             ErrorLog("Unable to store the first test mesh.");
+            first_mesh->reset();
             shutdown_impl();
             return false;
         }
@@ -338,6 +339,7 @@ namespace nk {
             std::move(*second_mesh));
         if (!second_added) {
             ErrorLog("Unable to store the second test mesh.");
+            second_mesh->reset();
             shutdown_impl();
             return false;
         }
