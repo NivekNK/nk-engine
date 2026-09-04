@@ -15,7 +15,7 @@ namespace {
     };
     const nk::ShaderDescriptorBindingConfig global_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
-         nk::ShaderStage::vertex | nk::ShaderStage::fragment, 188},
+         nk::ShaderStage::vertex | nk::ShaderStage::fragment, 288},
     };
     const nk::ShaderDescriptorBindingConfig instance_bindings[] = {
         {0, nk::ShaderDescriptorType::uniform_buffer, 1,
@@ -54,6 +54,10 @@ namespace {
          nk::ShaderScope::global, 0, 176, 0},
         {"normal_texture", nk::ShaderUniformType::sampler_2d,
          nk::ShaderScope::instance, 1, 2, 0},
+        {"point_light_count", nk::ShaderUniformType::u32,
+         nk::ShaderScope::global, 0, 188, 0},
+        {"point_lights", nk::ShaderUniformType::custom,
+         nk::ShaderScope::global, 0, 192, 48, 2},
     };
     const nk::ShaderPushConstantConfig push_constants[] = {
         {nk::ShaderStage::vertex, 0, 128},

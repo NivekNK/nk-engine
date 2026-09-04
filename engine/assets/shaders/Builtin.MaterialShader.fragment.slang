@@ -4,6 +4,18 @@ struct LocalUniformObject
     float shininess;
 };
 
+static const uint max_point_light_count = 2;
+
+struct PointLight
+{
+    float3 position;
+    float constant;
+    float4 color;
+    float linear;
+    float quadratic;
+    float2 padding;
+};
+
 struct GlobalUniformObject
 {
     float4x4 projection;
@@ -12,6 +24,8 @@ struct GlobalUniformObject
     float3 directional_light_direction;
     float4 directional_light_color;
     float3 view_position;
+    uint point_light_count;
+    PointLight point_lights[max_point_light_count];
 };
 
 [[vk::binding(0, 0)]]
@@ -53,6 +67,64 @@ float3 safe_normalize(float3 value)
     return scaled * rsqrt(dot(scaled, scaled));
 }
 
+float3 calculate_light(
+    float3 light_color,
+    float3 surface_color,
+    float3 specular_sample,
+    float3 normal,
+    float3 view_direction,
+    float3 surface_to_light,
+    float shininess)
+{
+    float diffuse_factor = max(dot(normal, surface_to_light), 0.0);
+    float3 diffuse = light_color * diffuse_factor * surface_color;
+    if (!(diffuse_factor > 0.0)) {
+        return diffuse;
+    }
+
+    float3 half_direction = safe_normalize(
+        view_direction + surface_to_light);
+    float specular_factor = pow(
+        max(dot(normal, half_direction), 0.0),
+        max(shininess, 1.0));
+    return diffuse + light_color * specular_factor * specular_sample;
+}
+
+float3 calculate_point_light(
+    PointLight light,
+    float3 surface_color,
+    float3 specular_sample,
+    float3 normal,
+    float3 view_direction,
+    float3 world_position,
+    float shininess)
+{
+    float3 to_light = light.position - world_position;
+    float distance = length(to_light);
+    if (!(distance > 1.0e-20) ||
+        !(distance < 3.402823466e+38)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float attenuation_denominator = light.constant +
+        light.linear * distance +
+        light.quadratic * distance * distance;
+    if (!(attenuation_denominator > 0.0) ||
+        !(attenuation_denominator < 3.402823466e+38)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 contribution = calculate_light(
+        light.color.rgb,
+        surface_color,
+        specular_sample,
+        normal,
+        view_direction,
+        to_light / distance,
+        shininess);
+    return contribution / attenuation_denominator;
+}
+
 float4 main(FragmentInput input) : SV_Target0 {
     float4 sampled_color = material_samplers[diffuse_sampler_index].Sample(
         input.in_dto.tex_coord);
@@ -73,28 +145,36 @@ float4 main(FragmentInput input) : SV_Target0 {
         tangent * tangent_normal.x +
         bitangent * tangent_normal.y +
         geometric_normal * tangent_normal.z);
-    float3 light_to_surface = safe_normalize(
-        global_ubo.directional_light_direction);
-    float diffuse_factor = max(dot(normal, -light_to_surface), 0.0);
 
-    float3 ambient = global_ubo.ambient_color.rgb * surface_color.rgb;
-    float3 diffuse = global_ubo.directional_light_color.rgb *
-        diffuse_factor * surface_color.rgb;
-    float3 specular = float3(0.0, 0.0, 0.0);
-    if (diffuse_factor > 0.0) {
-        float3 view_direction = safe_normalize(
-            global_ubo.view_position - input.in_dto.world_position);
-        float3 half_direction = safe_normalize(
-            view_direction - light_to_surface);
-        float specular_factor = pow(
-            max(dot(normal, half_direction), 0.0),
-            max(object_ubo.shininess, 1.0));
-        float3 specular_sample =
-            material_samplers[specular_sampler_index]
-                .Sample(input.in_dto.tex_coord)
-                .rgb;
-        specular = global_ubo.directional_light_color.rgb *
-            specular_factor * specular_sample;
+    float3 specular_sample = material_samplers[specular_sampler_index]
+        .Sample(input.in_dto.tex_coord)
+        .rgb;
+    float3 view_direction = safe_normalize(
+        global_ubo.view_position - input.in_dto.world_position);
+    float3 accumulated_light =
+        global_ubo.ambient_color.rgb * surface_color.rgb;
+
+    accumulated_light += calculate_light(
+        global_ubo.directional_light_color.rgb,
+        surface_color.rgb,
+        specular_sample,
+        normal,
+        view_direction,
+        -safe_normalize(global_ubo.directional_light_direction),
+        object_ubo.shininess);
+
+    uint point_light_count = min(
+        global_ubo.point_light_count,
+        max_point_light_count);
+    for (uint index = 0; index < point_light_count; ++index) {
+        accumulated_light += calculate_point_light(
+            global_ubo.point_lights[index],
+            surface_color.rgb,
+            specular_sample,
+            normal,
+            view_direction,
+            input.in_dto.world_position,
+            object_ubo.shininess);
     }
-    return float4(ambient + diffuse + specular, surface_color.a);
+    return float4(accumulated_light, surface_color.a);
 };

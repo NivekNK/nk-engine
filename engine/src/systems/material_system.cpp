@@ -252,6 +252,15 @@ namespace nk {
             if (!normal_texture)
                 return err(translate_shader_error(normal_texture.error()));
             resolved.normal_texture = *normal_texture;
+            auto point_light_count =
+                m_shaders->uniform(*shader, "point_light_count");
+            if (!point_light_count)
+                return err(translate_shader_error(point_light_count.error()));
+            resolved.point_light_count = *point_light_count;
+            auto point_lights = m_shaders->uniform(*shader, "point_lights");
+            if (!point_lights)
+                return err(translate_shader_error(point_lights.error()));
+            resolved.point_lights = *point_lights;
         }
         return ok(resolved);
     }
@@ -726,6 +735,20 @@ namespace nk {
         const UniformBindings* uniform = bindings(type);
         if (uniform == nullptr)
             return err(material_error{material_error_code::invalid_config, 0});
+        if (type == MaterialType::world) {
+            if (lighting.point_light_count > max_point_light_count)
+                return err(material_error{
+                    material_error_code::invalid_config,
+                    0,
+                });
+            for (u32 index = 0; index < lighting.point_light_count; ++index) {
+                if (!lighting.point_lights[index].valid())
+                    return err(material_error{
+                        material_error_code::invalid_config,
+                        0,
+                    });
+            }
+        }
 
         auto used = m_shaders->use(uniform->shader);
         if (!used)
@@ -762,6 +785,24 @@ namespace nk {
                 lighting.directional.color);
             if (!light_color_set)
                 return err(translate_shader_error(light_color_set.error()));
+            auto point_light_count_set = m_shaders->set_uniform(
+                uniform->point_light_count,
+                lighting.point_light_count);
+            if (!point_light_count_set) {
+                return err(translate_shader_error(
+                    point_light_count_set.error()));
+            }
+            PointLightUniform point_lights[max_point_light_count]{};
+            for (u32 index = 0; index < lighting.point_light_count; ++index) {
+                point_lights[index] =
+                    PointLightUniform{lighting.point_lights[index]};
+            }
+            auto point_lights_set = m_shaders->set_uniform_custom(
+                uniform->point_lights,
+                point_lights,
+                sizeof(point_lights));
+            if (!point_lights_set)
+                return err(translate_shader_error(point_lights_set.error()));
         }
         auto applied = m_shaders->apply_globals();
         if (!applied)

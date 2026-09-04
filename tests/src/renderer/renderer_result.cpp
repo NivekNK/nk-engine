@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 
 #include <type_traits>
 
@@ -17,6 +18,15 @@
 #include "systems/shader_system.h"
 
 namespace {
+    static_assert(sizeof(nk::PointLightUniform) == 48);
+    static_assert(alignof(nk::PointLightUniform) == 16);
+    static_assert(offsetof(nk::PointLightUniform, position) == 0);
+    static_assert(offsetof(nk::PointLightUniform, constant) == 12);
+    static_assert(offsetof(nk::PointLightUniform, color) == 16);
+    static_assert(offsetof(nk::PointLightUniform, linear) == 32);
+    static_assert(offsetof(nk::PointLightUniform, quadratic) == 36);
+    static_assert(offsetof(nk::PointLightUniform, padding) == 40);
+
     class TestRenderer final : public nk::Renderer {
     public:
         enum class BeginMode {
@@ -83,6 +93,10 @@ namespace {
             return m_directional_light_color;
         }
         const glm::vec3& view_position() const { return m_view_position_value; }
+        nk::u32 point_light_count() const { return m_point_light_count; }
+        const nk::PointLightUniform& point_light(const nk::u32 index) const {
+            return m_point_lights[index];
+        }
         nk::Texture* specular_sampler_texture() const {
             return m_specular_sampler_texture;
         }
@@ -323,6 +337,14 @@ namespace {
                     size == sizeof(glm::vec3)) {
                     m_view_position_value =
                         *static_cast<const glm::vec3*>(data);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::point_light_count &&
+                    size == sizeof(nk::u32)) {
+                    m_point_light_count = *static_cast<const nk::u32*>(data);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::point_lights &&
+                    size == sizeof(m_point_lights)) {
+                    std::memcpy(m_point_lights, data, size);
                 }
             }
             if (uniform == nk::builtin_shader_uniform::projection ||
@@ -398,6 +420,8 @@ namespace {
         glm::vec3 m_directional_light_direction{};
         glm::vec4 m_directional_light_color{};
         glm::vec3 m_view_position_value{};
+        nk::u32 m_point_light_count = 0;
+        nk::PointLightUniform m_point_lights[nk::max_point_light_count]{};
         nk::Texture* m_specular_sampler_texture = nullptr;
         nk::Texture* m_normal_sampler_texture = nullptr;
         nk::f32 m_shininess = 0.0f;
@@ -638,6 +662,23 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
                 .direction = {-1.0f, -2.0f, -3.0f},
                 .color = {0.7f, 0.6f, 0.5f, 1.0f},
             },
+            .point_lights = {
+                {
+                    .position = {-5.5f, 0.0f, -5.5f},
+                    .color = {0.0f, 1.0f, 0.0f, 1.0f},
+                    .constant = 1.0f,
+                    .linear = 0.35f,
+                    .quadratic = 0.44f,
+                },
+                {
+                    .position = {5.5f, 0.0f, -5.5f},
+                    .color = {1.0f, 0.0f, 0.0f, 1.0f},
+                    .constant = 1.0f,
+                    .linear = 0.35f,
+                    .quadratic = 0.44f,
+                },
+            },
+            .point_light_count = 2,
         },
         .geometry_count = 1,
         .geometries = &world_data,
@@ -647,7 +688,7 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
 
     ASSERT_TRUE(frame);
     constexpr nk::u8 world_protocol[] = {
-        1, 2, 3, 3, 6, 6, 6, 6, 4, 5, 6, 7, 7, 7, 6, 8, 9, 9,
+        1, 2, 3, 3, 6, 6, 6, 6, 6, 6, 4, 5, 6, 7, 7, 7, 6, 8, 9, 9,
     };
     constexpr nk::u8 ui_protocol[] = {
         1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
@@ -675,11 +716,66 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
         renderer.directional_light_color(),
         glm::vec4(0.7f, 0.6f, 0.5f, 1.0f));
     EXPECT_EQ(renderer.view_position(), glm::vec3(3.0f, 4.0f, 5.0f));
+    EXPECT_EQ(renderer.point_light_count(), 2u);
+    EXPECT_EQ(renderer.point_light(0).position, glm::vec3(-5.5f, 0.0f, -5.5f));
+    EXPECT_EQ(renderer.point_light(0).color, glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
+    EXPECT_FLOAT_EQ(renderer.point_light(0).constant, 1.0f);
+    EXPECT_FLOAT_EQ(renderer.point_light(0).linear, 0.35f);
+    EXPECT_FLOAT_EQ(renderer.point_light(0).quadratic, 0.44f);
+    EXPECT_EQ(renderer.point_light(1).position, glm::vec3(5.5f, 0.0f, -5.5f));
+    EXPECT_EQ(renderer.point_light(1).color, glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
     EXPECT_EQ(renderer.pass_trace(), 1234u);
     EXPECT_EQ(renderer.world_global_updates(), 1u);
     EXPECT_EQ(renderer.ui_global_updates(), 1u);
     EXPECT_EQ(renderer.world_object_updates(), 1u);
     EXPECT_EQ(renderer.ui_object_updates(), 1u);
+}
+
+TEST(RendererLighting, ComputesFinitePointAttenuation) {
+    const nk::PointLight light{
+        .constant = 1.0f,
+        .linear = 0.35f,
+        .quadratic = 0.44f,
+    };
+
+    EXPECT_FLOAT_EQ(light.attenuation(0.0f), 1.0f);
+    EXPECT_NEAR(light.attenuation(2.0f), 1.0f / 3.46f, 0.00001f);
+    EXPECT_FLOAT_EQ(light.attenuation(-1.0f), 0.0f);
+
+    nk::PointLight invalid = light;
+    invalid.constant = 0.0f;
+    EXPECT_FALSE(invalid.valid());
+    EXPECT_FLOAT_EQ(invalid.attenuation(2.0f), 0.0f);
+}
+
+TEST(MaterialSystem, RejectsInvalidPointLightConfiguration) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init());
+
+    nk::SceneLighting lighting{};
+    lighting.point_light_count = nk::max_point_light_count + 1;
+    auto excessive = systems.materials->apply_global(
+        nk::MaterialType::world,
+        glm::mat4{1.0f},
+        glm::mat4{1.0f},
+        glm::vec3{0.0f},
+        lighting);
+    ASSERT_FALSE(excessive);
+    EXPECT_EQ(excessive.error().code, nk::material_error_code::invalid_config);
+
+    lighting.point_light_count = 1;
+    lighting.point_lights[0].constant = 0.0f;
+    auto invalid = systems.materials->apply_global(
+        nk::MaterialType::world,
+        glm::mat4{1.0f},
+        glm::mat4{1.0f},
+        glm::vec3{0.0f},
+        lighting);
+    ASSERT_FALSE(invalid);
+    EXPECT_EQ(invalid.error().code, nk::material_error_code::invalid_config);
+    EXPECT_EQ(renderer.shader_trace_length(), 0u);
 }
 
 TEST(RendererResult, AdvancesFrameOnlyAfterSuccessfulPresentation) {

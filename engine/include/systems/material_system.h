@@ -130,6 +130,8 @@ namespace nk {
             ShaderUniformHandle shininess{};
             ShaderUniformHandle view_position{};
             ShaderUniformHandle normal_texture{};
+            ShaderUniformHandle point_light_count{};
+            ShaderUniformHandle point_lights{};
 
             [[nodiscard]] bool valid(MaterialType type) const noexcept {
                 const bool common_valid =
@@ -143,7 +145,8 @@ namespace nk {
                       directional_light_color.valid() &&
                       normal_matrix.valid() && specular_texture.valid() &&
                       shininess.valid() && view_position.valid() &&
-                      normal_texture.valid()));
+                      normal_texture.valid() && point_light_count.valid() &&
+                      point_lights.valid()));
             }
         };
 

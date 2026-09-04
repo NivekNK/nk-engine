@@ -427,6 +427,24 @@ namespace nk {
                 smoke_test_frames = static_cast<u64>(parsed);
         }
 
+        SceneLighting scene_lighting{};
+        scene_lighting.directional.color = {0.6f, 0.6f, 0.6f, 1.0f};
+        scene_lighting.point_lights[0] = {
+            .position = {-5.5f, 0.0f, -5.5f},
+            .color = {0.0f, 1.0f, 0.0f, 1.0f},
+            .constant = 1.0f,
+            .linear = 0.35f,
+            .quadratic = 0.44f,
+        };
+        scene_lighting.point_lights[1] = {
+            .position = {5.5f, 0.0f, -5.5f},
+            .color = {1.0f, 0.0f, 0.0f, 1.0f},
+            .constant = 1.0f,
+            .linear = 0.35f,
+            .quadratic = 0.44f,
+        };
+        scene_lighting.point_light_count = max_point_light_count;
+
         while (m_platform->running()) {
             if (!m_platform->pump_messages()) {
                 m_platform->close();
@@ -468,6 +486,7 @@ namespace nk {
                 };
                 auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
+                    .lighting = scene_lighting,
                     .geometry_count = m_test_geometry == nullptr ? 0u : 1u,
                     .geometries = &geometry,
                     .ui_geometry_count =

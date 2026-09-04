@@ -1,3 +1,15 @@
+static const uint max_point_light_count = 2;
+
+struct PointLight
+{
+    float3 position;
+    float constant;
+    float4 color;
+    float linear;
+    float quadratic;
+    float2 padding;
+};
+
 struct GlobalUniformObject
 {
     float4x4 projection;
@@ -6,6 +18,8 @@ struct GlobalUniformObject
     float3 directional_light_direction;
     float4 directional_light_color;
     float3 view_position;
+    uint point_light_count;
+    PointLight point_lights[max_point_light_count];
 };
 
 struct PushConstants
