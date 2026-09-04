@@ -34,6 +34,7 @@ namespace nk {
         MouseMoved = 0x06,
         MouseWheel = 0x07,
         Resized = 0x08,
+        SetRenderViewMode = 0x09,
         MaxEventCode = 0xFF
     };
 

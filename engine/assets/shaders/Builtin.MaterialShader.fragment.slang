@@ -5,6 +5,8 @@ struct LocalUniformObject
 };
 
 static const uint max_point_light_count = 2;
+static const uint render_view_mode_lighting_only = 1;
+static const uint render_view_mode_normals = 2;
 
 struct PointLight
 {
@@ -26,6 +28,7 @@ struct GlobalUniformObject
     float3 view_position;
     uint point_light_count;
     PointLight point_lights[max_point_light_count];
+    uint render_view_mode;
 };
 
 [[vk::binding(0, 0)]]
@@ -146,17 +149,26 @@ float4 main(FragmentInput input) : SV_Target0 {
         bitangent * tangent_normal.y +
         geometric_normal * tangent_normal.z);
 
+    if (global_ubo.render_view_mode == render_view_mode_normals) {
+        return float4(normal * 0.5 + 0.5, 1.0);
+    }
+
     float3 specular_sample = material_samplers[specular_sampler_index]
         .Sample(input.in_dto.tex_coord)
         .rgb;
+    float3 lighting_surface_color = surface_color.rgb;
+    if (global_ubo.render_view_mode == render_view_mode_lighting_only) {
+        lighting_surface_color = float3(1.0, 1.0, 1.0);
+        specular_sample = float3(1.0, 1.0, 1.0);
+    }
     float3 view_direction = safe_normalize(
         global_ubo.view_position - input.in_dto.world_position);
     float3 accumulated_light =
-        global_ubo.ambient_color.rgb * surface_color.rgb;
+        global_ubo.ambient_color.rgb * lighting_surface_color;
 
     accumulated_light += calculate_light(
         global_ubo.directional_light_color.rgb,
-        surface_color.rgb,
+        lighting_surface_color,
         specular_sample,
         normal,
         view_direction,
@@ -169,7 +181,7 @@ float4 main(FragmentInput input) : SV_Target0 {
     for (uint index = 0; index < point_light_count; ++index) {
         accumulated_light += calculate_point_light(
             global_ubo.point_lights[index],
-            surface_color.rgb,
+            lighting_surface_color,
             specular_sample,
             normal,
             view_direction,

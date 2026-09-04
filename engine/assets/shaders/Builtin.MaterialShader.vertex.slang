@@ -20,6 +20,7 @@ struct GlobalUniformObject
     float3 view_position;
     uint point_light_count;
     PointLight point_lights[max_point_light_count];
+    uint render_view_mode;
 };
 
 struct PushConstants

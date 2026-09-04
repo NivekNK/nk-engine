@@ -86,7 +86,8 @@ namespace nk {
             const glm::mat4& projection,
             const glm::mat4& view,
             const glm::vec3& view_position,
-            const SceneLighting& lighting);
+            const SceneLighting& lighting,
+            RenderViewMode render_view_mode = RenderViewMode::default_lit);
         [[nodiscard]] result<void, material_error> apply_instance(
             Material& material,
             u64 frame_number);
@@ -132,6 +133,7 @@ namespace nk {
             ShaderUniformHandle normal_texture{};
             ShaderUniformHandle point_light_count{};
             ShaderUniformHandle point_lights{};
+            ShaderUniformHandle render_view_mode{};
 
             [[nodiscard]] bool valid(MaterialType type) const noexcept {
                 const bool common_valid =
@@ -146,7 +148,7 @@ namespace nk {
                       normal_matrix.valid() && specular_texture.valid() &&
                       shininess.valid() && view_position.valid() &&
                       normal_texture.valid() && point_light_count.valid() &&
-                      point_lights.valid()));
+                      point_lights.valid() && render_view_mode.valid()));
             }
         };
 

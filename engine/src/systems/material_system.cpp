@@ -261,6 +261,11 @@ namespace nk {
             if (!point_lights)
                 return err(translate_shader_error(point_lights.error()));
             resolved.point_lights = *point_lights;
+            auto render_view_mode =
+                m_shaders->uniform(*shader, "render_view_mode");
+            if (!render_view_mode)
+                return err(translate_shader_error(render_view_mode.error()));
+            resolved.render_view_mode = *render_view_mode;
         }
         return ok(resolved);
     }
@@ -729,18 +734,21 @@ namespace nk {
         const glm::mat4& projection,
         const glm::mat4& view,
         const glm::vec3& view_position,
-        const SceneLighting& lighting) {
+        const SceneLighting& lighting,
+        const RenderViewMode render_view_mode) {
         if (!m_initialized)
             return err(material_error{material_error_code::not_initialized, 0});
         const UniformBindings* uniform = bindings(type);
         if (uniform == nullptr)
             return err(material_error{material_error_code::invalid_config, 0});
         if (type == MaterialType::world) {
-            if (lighting.point_light_count > max_point_light_count)
+            if (!valid_render_view_mode(render_view_mode) ||
+                lighting.point_light_count > max_point_light_count) {
                 return err(material_error{
                     material_error_code::invalid_config,
                     0,
                 });
+            }
             for (u32 index = 0; index < lighting.point_light_count; ++index) {
                 if (!lighting.point_lights[index].valid())
                     return err(material_error{
@@ -803,6 +811,15 @@ namespace nk {
                 sizeof(point_lights));
             if (!point_lights_set)
                 return err(translate_shader_error(point_lights_set.error()));
+            const u32 raw_render_view_mode =
+                static_cast<u32>(render_view_mode);
+            auto render_view_mode_set = m_shaders->set_uniform(
+                uniform->render_view_mode,
+                raw_render_view_mode);
+            if (!render_view_mode_set) {
+                return err(translate_shader_error(
+                    render_view_mode_set.error()));
+            }
         }
         auto applied = m_shaders->apply_globals();
         if (!applied)

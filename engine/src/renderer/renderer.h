@@ -17,6 +17,10 @@ namespace nk {
     class Platform;
     class ResourceSystem;
     class MaterialSystem;
+    enum class SystemEventCode : u16;
+    struct EventContext;
+
+    bool on_render_view_mode(SystemEventCode, void*, void*, EventContext);
 
     struct RenderPacket {
         f64 delta_time;
@@ -124,6 +128,16 @@ namespace nk {
             m_view = view;
             m_view_position = position;
         }
+        [[nodiscard]] bool set_render_view_mode(
+            const RenderViewMode mode) noexcept {
+            if (!valid_render_view_mode(mode))
+                return false;
+            m_render_view_mode = mode;
+            return true;
+        }
+        [[nodiscard]] RenderViewMode render_view_mode() const noexcept {
+            return m_render_view_mode;
+        }
 
     protected:
         Renderer(
@@ -171,6 +185,7 @@ namespace nk {
         f32 m_far_clip = 0.0f;
 
         Texture* m_default_texture = nullptr;
+        RenderViewMode m_render_view_mode = RenderViewMode::default_lit;
     private:
         [[nodiscard]] result<void, renderer_error> draw_render_pass(
             MaterialSystem& materials,

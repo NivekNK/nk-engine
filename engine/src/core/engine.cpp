@@ -1,6 +1,7 @@
 #include "nkpch.h"
 
 #include "core/engine.h"
+#include "core/render_view_controls.h"
 
 #include "memory/malloc_allocator.h"
 #include "systems/memory_system.h"
@@ -34,6 +35,16 @@ namespace nk {
         if (code == SystemEventCode::KeyPressed) {
             // NOTE: Test code, remove later
             KeyCodeFlag keycode = context.data.u16[0];
+            RenderViewMode render_view_mode{};
+            if (render_view_mode_from_key(keycode, render_view_mode)) {
+                EventContext render_mode_context{};
+                render_mode_context.data.u32[0] =
+                    static_cast<u32>(render_view_mode);
+                return EventSystem::fire_event(
+                    SystemEventCode::SetRenderViewMode,
+                    nullptr,
+                    render_mode_context);
+            }
             switch (keycode) {
                 case KeyCode::RAlt:
                     DebugLog("'Right Alt' key pressed in window.");
@@ -64,6 +75,9 @@ namespace nk {
         } else if (code == SystemEventCode::KeyReleased) {
             // NOTE: Test code, remove later
             KeyCodeFlag keycode = context.data.u16[0];
+            RenderViewMode render_view_mode{};
+            if (render_view_mode_from_key(keycode, render_view_mode))
+                return true;
             switch (keycode) {
                 case KeyCode::RAlt:
                     DebugLog("'Right Alt' key released in window.");
@@ -310,6 +324,10 @@ namespace nk {
         EventSystem::register_event(SystemEventCode::KeyPressed, nullptr, on_key);
         EventSystem::register_event(SystemEventCode::KeyReleased, nullptr, on_key);
         EventSystem::register_event(SystemEventCode::Resized, nullptr, on_resized);
+        EventSystem::register_event(
+            SystemEventCode::SetRenderViewMode,
+            m_renderer,
+            on_render_view_mode);
 
         m_initialized = true;
         return true;
@@ -321,6 +339,10 @@ namespace nk {
             EventSystem::unregister_event(SystemEventCode::KeyPressed, nullptr, on_key);
             EventSystem::unregister_event(SystemEventCode::KeyReleased, nullptr, on_key);
             EventSystem::unregister_event(SystemEventCode::Resized, nullptr, on_resized);
+            EventSystem::unregister_event(
+                SystemEventCode::SetRenderViewMode,
+                m_renderer,
+                on_render_view_mode);
         }
 
         if (m_geometry_system != nullptr) {
@@ -414,6 +436,7 @@ namespace nk {
         u64 frame_count = 0;
         f64 target_frame_seconds = 1.0f / 60;
         u64 smoke_test_frames = 0;
+        bool smoke_test_cycle_render_modes = false;
 #if NK_MEMORY_TRACKING_ENABLED
         u64 stable_frame_allocation_events = 0;
         u64 stable_frames_checked = 0;
@@ -425,6 +448,12 @@ namespace nk {
             const unsigned long long parsed = std::strtoull(configured_frames, &end, 10);
             if (end != configured_frames && *end == '\0')
                 smoke_test_frames = static_cast<u64>(parsed);
+        }
+        if (const cstr configured_modes =
+                std::getenv("NK_SMOKE_TEST_CYCLE_RENDER_MODES");
+            configured_modes != nullptr && configured_modes[0] == '1' &&
+            configured_modes[1] == '\0') {
+            smoke_test_cycle_render_modes = true;
         }
 
         SceneLighting scene_lighting{};
@@ -451,6 +480,25 @@ namespace nk {
             }
 
             if (!m_platform->suspended()) {
+                if (smoke_test_cycle_render_modes && smoke_test_frames >= 3) {
+                    const u64 mode_segment = smoke_test_frames / 3;
+                    RenderViewMode desired_mode =
+                        RenderViewMode::default_lit;
+                    if (frame_count >= mode_segment * 2)
+                        desired_mode = RenderViewMode::normals;
+                    else if (frame_count >= mode_segment)
+                        desired_mode = RenderViewMode::lighting_only;
+
+                    if (m_renderer->render_view_mode() != desired_mode) {
+                        EventContext mode_context{};
+                        mode_context.data.u32[0] =
+                            static_cast<u32>(desired_mode);
+                        EventSystem::fire_event(
+                            SystemEventCode::SetRenderViewMode,
+                            nullptr,
+                            mode_context);
+                    }
+                }
 #if NK_MEMORY_TRACKING_ENABLED
                 const u64 frame_allocation_baseline =
                     mem::MemorySystem::get().allocation_event_count();

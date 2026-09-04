@@ -9,6 +9,18 @@
 namespace nk {
     inline constexpr u32 max_point_light_count = 2;
 
+    enum class RenderViewMode : u32 {
+        default_lit = 0,
+        lighting_only = 1,
+        normals = 2,
+    };
+
+    [[nodiscard]] constexpr bool valid_render_view_mode(
+        const RenderViewMode mode) noexcept {
+        return static_cast<u32>(mode) <=
+            static_cast<u32>(RenderViewMode::normals);
+    }
+
     struct DirectionalLight {
         glm::vec3 direction{-0.57735026f, -0.57735026f, -0.57735026f};
         glm::vec4 color{0.8f, 0.8f, 0.8f, 1.0f};

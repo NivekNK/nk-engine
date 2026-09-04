@@ -6,11 +6,32 @@
 #include "memory/malloc_allocator.h"
 #include "vulkan/vulkan_renderer.h"
 #include "platform/platform.h"
+#include "systems/event_system.h"
 #include "systems/material_system.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace nk {
+    bool on_render_view_mode(
+        const SystemEventCode code,
+        void*,
+        void* listener,
+        const EventContext context) {
+        if (code != SystemEventCode::SetRenderViewMode || listener == nullptr)
+            return false;
+
+        Renderer& renderer = *static_cast<Renderer*>(listener);
+        const RenderViewMode mode =
+            static_cast<RenderViewMode>(context.data.u32[0]);
+        if (!renderer.set_render_view_mode(mode))
+            return false;
+
+        InfoLog(
+            "Render view mode changed to {}.",
+            static_cast<u32>(mode));
+        return true;
+    }
+
     result<Renderer*, renderer_error> Renderer::create(
         mem::Allocator* allocator,
         Platform* platform,
@@ -153,7 +174,10 @@ namespace nk {
             projection,
             view,
             view_position,
-            lighting);
+            lighting,
+            pass == RenderPassKind::world
+                ? m_render_view_mode
+                : RenderViewMode::default_lit);
         if (!globals_applied)
             return fail({
                 renderer_error_code::material_failed,

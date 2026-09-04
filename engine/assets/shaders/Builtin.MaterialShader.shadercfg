@@ -29,3 +29,4 @@ uniform=f32_3,global,view_position
 uniform=sampler_2d,instance,normal_texture
 uniform=u32,global,point_light_count
 uniform=custom,global,point_lights,2,48
+uniform=u32,global,render_view_mode

@@ -136,6 +136,7 @@ namespace nk {
         inline constexpr ShaderUniformHandle normal_texture{12};
         inline constexpr ShaderUniformHandle point_light_count{13};
         inline constexpr ShaderUniformHandle point_lights{14};
+        inline constexpr ShaderUniformHandle render_view_mode{15};
     }
 }
 

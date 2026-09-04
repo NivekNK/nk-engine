@@ -7,11 +7,14 @@
 #include <type_traits>
 
 #include "memory/malloc_allocator.h"
+#include "core/input_codes.h"
+#include "core/render_view_controls.h"
 #include "renderer/renderer.h"
 #include "renderer/vulkan/swapchain.h"
 #include "renderer/vulkan/vulkan_renderer.h"
 #include "resources/shader_resource.h"
 #include "systems/texture_system.h"
+#include "systems/event_system.h"
 #include "systems/material_system.h"
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
@@ -96,6 +99,9 @@ namespace {
         nk::u32 point_light_count() const { return m_point_light_count; }
         const nk::PointLightUniform& point_light(const nk::u32 index) const {
             return m_point_lights[index];
+        }
+        nk::u32 uploaded_render_view_mode() const {
+            return m_uploaded_render_view_mode;
         }
         nk::Texture* specular_sampler_texture() const {
             return m_specular_sampler_texture;
@@ -345,6 +351,11 @@ namespace {
                     uniform == nk::builtin_shader_uniform::point_lights &&
                     size == sizeof(m_point_lights)) {
                     std::memcpy(m_point_lights, data, size);
+                } else if (
+                    uniform == nk::builtin_shader_uniform::render_view_mode &&
+                    size == sizeof(nk::u32)) {
+                    m_uploaded_render_view_mode =
+                        *static_cast<const nk::u32*>(data);
                 }
             }
             if (uniform == nk::builtin_shader_uniform::projection ||
@@ -422,6 +433,7 @@ namespace {
         glm::vec3 m_view_position_value{};
         nk::u32 m_point_light_count = 0;
         nk::PointLightUniform m_point_lights[nk::max_point_light_count]{};
+        nk::u32 m_uploaded_render_view_mode = 0;
         nk::Texture* m_specular_sampler_texture = nullptr;
         nk::Texture* m_normal_sampler_texture = nullptr;
         nk::f32 m_shininess = 0.0f;
@@ -639,6 +651,8 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
     TestRenderSystems systems{allocator, renderer};
     ASSERT_TRUE(systems.init());
     renderer.set_view(glm::mat4{1.0f}, glm::vec3{3.0f, 4.0f, 5.0f});
+    ASSERT_TRUE(renderer.set_render_view_mode(
+        nk::RenderViewMode::lighting_only));
 
     nk::Geometry world_geometry{};
     world_geometry.material = &systems.materials->default_material();
@@ -688,7 +702,7 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
 
     ASSERT_TRUE(frame);
     constexpr nk::u8 world_protocol[] = {
-        1, 2, 3, 3, 6, 6, 6, 6, 6, 6, 4, 5, 6, 7, 7, 7, 6, 8, 9, 9,
+        1, 2, 3, 3, 6, 6, 6, 6, 6, 6, 6, 4, 5, 6, 7, 7, 7, 6, 8, 9, 9,
     };
     constexpr nk::u8 ui_protocol[] = {
         1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
@@ -724,6 +738,9 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
     EXPECT_FLOAT_EQ(renderer.point_light(0).quadratic, 0.44f);
     EXPECT_EQ(renderer.point_light(1).position, glm::vec3(5.5f, 0.0f, -5.5f));
     EXPECT_EQ(renderer.point_light(1).color, glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+    EXPECT_EQ(
+        renderer.uploaded_render_view_mode(),
+        static_cast<nk::u32>(nk::RenderViewMode::lighting_only));
     EXPECT_EQ(renderer.pass_trace(), 1234u);
     EXPECT_EQ(renderer.world_global_updates(), 1u);
     EXPECT_EQ(renderer.ui_global_updates(), 1u);
@@ -746,6 +763,64 @@ TEST(RendererLighting, ComputesFinitePointAttenuation) {
     invalid.constant = 0.0f;
     EXPECT_FALSE(invalid.valid());
     EXPECT_FLOAT_EQ(invalid.attenuation(2.0f), 0.0f);
+}
+
+TEST(RendererLighting, PreservesTheLastValidRenderViewMode) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+
+    EXPECT_EQ(
+        renderer.render_view_mode(),
+        nk::RenderViewMode::default_lit);
+    EXPECT_TRUE(renderer.set_render_view_mode(
+        nk::RenderViewMode::lighting_only));
+    EXPECT_EQ(
+        renderer.render_view_mode(),
+        nk::RenderViewMode::lighting_only);
+    EXPECT_FALSE(renderer.set_render_view_mode(
+        static_cast<nk::RenderViewMode>(3)));
+    EXPECT_EQ(
+        renderer.render_view_mode(),
+        nk::RenderViewMode::lighting_only);
+}
+
+TEST(RendererLighting, RoutesPortableNumberKeysThroughEvents) {
+    nk::EventSystem::shutdown();
+    nk::EventSystem::init();
+
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    ASSERT_TRUE(nk::EventSystem::register_event(
+        nk::SystemEventCode::SetRenderViewMode,
+        &renderer,
+        nk::on_render_view_mode));
+
+    nk::RenderViewMode mode{};
+    ASSERT_TRUE(nk::render_view_mode_from_key(nk::KeyCode::Num2, mode));
+    EXPECT_EQ(mode, nk::RenderViewMode::normals);
+    EXPECT_FALSE(nk::render_view_mode_from_key(nk::KeyCode::T, mode));
+
+    nk::EventContext mode_context{};
+    mode_context.data.u32[0] = static_cast<nk::u32>(mode);
+    EXPECT_TRUE(nk::EventSystem::fire_event(
+        nk::SystemEventCode::SetRenderViewMode,
+        nullptr,
+        mode_context));
+    EXPECT_EQ(renderer.render_view_mode(), nk::RenderViewMode::normals);
+
+    ASSERT_TRUE(nk::render_view_mode_from_key(nk::KeyCode::Num0, mode));
+    mode_context.data.u32[0] = static_cast<nk::u32>(mode);
+    EXPECT_TRUE(nk::EventSystem::fire_event(
+        nk::SystemEventCode::SetRenderViewMode,
+        nullptr,
+        mode_context));
+    EXPECT_EQ(renderer.render_view_mode(), nk::RenderViewMode::default_lit);
+
+    EXPECT_TRUE(nk::EventSystem::unregister_event(
+        nk::SystemEventCode::SetRenderViewMode,
+        &renderer,
+        nk::on_render_view_mode));
+    nk::EventSystem::shutdown();
 }
 
 TEST(MaterialSystem, RejectsInvalidPointLightConfiguration) {
@@ -775,6 +850,19 @@ TEST(MaterialSystem, RejectsInvalidPointLightConfiguration) {
         lighting);
     ASSERT_FALSE(invalid);
     EXPECT_EQ(invalid.error().code, nk::material_error_code::invalid_config);
+
+    lighting.point_light_count = 0;
+    auto invalid_mode = systems.materials->apply_global(
+        nk::MaterialType::world,
+        glm::mat4{1.0f},
+        glm::mat4{1.0f},
+        glm::vec3{0.0f},
+        lighting,
+        static_cast<nk::RenderViewMode>(3));
+    ASSERT_FALSE(invalid_mode);
+    EXPECT_EQ(
+        invalid_mode.error().code,
+        nk::material_error_code::invalid_config);
     EXPECT_EQ(renderer.shader_trace_length(), 0u);
 }
 
