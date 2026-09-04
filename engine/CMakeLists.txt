@@ -57,6 +57,7 @@ set(SOURCES
     src/core/clock.cpp
     src/core/hash.cpp
     src/core/str.cpp
+    src/core/transform.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
     src/memory/linear_allocator.cpp
