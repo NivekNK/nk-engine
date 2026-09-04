@@ -760,22 +760,52 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Introducir `Mesh` como recurso que agrupa múltiples geometrías y conserva un
+- [x] Introducir `Mesh` como recurso que agrupa múltiples geometrías y conserva un
   transform, sin ser dueño ambiguo de punteros crudos.
-- [ ] Usar `dyarr`/handles estables y documentar quién adquiere/libera geometrías y
+- [x] Usar `dyarr`/handles estables y documentar quién adquiere/libera geometrías y
   materiales.
-- [ ] Extender `RenderPacket` para varias subgeometrías y evitar aplicar el mismo
+- [x] Extender `RenderPacket` para varias subgeometrías y evitar aplicar el mismo
   material varias veces por frame si su estado no cambió.
-- [ ] Agregar materiales de demostración sólo cuando correspondan a assets ya
+- [x] Agregar materiales de demostración sólo cuando correspondan a assets ya
   versionados y con rutas válidas.
-- [ ] Dejar el loader de disco fuera de este capítulo; aquí se prueba un mesh
+- [x] Dejar el loader de disco fuera de este capítulo; aquí se prueba un mesh
   construido desde configuraciones en memoria.
 
 ### Validación y commits
 
-- [ ] Tests de lifecycle, mesh vacío/múltiple y cleanup parcial; smoke con dos o más
+- [x] Tests de lifecycle, mesh vacío/múltiple y cleanup parcial; smoke con dos o más
   geometrías/materiales.
-- [ ] Commit sugerido: `feat(resources): add multi-geometry mesh resources`.
+- [x] Commits: `feat(resources): add owned multi-geometry meshes`,
+  `feat(renderer): draw grouped mesh geometry` y
+  `feat(demo): render multiple material meshes`.
+
+### Estado implementado
+
+- `Mesh` es move-only y RAII. Su `dyarr<Geometry*>` privado posee exactamente una
+  adquisición de `GeometrySystem` por subgeometría, mientras sus accessors
+  entregan sólo vistas prestadas. El sistema de geometría debe sobrevivir al
+  mesh; el shutdown del engine destruye primero el `dyarr<Mesh>`.
+- La creación desde `slice<const GeometryConfig>` publica el mesh sólo después de
+  adquirir todas las geometrías. Un error intermedio informa el índice y la causa
+  original y libera todo lo ya adquirido. El grupo vacío es válido.
+- `RenderPacket` acepta una vista de meshes y el renderer expande sus geometrías
+  durante el world pass sin allocation ni array plano temporal. El payload de un
+  material se actualiza una vez por frame/generación y un material consecutivo ya
+  enlazado no repite el descriptor bind; una secuencia `A -> B -> A` sí religa `A`.
+- La demo conserva dos meshes en `dyarr`: uno usa `paving` y otro `cobblestone`.
+  Los `.kmt` de `paving`, `paving2` y `cobblestone` sólo referencian las texturas
+  ya versionadas. El error del ejemplo Kohi que reutilizaba la configuración del
+  primer cubo al crear el segundo no fue trasladado.
+- No se añadió loader de mesh, jerarquía ni `Transform`; esos alcances quedan para
+  los capítulos posteriores. Tampoco se añadieron dependencias o submódulos.
+- La ruta activa de shaders permanece exclusivamente en Slang: cuatro fuentes
+  `.slang` y dos `.shadercfg`, compiladas por `slangc`.
+- Pasaron 212/212 tests en Debug y con ASan/UBSan, y 203/203 en Release. También
+  pasó `nix build --offline .#nk-engine --no-link`.
+- El smoke Wayland/xdg-shell bajo niri renderizó 120 frames con dos geometrías y
+  dos materiales, recorrió los tres modos de iluminación con Validation Layers,
+  registró cero allocation events en los 119 frames estables y terminó con cero
+  fugas.
 
 ## Capítulo 54 — Transforms
 

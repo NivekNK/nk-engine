@@ -38,6 +38,7 @@ Engine
 ├── ShaderSystem ───→ Renderer, ResourceSystem, TextureSystem defaults
 ├── MaterialSystem ─→ ShaderSystem, TextureSystem, ResourceSystem
 ├── GeometrySystem ─→ Renderer, MaterialSystem
+├── Mesh values ────→ GeometrySystem
 └── frame-local RenderPacket views
 ```
 
@@ -54,7 +55,8 @@ lifetime dependency.
 Shutdown is the exact reverse:
 
 ```text
-GeometrySystem
+Mesh values
+→ GeometrySystem
 → MaterialSystem
 → ShaderSystem
 → TextureSystem
@@ -75,6 +77,7 @@ These orderings are invariants:
 - `TextureSystem` outlives every material and shader that borrows a texture.
 - `ShaderSystem` outlives every material that owns a shader instance ID.
 - `MaterialSystem` outlives every geometry that borrows or retains a material.
+- `GeometrySystem` outlives every `Mesh` that owns geometry acquisitions.
 - A failed partial initialization uses the same reverse order and every
   `shutdown` remains safe to call more than once.
 
@@ -97,13 +100,24 @@ These orderings are invariants:
 | `TextureMap::texture` | Borrowed by its `Material` | `TextureSystem` slot or default texture | Never by `TextureMap`; its material releases the acquired texture reference |
 | `Material` slot | `MaterialSystem` | `ShaderSystem` instance, `TextureSystem` and texture maps | `MaterialSystem`, through `ShaderSystem::release_instance` and texture release |
 | `Geometry` slot | `GeometrySystem` | `MaterialSystem`, `Renderer`, material | `GeometrySystem`, through `Renderer::destroy_geometry` and material release |
-| `RenderPacket` arrays | Caller of `Renderer::draw_frame` | Geometries and materials referenced by the packet | Caller; renderer only reads them during the call |
+| `Mesh` value | Its caller or containing `dyarr<Mesh>` | `GeometrySystem` and one acquired reference per subgeometry | `Mesh::reset`/destructor before `GeometrySystem` shutdown |
+| `RenderPacket` arrays | Caller of `Renderer::draw_frame` | Meshes, geometries and materials referenced by the packet | Caller; renderer only reads them during the call |
 
 Pointers returned by `acquire` are borrowed handles into fixed-capacity system
 storage. The caller never deletes them and must not retain them after the
 matching release makes the reference count zero with `auto_release` enabled, or
 after system shutdown. A freed slot may be reused at the same address, so pointer
 identity alone does not make a stale handle valid.
+
+`Mesh::create` is the exception that converts those borrowed geometry pointers
+into an unambiguous aggregate lifetime: it owns exactly one successful
+`GeometrySystem::acquire` operation per entry in its private `dyarr`. The
+pointers remain stable because `GeometrySystem` stores slots in a fixed `arr`,
+and the mesh's reference prevents an auto-release slot from being reused while
+the mesh is alive. `Mesh` is move-only, releases every acquisition before its
+geometry system can shut down, and rolls back all completed acquisitions if a
+later subgeometry fails. Its accessors still return non-owning views; callers
+never delete or separately release them.
 
 ## ResourceSystem contract
 
@@ -256,6 +270,13 @@ identity alone does not make a stale handle valid.
   returns the ID before the shader registry or device is destroyed.
 - `RenderPacket` is a non-owning view. Its arrays and every referenced resource
   remain alive and unchanged for the duration of `draw_frame`.
+- World `Mesh` entries are expanded directly during the render pass; this does
+  not allocate a temporary flattened geometry array. A mesh supplies one model
+  matrix to all of its subgeometries until the dedicated transform system is
+  introduced.
+- Material instance payload is uploaded at most once per material generation
+  and frame. Consecutive subgeometries using the currently-bound material also
+  skip a redundant descriptor bind; changing away and back still rebinds it.
 - World geometry is recorded before UI geometry. Both passes belong to one frame
   and use the swapchain image acquired by `begin_frame`.
 - Swapchain recreation can skip a frame without being an error. Callers inspect
