@@ -277,18 +277,23 @@ endforeach(SHADER_CONFIG)
 add_custom_target(SHADER_CONFIGS DEPENDS ${SHADER_CONFIG_BINARY_FILES})
 add_dependencies(engine SHADER_CONFIGS)
 
-file(GLOB MODEL_FILES "assets/models/*.obj")
+file(GLOB MODEL_FILES
+    "assets/models/*.obj"
+    "assets/models/*.mtl"
+)
 
-# The name of the models are simply for example "flat_vase.obj" i just need to copy them to the build directory, copy it with the extension file
 foreach(MODEL ${MODEL_FILES})
-    get_filename_component(MODEL_NAME ${MODEL} NAME_WLE)
+    get_filename_component(MODEL_NAME ${MODEL} NAME)
+    set(MODEL_OUTPUT
+        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}")
     add_custom_command(
-        OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj
+        OUTPUT ${MODEL_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MODEL} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MODEL} ${MODEL_OUTPUT}
         DEPENDS ${MODEL}
+        VERBATIM
     )
-    list(APPEND MODEL_BINARY_FILES ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/models/${MODEL_NAME}.obj)
+    list(APPEND MODEL_BINARY_FILES ${MODEL_OUTPUT})
 endforeach(MODEL)
 
 add_custom_target(MODELS DEPENDS ${MODEL_BINARY_FILES})

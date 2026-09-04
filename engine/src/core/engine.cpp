@@ -14,6 +14,7 @@
 #include "systems/material_system.h"
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
+#include "resources/static_mesh_resource.h"
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -259,7 +260,7 @@ namespace nk {
         }
         m_geometry_system = *geometry_system;
 
-        if (!m_test_meshes.dyarr_init(m_allocator, 3)) {
+        if (!m_test_meshes.dyarr_init(m_allocator, 5)) {
             ErrorLog("Test mesh collection allocation failed.");
             shutdown_impl();
             return false;
@@ -379,6 +380,66 @@ namespace nk {
             return false;
         }
 
+        const auto load_static_mesh = [this](const strview name) {
+            auto resource = m_resource_system->load(
+                name,
+                ResourceType::static_mesh);
+            if (!resource) {
+                const resource_error error = resource.error();
+                ErrorLog(
+                    "Static mesh '{}' failed to load: resource_error={}, "
+                    "native_code={}",
+                    name,
+                    static_cast<u32>(error.code),
+                    error.native_code);
+                return false;
+            }
+
+            auto mesh = Mesh::create(
+                *m_allocator,
+                *m_geometry_system,
+                *resource->as<StaticMeshResource>());
+            auto unloaded = m_resource_system->unload(*resource);
+            if (!mesh) {
+                const mesh_error error = mesh.error();
+                ErrorLog(
+                    "Static mesh '{}' failed to create: mesh_error={}, "
+                    "geometry_index={}, geometry_error={}, native_code={}",
+                    name,
+                    static_cast<u32>(error.code),
+                    error.geometry_index,
+                    error.geometry_error,
+                    error.native_code);
+                return false;
+            }
+            if (!unloaded) {
+                ErrorLog(
+                    "Static mesh resource '{}' failed to unload: "
+                    "resource_error={}, native_code={}",
+                    name,
+                    static_cast<u32>(unloaded.error().code),
+                    unloaded.error().native_code);
+                return false;
+            }
+
+            auto added = m_test_meshes.dyarr_emplace_back(std::move(*mesh));
+            if (!added) {
+                ErrorLog("Unable to store static mesh '{}'.", name);
+                mesh->reset();
+                return false;
+            }
+            InfoLog(
+                "Static mesh '{}' created with {} material group(s).",
+                name,
+                m_test_meshes.dyarr_last().geometry_count());
+            return true;
+        };
+
+        if (!load_static_mesh("falcon") || !load_static_mesh("sponza")) {
+            shutdown_impl();
+            return false;
+        }
+
         m_test_meshes[1].transform().set_position({10.0f, 0.0f, 1.0f});
         auto second_parented = m_test_meshes[1].transform().set_parent(
             &m_test_meshes[0].transform());
@@ -395,6 +456,9 @@ namespace nk {
             shutdown_impl();
             return false;
         }
+        m_test_meshes[3].transform().set_position({15.0f, 0.0f, 1.0f});
+        m_test_meshes[4].transform().set_position({15.0f, 0.0f, 1.0f});
+        m_test_meshes[4].transform().set_scale(glm::vec3{0.05f});
         m_test_material = m_test_meshes[0].geometry(0)->material;
 
         Geometry2DConfig ui_config{};
@@ -638,8 +702,13 @@ namespace nk {
                     const glm::quat rotation = glm::angleAxis(
                         static_cast<f32>(0.5 * delta),
                         glm::vec3{0.0f, 1.0f, 0.0f});
-                    for (Mesh& mesh : m_test_meshes)
-                        mesh.transform().rotate(rotation);
+                    constexpr u64 rotating_demo_mesh_count = 3;
+                    for (u64 index = 0;
+                         index < rotating_demo_mesh_count &&
+                             index < m_test_meshes.length();
+                         ++index) {
+                        m_test_meshes[index].transform().rotate(rotation);
+                    }
                 }
                 GeometryRenderData ui_geometry{
                     .model = glm::mat4{1.0f},

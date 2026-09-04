@@ -200,8 +200,30 @@ namespace nk {
             return value.substr(begin, end - begin);
         }
 
+        bool assign_available_texture(
+            const strview asset_base_path,
+            const std::string& source_path,
+            strbuf<texture_name_capacity>& destination) noexcept {
+            const strview stem = texture_stem(source_path);
+            if (stem.empty())
+                return true;
+
+            strbuf<511> png_path;
+            if (!format_to(
+                    png_path,
+                    "{}/textures/{}.png",
+                    asset_base_path,
+                    stem)) {
+                return false;
+            }
+            if (!File::exists(png_path.cstr()))
+                return true;
+            return destination.assign(stem);
+        }
+
         result<void, resource_error> convert_materials(
             mem::Allocator& allocator,
+            const strview asset_base_path,
             const std::vector<tinyobj::material_t>& source,
             StaticMeshResource& destination) {
             if (source.empty())
@@ -223,12 +245,18 @@ namespace nk {
                 const strview name{input.name.data(), input.name.size()};
                 if (name.empty() || !output.name.assign(name) ||
                     !output.shader_name.assign("Builtin.MaterialShader") ||
-                    !output.diffuse_map_name.assign(
-                        texture_stem(input.diffuse_texname)) ||
-                    !output.specular_map_name.assign(
-                        texture_stem(input.specular_texname)) ||
-                    !output.normal_map_name.assign(
-                        texture_stem(input.bump_texname))) {
+                    !assign_available_texture(
+                        asset_base_path,
+                        input.diffuse_texname,
+                        output.diffuse_map_name) ||
+                    !assign_available_texture(
+                        asset_base_path,
+                        input.specular_texname,
+                        output.specular_map_name) ||
+                    !assign_available_texture(
+                        asset_base_path,
+                        input.bump_texname,
+                        output.normal_map_name)) {
                     return err(mesh_error(
                         resource_error_code::invalid_data,
                         static_mesh_parse_error::name_too_long));
@@ -658,6 +686,7 @@ namespace nk {
         StaticMeshResource parsed;
         auto materials_converted = convert_materials(
             allocator,
+            asset_base_path,
             reader.GetMaterials(),
             parsed);
         if (!materials_converted)
