@@ -48,6 +48,10 @@ namespace nk {
                     render_mode_context);
             }
             switch (keycode) {
+                case KeyCode::Escape:
+                    // Temporary exit shortcut until application-level controls exist.
+                    EventSystem::fire_event(SystemEventCode::ApplicationQuit, nullptr, EventContext{});
+                    return true;
                 case KeyCode::RAlt:
                     DebugLog("'Right Alt' key pressed in window.");
                     break;
@@ -104,6 +108,7 @@ namespace nk {
                     break;
                 case KeyCode::T:
                 case KeyCode::P:
+                case KeyCode::Escape:
                     return true;
                 default:
                     DebugLog("'{}' key released in window.", static_cast<char>(keycode));
@@ -729,6 +734,10 @@ namespace nk {
             if (!m_platform->pump_messages()) {
                 m_platform->close();
             }
+
+            // Quit requests from input/window events must not start another frame.
+            if (!m_platform->running())
+                break;
 
             if (!m_platform->suspended()) {
                 if (smoke_test_cycle_samplers && smoke_test_frames >= 5) {
