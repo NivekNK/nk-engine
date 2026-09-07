@@ -1,6 +1,6 @@
 # Plan de implementación de Kohi 41–59 en NK Engine
 
-- Estado: en progreso; capítulos 41–54 adaptados
+- Estado: en progreso; capítulos 41–56 adaptados
 - Fecha de análisis: 2026-09-02
 - Punto de partida de NK Engine: capítulos 34–40 adaptados; rama `feature/textures`
 
@@ -928,27 +928,74 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ## Capítulo 56 — Custom Binary Mesh File Format
 
+- Estado: completado en NK Engine (2026-09-06).
 - Vídeo: [Kohi #056](https://youtu.be/Uk2p3vKBMXE?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
 - Referencia principal: [`920035f`](https://github.com/travisvroman/kohi/commit/920035fa5f8184f36a27107eed0ad81582efa23b)
 
 ### Plan
 
-- [ ] Definir formato propio de NK, recomendado `.nkmesh`, con magic, versión,
+- [x] Definir formato propio de NK, recomendado `.nkmesh`, con magic, versión,
   endianness, counts, tamaños, extents y nombres acotados. No heredar `.ksm`.
-- [ ] Validar todos los offsets/counts antes de reservar o leer; limitar tamaños
+- [x] Validar todos los offsets/counts antes de reservar o leer; limitar tamaños
   para archivos hostiles o corruptos.
-- [ ] Serializar tipos de ancho fijo, nunca padding de structs C++ ni punteros.
-- [ ] En cache miss cargar OBJ y escribir cache mediante archivo temporal + rename;
+- [x] Serializar tipos de ancho fijo, nunca padding de structs C++ ni punteros.
+- [x] En cache miss cargar OBJ y escribir cache mediante archivo temporal + rename;
   si el cache está corrupto o incompatible, regenerarlo desde la fuente.
-- [ ] Versionar el formato al cambiar layout de vértices o texture maps.
-- [ ] No versionar caches gigantes generados. Mantener como máximo un fixture
+- [x] Versionar el formato al cambiar layout de vértices o texture maps.
+- [x] No versionar caches gigantes generados. Mantener como máximo un fixture
   binario pequeño y reproducible para compatibilidad.
 
 ### Validación y commits
 
-- [ ] Round-trip OBJ → `.nkmesh` → Mesh, truncados, magic/version inválidos,
+- [x] Round-trip OBJ → `.nkmesh` → Mesh, truncados, magic/version inválidos,
   overflow, cache fallback y resultado determinista.
-- [ ] Commit sugerido: `feat(resources): cache static meshes in a versioned binary format`.
+- [x] Avances segmentados en commits semánticos:
+  - `7958861 feat(io): add bounded reads and atomic file replacement`
+  - `86e6160 feat(resources): add validated static mesh binary codec`
+  - `92ccc2b feat(resources): cache imported meshes with dependency validation`
+
+### Adaptación y cierre
+
+- Especificación y uso: [static-mesh-binary-format.md](static-mesh-binary-format.md).
+  Header little-endian de 64 bytes, versión/revisión del importador, checksum
+  rapidhash v3, strings acotados, materiales inline y vértices serializados por
+  componente. El preflight valida todo el cuerpo antes de reservar el payload;
+  la lectura del archivo también tiene límite previo de 128 MiB.
+- El loader conserva triangulación, agrupación por material, deduplicación,
+  normales/tangentes y convención UV de NK. Comprueba hashes de OBJ/MTL y presencia
+  de PNG; detecta cambios del mismo tamaño/fecha y materiales antes ausentes.
+  Sin OBJ admite un binario válido standalone. Caché dañada con fuente disponible
+  se regenera; sin fuente falla con `result` sin publicar un recurso parcial.
+- Escritura atómica con temporal exclusivo y rename/replacement, sin perder el
+  destino anterior ante fallo. No poder cachear no impide cargar el OBJ. No se
+  agregaron dependencias ni assets externos: se reutilizan los submódulos/tag/CSV
+  existentes y Falcon/Sponza. Los `.nkmesh` generados están ignorados por Git.
+- Se conserva la capa Vulkan inspirada en
+  [NoGraphicsAPI](https://github.com/sebbbi/NoGraphicsAPI): el archivo sólo contiene
+  datos CPU; `Mesh::create`/`GeometrySystem` siguen usando el upload del renderer
+  y sus vidas explícitas. No se añadieron handles/direcciones GPU al formato,
+  nuevos requisitos de GPU, GLSL, GLFW ni código macOS.
+- Validación: **246/246 Debug**, **237/237 Release**, **246/246 ASan/UBSan**.
+  Tras sanitizadores se restauraron y verificaron los ejecutables Debug normales.
+  Build pura `nix build .#nk-engine` correcta; el paquete renderizó 60 frames con
+  assets de sólo lectura y avisos no fatales por no poder escribir la caché.
+- Wayland nativo, AMD Radeon Graphics RADV RENOIR: runs Debug de 120 frames en
+  importación inicial, caché caliente y `NK_VULKAN_LEGACY=1`, recorriendo los modos
+  de iluminación con validación de sincronización solicitada. Sin errores Vulkan
+  detectados, cero allocation events en los 118 frames estables de cada run y cero
+  fugas reportadas por los allocators del motor. Falcon conserva 1 grupo y Sponza
+  25. Windows mantiene implementación Win32, pero no se ejecutó en esta máquina.
+- Release, tres pares alternados `NK_MESH_CACHE=off`/caché caliente, 60 frames por
+  run, sin compilar simultáneamente: mediana Falcon **8,733 → 0,446 ms** y Sponza
+  **239,912 → 20,370 ms** (≈19,6× y ≈11,8×). El binario incluye validación y hashes
+  de fuentes. Son tiempos del loader, no del arranque completo ni ganancias de
+  FPS. Rango de Sponza: OBJ 236,923–245,421 ms; binario 18,887–20,966 ms. Primera
+  importación Release incluyendo escritura: 265,555 ms. Cachés locales: Falcon
+  ≈354 KiB y Sponza ≈11 MiB; no se versionaron.
+- Regresión sin cambiar código: `NK_MESH_CACHE=off nix run .#run -- Release`.
+  Ejecución normal: `nix run .#build -- Release` y `nix run .#run -- Release`.
+  El primer run genera las cachés locales; los siguientes las reutilizan. En el
+  store inmutable de Nix se necesita un binario pregenerado para aprovecharlas.
 
 ## Capítulo 57 — Enhancing Texture Maps
 
