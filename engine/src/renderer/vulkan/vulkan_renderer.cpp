@@ -7,6 +7,7 @@
 #include "vulkan/utils.h"
 #include "vulkan/resources/texture_data.h"
 #include "vulkan/graphics_commands.h"
+#include "vulkan/image_utils.h"
 
 #include <glm/vertex_3d.h>
 #include <glm/vertex_2d.h>
@@ -775,19 +776,26 @@ namespace nk {
         texture.channel_count = channel_count;
         texture.generation = 0;
 
-        // TODO: Use an allocator for this.
         TextureData* texture_data = m_allocator->construct_t(TextureData);
         if (texture_data == nullptr)
             return err(renderer_error{
                 .code = renderer_error_code::out_of_memory,
                 .native_code = 0,
             });
+        if (width > m_device.max_texture_dimension() || height > m_device.max_texture_dimension()) {
+            m_allocator->deconstruct_t(TextureData, texture_data);
+            return err(renderer_error{renderer_error_code::texture_limits_exceeded, 0});
+        }
         texture.m_internal_data = texture_data;
         const VkDeviceSize image_size =
             static_cast<VkDeviceSize>(width) * height * channel_count;
 
         // NOTE: Assumes 8 bits per channel.
-        VkFormat image_format = VK_FORMAT_R8G8B8A8_UNORM;
+        const VkFormat image_format = VK_FORMAT_R8G8B8A8_UNORM;
+        const cstr mip_option = std::getenv("NK_VULKAN_MIPMAPS");
+        const bool mipmaps = (mip_option == nullptr || std::strcmp(mip_option, "0") != 0) &&
+            m_device.supports_linear_blit(image_format);
+        const u32 mip_levels = mipmaps ? vk::mip_level_count({width, height}) : 1;
 
         // Create a staging buffer and load data into it.
         VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -819,10 +827,12 @@ namespace nk {
                 .extent = {width, height},
                 .format = image_format,
                 .tiling = VK_IMAGE_TILING_OPTIMAL,
-                .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                .usage = static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                    (mip_levels > 1 ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0)),
                 .memory_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 .create_view = true,
                 .view_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mip_levels = mip_levels,
             },
             &m_device, m_vulkan_allocator);
         if (!image_initialized) {
@@ -840,22 +850,16 @@ namespace nk {
             return err(command_initialized.error());
         }
 
-        // Transition the layout from whatever it is currently to optimal for recieving data.
-        texture_data->image.transition_layout(
-            &temp_buffer,
-            image_format,
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        const vk::GraphicsCommands commands{m_device, temp_buffer};
+        commands.transition(texture_data->image.get(), {VK_IMAGE_ASPECT_COLOR_BIT, 0, mip_levels, 0, 1},
+            vk::ImageUse::discard, vk::ImageUse::transfer_destination);
 
         // Copy the data from the buffer.
         texture_data->image.copy_from_buffer(&temp_buffer, staging);
 
-        // Transition from optimal for data reciept to shader-read-only optimal layout.
-        texture_data->image.transition_layout(
-            &temp_buffer,
-            image_format,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // One upload submission, never per-frame work. The single-level
+        // capability/diagnostic fallback still transitions to sampled use.
+        texture_data->image.generate_mipmaps(temp_buffer);
 
         auto command_ended = temp_buffer.end_single_use(queue);
         if (!command_ended) {
@@ -875,7 +879,7 @@ namespace nk {
         sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         sampler_info.anisotropyEnable = VK_TRUE;
-        sampler_info.maxAnisotropy = 16;
+        sampler_info.maxAnisotropy = glm::min(16.0f, m_device.max_sampler_anisotropy());
         sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
         sampler_info.unnormalizedCoordinates = VK_FALSE;
         sampler_info.compareEnable = VK_FALSE;
@@ -883,7 +887,7 @@ namespace nk {
         sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         sampler_info.mipLodBias = 0.0f;
         sampler_info.minLod = 0.0f;
-        sampler_info.maxLod = 0.0f;
+        sampler_info.maxLod = static_cast<f32>(mip_levels - 1);
 
         VkResult result = vkCreateSampler(m_device, &sampler_info, m_vulkan_allocator, &texture_data->sampler);
         if (!vk::is_success(result)) {
@@ -896,6 +900,7 @@ namespace nk {
         }
 
         texture.has_transparency = has_transparency;
+        DebugLog("Texture '{}' uploaded with {} mip level(s).", name, mip_levels);
         *out_texture = texture;
         return ok();
     }

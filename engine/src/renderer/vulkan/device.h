@@ -77,6 +77,9 @@ namespace nk {
         u32 max_push_constant_size() const noexcept {
             return m_properties.limits.maxPushConstantsSize;
         }
+        u32 max_texture_dimension() const noexcept { return m_properties.limits.maxImageDimension2D; }
+        f32 max_sampler_anisotropy() const noexcept { return m_properties.limits.maxSamplerAnisotropy; }
+        bool supports_linear_blit(VkFormat format) const noexcept;
         f32 timestamp_period() const noexcept { return m_properties.limits.timestampPeriod; }
         u32 timestamp_valid_bits() const noexcept { return m_timestamp_valid_bits; }
         bool dynamic_rendering() const noexcept { return m_commands.begin_rendering != nullptr; }

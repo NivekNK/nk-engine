@@ -1,6 +1,7 @@
 #include "nkpch.h"
 
 #include "vulkan/device.h"
+#include "vulkan/image_utils.h"
 
 #include "vulkan/utils.h"
 #include "vulkan/instance.h"
@@ -464,6 +465,12 @@ namespace nk {
         InfoLog("Vulkan command path: dynamic_rendering={}, synchronization2={}, frames_in_flight=2.",
             dynamic_rendering(), synchronization2());
         InfoLog("Vulkan Logical Device created.");
+    }
+
+    bool Device::supports_linear_blit(const VkFormat format) const noexcept {
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(m_physical_device, format, &properties);
+        return vk::supports_linear_mip_blit(properties.optimalTilingFeatures);
     }
 
     result<void, renderer_error> Device::submit(

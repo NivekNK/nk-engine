@@ -220,6 +220,13 @@ never delete or separately release them.
   pointer before destroying the default texture.
 - The opaque backend data in `Texture::m_internal_data` belongs exclusively to
   the renderer that created it.
+- Vulkan uploads level zero and generates the complete mip chain in the same
+  startup/upload command buffer when the format supports linear source/destination
+  blits. Every subresource is transitioned before sampling; the image view and
+  sampler expose only initialized levels. Unsupported formats and the diagnostic
+  `NK_VULKAN_MIPMAPS=0` mode retain a single level. Depth attachments always use
+  one level. The current RGBA8 UNORM color convention is unchanged; sRGB-aware
+  import/filtering is a separate asset-pipeline change.
 
 ## MaterialSystem contract
 

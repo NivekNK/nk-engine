@@ -4,16 +4,22 @@
 
 #include "vulkan/device.h"
 #include "vulkan/command_buffer.h"
+#include "vulkan/graphics_commands.h"
+#include "vulkan/image_utils.h"
 
 namespace nk {
     result<void, renderer_error> Image::init(
         const VulkanImageCreateInfo& create_info,
         Device* device,
         VkAllocationCallbacks* vulkan_allocator) {
+        if (create_info.mip_levels == 0 ||
+            create_info.mip_levels > vk::mip_level_count(create_info.extent))
+            return err(renderer_error{renderer_error_code::image_creation_failed, 0});
         m_device = device;
         m_vulkan_allocator = vulkan_allocator;
         m_extent = create_info.extent;
         m_format = create_info.format;
+        m_mip_levels = create_info.mip_levels;
 
         // Creation info.
         VkImageCreateInfo image_create_info = {};
@@ -22,9 +28,7 @@ namespace nk {
         image_create_info.extent.width = m_extent.width;
         image_create_info.extent.height = m_extent.height;
         image_create_info.extent.depth = 1; // TODO: Support configurable depth.
-        // Only level zero is uploaded, transitioned and exposed by the view.
-        // Additional levels must not be declared until mip generation exists.
-        image_create_info.mipLevels = 1;
+        image_create_info.mipLevels = m_mip_levels;
         image_create_info.arrayLayers = 1;  // TODO: Support number of layers in the image.
         image_create_info.format = m_format;
         image_create_info.tiling = create_info.tiling;
@@ -117,7 +121,7 @@ namespace nk {
 
         // TODO: Make configurable
         view_create_info.subresourceRange.baseMipLevel = 0;
-        view_create_info.subresourceRange.levelCount = 1;
+        view_create_info.subresourceRange.levelCount = m_mip_levels;
         view_create_info.subresourceRange.baseArrayLayer = 0;
         view_create_info.subresourceRange.layerCount = 1;
 
@@ -131,64 +135,26 @@ namespace nk {
         return ok();
     }
 
-    void Image::transition_layout(
-        CommandBuffer* command_buffer,
-        VkFormat format,
-        VkImageLayout old_layout,
-        VkImageLayout new_layout) {
-        // Get queue family indices
-        const u32 graphics_queue_index = m_device->get_queue_family_info().graphics_family_index;
-
-        // Create barrier
-        VkImageMemoryBarrier barrier;
-        memset(&barrier, 0, sizeof(VkImageMemoryBarrier));
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = old_layout;
-        barrier.newLayout = new_layout;
-        barrier.srcQueueFamilyIndex = graphics_queue_index;
-        barrier.dstQueueFamilyIndex = graphics_queue_index;
-        barrier.image = m_image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-
-        VkPipelineStageFlags source_stage;
-        VkPipelineStageFlags dest_stage;
-
-        // Don't care about the old layout - transition to optimal layout (for the underlying implementation).
-        if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-            // Don't care what stage the pipeline is in at the start.
-            source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-
-            // Used for copying
-            dest_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        } else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-            // Transitioning from a transfer destination layout to a shader-readonly layout.
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-            // From a copying stage to...
-            source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-            // The fragment stage.
-            dest_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        } else {
-            FatalLog("nk::Image::transition_layout > Unsupported layout transition.");
-            return;
+    void Image::generate_mipmaps(CommandBuffer& command_buffer) {
+        const vk::GraphicsCommands commands{*m_device, command_buffer};
+        for (u32 level = 1; level < m_mip_levels; ++level) {
+            const VkImageSubresourceRange previous{VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, 1};
+            commands.transition(m_image, previous,
+                vk::ImageUse::transfer_destination, vk::ImageUse::transfer_source);
+            const VkExtent2D source = vk::mip_extent(m_extent, level - 1);
+            const VkExtent2D destination = vk::mip_extent(m_extent, level);
+            VkImageBlit region{};
+            region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, 1};
+            region.srcOffsets[1] = {static_cast<i32>(source.width), static_cast<i32>(source.height), 1};
+            region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1};
+            region.dstOffsets[1] = {static_cast<i32>(destination.width), static_cast<i32>(destination.height), 1};
+            vkCmdBlitImage(command_buffer, m_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+            commands.transition(m_image, previous,
+                vk::ImageUse::transfer_source, vk::ImageUse::sampled);
         }
-
-        vkCmdPipelineBarrier(
-            command_buffer->get(),
-            source_stage, dest_stage,
-            0,
-            0, 0,
-            0, 0,
-            1, &barrier);
+        commands.transition(m_image, {VK_IMAGE_ASPECT_COLOR_BIT, m_mip_levels - 1, 1, 0, 1},
+            vk::ImageUse::transfer_destination, vk::ImageUse::sampled);
     }
 
     void Image::copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer) {

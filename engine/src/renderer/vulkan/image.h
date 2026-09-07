@@ -17,6 +17,7 @@ namespace nk {
         VkMemoryPropertyFlags memory_flags;
         bool create_view = false;
         VkImageAspectFlags view_aspect_flags = 0;
+        u32 mip_levels = 1;
     };
 
     class Image {
@@ -46,9 +47,10 @@ namespace nk {
         [[nodiscard]] result<void, renderer_error> create_view(
             VkImageAspectFlags aspect_flags);
 
-        void transition_layout(CommandBuffer* command_buffer, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout);
-
         void copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer);
+        // All levels must be transfer destinations, with level zero uploaded.
+        // Returns every level in sampled use; even the single-level fallback.
+        void generate_mipmaps(CommandBuffer& command_buffer);
 
         VkImageView get_view() const { return m_view; }
         VkImage get() const noexcept { return m_image; }
@@ -62,5 +64,6 @@ namespace nk {
         VkImageView m_view = nullptr;
         VkExtent2D m_extent{};
         VkFormat m_format = VK_FORMAT_UNDEFINED;
+        u32 m_mip_levels = 1;
     };
 }
