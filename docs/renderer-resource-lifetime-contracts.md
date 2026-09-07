@@ -18,6 +18,25 @@ public configuration types.
 public resource can carry an opaque backend handle, but only its creating
 renderer may interpret or destroy it.
 
+The Vulkan command boundary follows the scoped, explicit-resource design of
+[NoGraphicsAPI](https://github.com/sebbbi/NoGraphicsAPI): `vk::GraphicsCommands`
+borrows command buffers, buffer ranges, attachments and push-constant bytes;
+it never takes ownership or allocates per draw. This is an NK compatibility
+implementation, not a dependency on that prototype. It retains Vulkan 1.2
+vertex/index buffers, descriptor sets and optimal image layouts. Dynamic
+rendering and synchronization2 are selected independently from reported device
+features, through core 1.3 or KHR entry points; `NK_VULKAN_LEGACY=1` exercises
+the render-pass/legacy-barrier/submit fallback. Neither path requires mesh
+shaders, descriptor heaps, device-address commands or Resizable BAR.
+
+Image transitions describe producer/consumer uses; discarding an attachment
+does not waive its acquire/fence dependency. Swapchain acquisition and its first
+color transition share the color-output execution scope. Dynamic world and UI
+passes have an explicit color-write/read-write barrier, and presentation follows
+an explicit final layout transition. Future Vulkan features must preserve this
+boundary and select capabilities without raising the mandatory GPU floor unless
+that compatibility change is approved separately.
+
 Frame submission is asynchronous. Two frame slots own their acquire semaphore,
 completion fence, descriptor sets and disjoint aligned UBO ranges. The CPU waits
 for a slot's fence before writing its mapped uniform storage. Static instance
@@ -107,7 +126,7 @@ These orderings are invariants:
 | `ShaderHandle` slot | Vulkan renderer shader registry | Compatible render pass, device, resources and live textures bound by descriptors | `ShaderSystem::destroy(shader)` through `Renderer::destroy_shader`, or renderer shutdown as a defensive fallback |
 | `ShaderSystem` registry | `Engine` through the root allocator | `Renderer`, `ResourceSystem` and indirect texture lifetime | `ShaderSystem::destroy` after materials and before textures/renderer/resources |
 | `ShaderSystem::ShaderRecord` | Its `ShaderSystem` fixed-capacity registry | Backend `ShaderHandle`; copied immutable metadata and owned lookup names | `ShaderSystem::destroy(shader)` or system shutdown |
-| Shader instance ID | Its shader slot, borrowed by one `Material` | Per-image descriptor sets and the shader's instance UBO | `Renderer::release_shader_instance` through material destruction |
+| Shader instance ID | Its shader slot, borrowed by one `Material` | Per-frame-slot descriptor sets and disjoint instance UBO ranges | `Renderer::release_shader_instance` through material destruction |
 | Vulkan object vertex/index buffers | Vulkan renderer | Device plus renderer allocator for range metadata | Vulkan renderer after all geometry ranges are released |
 | `VulkanGeometryData` ranges | Vulkan geometry slot | Suballocators of the object vertex/index buffers | Vulkan renderer after graphics work using the ranges completes |
 | `Texture` slot | `TextureSystem` | No high-level resource; opaque backend data belongs to `Renderer` | `TextureSystem`, through `Renderer::destroy_texture` |

@@ -48,6 +48,7 @@ namespace nk {
             u32 present_image_index);
 
         VkSurfaceFormatKHR get_image_format() const { return m_image_format; }
+        VkImage get_image_at(u32 index) const { return m_images[index]; }
         bool is_initialized() const { return m_swapchain != nullptr; }
         u32 get_image_count() const { return m_image_count; }
         VkImageView get_image_view_at(u32 index) {

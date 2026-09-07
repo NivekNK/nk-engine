@@ -1,4 +1,5 @@
 #include "nkpch.h"
+#include "vulkan/graphics_commands.h"
 
 #include "vulkan/shaders/vulkan_shader.h"
 
@@ -1141,13 +1142,8 @@ namespace nk {
         if (!allowed)
             return err(initialization_error());
 
-        vkCmdPushConstants(
-            command_buffer.get(),
-            m_pipeline.get_layout(),
-            to_vulkan_stages(stages),
-            offset,
-            size,
-            data);
+        vk::GraphicsCommands{*m_device, command_buffer.get()}.push_root(
+            m_pipeline.get_layout(), to_vulkan_stages(stages), offset, size, data);
         return ok();
     }
 

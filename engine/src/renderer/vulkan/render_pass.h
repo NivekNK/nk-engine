@@ -63,6 +63,9 @@ namespace nk {
         void end(CommandBuffer& command_buffer);
 
         VkRect2D& get_render_area() { return m_render_area; }
+        VkFormat color_format() const noexcept { return m_color_format; }
+        VkFormat depth_format() const noexcept { return m_depth_format; }
+        const glm::vec4& clear_color() const noexcept { return m_clear_color; }
 
         VkRenderPass get() { return m_render_pass; }
         VkRenderPass operator()() { return m_render_pass; }
@@ -73,6 +76,8 @@ namespace nk {
         Device* m_device = nullptr;
 
         VkRenderPass m_render_pass = nullptr;
+        VkFormat m_color_format = VK_FORMAT_UNDEFINED;
+        VkFormat m_depth_format = VK_FORMAT_UNDEFINED;
 
         VkRect2D m_render_area{};
         glm::vec4 m_clear_color{};

@@ -92,6 +92,7 @@ set(SOURCES
     src/renderer/vulkan/render_pass.cpp
     src/renderer/vulkan/framebuffer.cpp
     src/renderer/vulkan/command_buffer.cpp
+    src/renderer/vulkan/graphics_commands.cpp
     src/renderer/vulkan/fence.cpp
     src/renderer/vulkan/pipeline.cpp
     src/renderer/vulkan/buffer.cpp

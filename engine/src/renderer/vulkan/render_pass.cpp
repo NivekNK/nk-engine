@@ -22,6 +22,13 @@ namespace nk {
         m_depth = create_info.depth;
         m_stencil = create_info.stencil;
         m_clear_flags = create_info.clear_flags;
+        m_color_format = swapchain.get_image_format().format;
+        m_depth_format = create_info.has_depth_attachment
+            ? device->get_depth_format() : VK_FORMAT_UNDEFINED;
+        // Modern pipelines need only attachment formats. No VkRenderPass or
+        // framebuffer object is created on the dynamic-rendering path.
+        if (device->dynamic_rendering())
+            return ok();
 
         // Main subpass
         VkSubpassDescription subpass = {};

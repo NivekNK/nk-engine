@@ -6,6 +6,7 @@
 #include "systems/resource_system.h"
 #include "vulkan/utils.h"
 #include "vulkan/resources/texture_data.h"
+#include "vulkan/graphics_commands.h"
 
 #include <glm/vertex_3d.h>
 #include <glm/vertex_2d.h>
@@ -370,20 +371,22 @@ namespace nk {
 
         const u32 image_count = m_swapchain.get_image_count();
 
-        if (!m_world_framebuffers.dyarr_init_len(
-                m_allocator, image_count, image_count) ||
-            !m_ui_framebuffers.dyarr_init_len(
-                m_allocator, image_count, image_count))
-            return err(renderer_error{
-                .code = renderer_error_code::out_of_memory,
-                .native_code = 0,
-            });
-        auto framebuffers_created = recreate_framebuffers();
-        if (!framebuffers_created)
-            return err(framebuffers_created.error());
-        InfoLog(
-            "Vulkan world/UI Framebuffers created ({} each).",
-            m_world_framebuffers.length());
+        if (!m_device.dynamic_rendering()) {
+            if (!m_world_framebuffers.dyarr_init_len(
+                    m_allocator, image_count, image_count) ||
+                !m_ui_framebuffers.dyarr_init_len(
+                    m_allocator, image_count, image_count))
+                return err(renderer_error{
+                    .code = renderer_error_code::out_of_memory,
+                    .native_code = 0,
+                });
+            auto framebuffers_created = recreate_framebuffers();
+            if (!framebuffers_created)
+                return err(framebuffers_created.error());
+            InfoLog(
+                "Vulkan world/UI Framebuffers created ({} each).",
+                m_world_framebuffers.length());
+        }
 
         if (!m_graphics_command_buffers.dyarr_init_len(
                 m_allocator, image_count, image_count))
@@ -610,41 +613,11 @@ namespace nk {
         if (!reset)
             return err(reset.error());
 
-        // Submit the queue and wait for the operation to complete.
-        // > Begin queue submission
-        VkSubmitInfo submit_info = {};
-        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-        // Command buffer(s) to be executed.
-        submit_info.commandBufferCount = 1;
-        VkCommandBuffer p_command_buffer = command_buffer.get();
-        submit_info.pCommandBuffers = &p_command_buffer;
-
-        // The semaphore(s) to be signaled when the queue is complete.
-        submit_info.signalSemaphoreCount = 1;
-        submit_info.pSignalSemaphores = &m_queue_complete_semaphores[m_image_index];
-
-        // Wait semaphore ensures that the operation cannot begin until the image is available.
-        submit_info.waitSemaphoreCount = 1;
-        submit_info.pWaitSemaphores = &m_image_available_semaphores[m_current_frame];
-
-        // Each semaphore waits on the corresponding pipeline stage to complete. 1:1 ratio.
-        // VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT prevents subsequent colour attachment
-        // writes from executing until the semaphore signals (i.e. one frame is presented at a time)
-        VkPipelineStageFlags flags[1] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-        submit_info.pWaitDstStageMask = flags;
-
-        VkResult result = vkQueueSubmit(
-            m_device.get_graphics_queue(),
-            1,
-            &submit_info,
-            m_in_flight_fences[m_current_frame]);
-        if (result != VK_SUCCESS) {
-            return err(renderer_error{
-                .code = renderer_error_code::queue_submit_failed,
-                .native_code = static_cast<i32>(result),
-            });
-        }
+        auto submitted = m_device.submit(command_buffer,
+            m_image_available_semaphores[m_current_frame],
+            m_queue_complete_semaphores[m_image_index], m_in_flight_fences[m_current_frame]);
+        if (!submitted)
+            return err(submitted.error());
 
         command_buffer.set_state(CommandBufferState::Submitted);
         // > End queue submission
@@ -666,15 +639,45 @@ namespace nk {
     void VulkanRenderer::begin_render_pass(const RenderPassKind pass) {
         CommandBuffer& command_buffer =
             m_graphics_command_buffers[m_image_index];
-        switch (pass) {
-            case RenderPassKind::world:
-                m_world_render_pass.begin(
-                    command_buffer, m_world_framebuffers[m_image_index]);
-                break;
-            case RenderPassKind::ui:
-                m_ui_render_pass.begin(
-                    command_buffer, m_ui_framebuffers[m_image_index]);
-                break;
+        if (m_device.dynamic_rendering()) {
+            const vk::GraphicsCommands commands{m_device, command_buffer};
+            const bool world = pass == RenderPassKind::world;
+            if (world) {
+                commands.transition(m_swapchain.get_image_at(m_image_index),
+                    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+                    vk::ImageUse::discard, vk::ImageUse::color_attachment);
+                VkImageAspectFlags depth_aspects = VK_IMAGE_ASPECT_DEPTH_BIT;
+                if (m_device.get_depth_format() != VK_FORMAT_D32_SFLOAT)
+                    depth_aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
+                commands.transition(m_swapchain.get_depth_attachment(m_image_index)->get(),
+                    {depth_aspects, 0, 1, 0, 1},
+                    vk::ImageUse::discard, vk::ImageUse::depth_attachment);
+            } else {
+                commands.barrier(
+                    {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT},
+                    {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT});
+            }
+            const glm::vec4& clear = m_world_render_pass.clear_color();
+            commands.begin_rendering({
+                .color = m_swapchain.get_image_view_at(m_image_index),
+                .depth = world ? m_swapchain.get_depth_attachment(m_image_index)->get_view() : VK_NULL_HANDLE,
+                .area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
+                .clear_color = {{clear.r, clear.g, clear.b, clear.a}},
+                .clear = world,
+            });
+            command_buffer.set_state(CommandBufferState::InRenderPass);
+        } else {
+            switch (pass) {
+                case RenderPassKind::world:
+                    m_world_render_pass.begin(
+                        command_buffer, m_world_framebuffers[m_image_index]);
+                    break;
+                case RenderPassKind::ui:
+                    m_ui_render_pass.begin(
+                        command_buffer, m_ui_framebuffers[m_image_index]);
+                    break;
+            }
         }
         m_active_shader = {};
         m_active_render_pass = pass;
@@ -684,13 +687,24 @@ namespace nk {
     void VulkanRenderer::end_render_pass(const RenderPassKind pass) {
         CommandBuffer& command_buffer =
             m_graphics_command_buffers[m_image_index];
-        switch (pass) {
-            case RenderPassKind::world:
-                m_world_render_pass.end(command_buffer);
-                break;
-            case RenderPassKind::ui:
-                m_ui_render_pass.end(command_buffer);
-                break;
+        if (m_device.dynamic_rendering()) {
+            const vk::GraphicsCommands commands{m_device, command_buffer};
+            commands.end_rendering();
+            if (pass == RenderPassKind::ui) {
+                commands.transition(m_swapchain.get_image_at(m_image_index),
+                    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+                    vk::ImageUse::color_attachment, vk::ImageUse::present);
+            }
+            command_buffer.set_state(CommandBufferState::Recording);
+        } else {
+            switch (pass) {
+                case RenderPassKind::world:
+                    m_world_render_pass.end(command_buffer);
+                    break;
+                case RenderPassKind::ui:
+                    m_ui_render_pass.end(command_buffer);
+                    break;
+            }
         }
         m_active_shader = {};
         m_render_pass_active = false;
@@ -731,30 +745,15 @@ namespace nk {
         CommandBuffer* command_buffer =
             &m_graphics_command_buffers[m_image_index];
 
-        VkDeviceSize offsets[1] = {geometry.vertex_range.offset};
-        VkBuffer vertex_buffer = m_object_vertex_buffer.get();
-        vkCmdBindVertexBuffers(command_buffer->get(), 0, 1, &vertex_buffer, static_cast<VkDeviceSize*>(offsets));
-
+        const vk::GraphicsCommands commands{m_device, command_buffer->get()};
+        const vk::BufferView vertices{m_object_vertex_buffer.get(),
+            geometry.vertex_range.offset, geometry.vertex_range.size};
         if (geometry.index_count != 0) {
-            vkCmdBindIndexBuffer(
-                command_buffer->get(),
-                m_object_index_buffer,
-                geometry.index_range.offset,
-                VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(
-                command_buffer->get(),
-                static_cast<u32>(geometry.index_count),
-                1,
-                0,
-                0,
-                0);
+            commands.draw_indexed(vertices,
+                {m_object_index_buffer.get(), geometry.index_range.offset, geometry.index_range.size},
+                static_cast<u32>(geometry.index_count));
         } else {
-            vkCmdDraw(
-                command_buffer->get(),
-                static_cast<u32>(geometry.vertex_count),
-                1,
-                0,
-                0);
+            commands.draw(vertices, static_cast<u32>(geometry.vertex_count));
         }
     }
 
@@ -1133,6 +1132,8 @@ namespace nk {
     }
 
     result<void, renderer_error> VulkanRenderer::recreate_framebuffers() {
+        if (m_device.dynamic_rendering())
+            return ok();
         const u32 image_count = m_swapchain.get_image_count();
 
         if (image_count != m_world_framebuffers.length()) {

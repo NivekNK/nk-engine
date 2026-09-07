@@ -2,6 +2,8 @@
 
 #include "vulkan/vk.h"
 #include "collections/dyarr.h"
+#include "core/result.h"
+#include "renderer/renderer_result.h"
 
 namespace nk {
     class Platform;
@@ -35,6 +37,12 @@ namespace nk {
 
     class Device {
     public:
+        struct CommandDispatch {
+            PFN_vkCmdBeginRendering begin_rendering = nullptr;
+            PFN_vkCmdEndRendering end_rendering = nullptr;
+            PFN_vkCmdPipelineBarrier2 pipeline_barrier = nullptr;
+            PFN_vkQueueSubmit2 queue_submit = nullptr;
+        };
         Device() = default;
         ~Device() = default;
 
@@ -71,6 +79,12 @@ namespace nk {
         }
         f32 timestamp_period() const noexcept { return m_properties.limits.timestampPeriod; }
         u32 timestamp_valid_bits() const noexcept { return m_timestamp_valid_bits; }
+        bool dynamic_rendering() const noexcept { return m_commands.begin_rendering != nullptr; }
+        bool synchronization2() const noexcept { return m_commands.pipeline_barrier != nullptr; }
+        const CommandDispatch& commands() const noexcept { return m_commands; }
+        [[nodiscard]] result<void, renderer_error> submit(
+            VkCommandBuffer commands, VkSemaphore acquired,
+            VkSemaphore rendered, VkFence completion);
         mem::Allocator* allocator() const { return m_allocator; }
 
         VkDevice get() { return m_logical_device; }
@@ -106,6 +120,7 @@ namespace nk {
 
         // Logical Device
         VkDevice m_logical_device = nullptr;
+        CommandDispatch m_commands{};
 
         // Queues
         VkQueue m_graphics_queue = nullptr;

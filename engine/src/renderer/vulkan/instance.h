@@ -24,6 +24,7 @@ namespace nk {
         void shutdown();
 
         VkInstance get() { return m_instance; }
+        u32 api_version() const noexcept { return m_api_version; }
         VkInstance operator()() { return m_instance; }
         operator VkInstance() { return m_instance; }
 
@@ -37,6 +38,7 @@ namespace nk {
 
         cl::dyarr<cstr> m_extensions;
         VkInstance m_instance = nullptr;
+        u32 m_api_version = VK_API_VERSION_1_2;
 #if NK_DEV_MODE <= NK_RELEASE_DEBUG_INFO
         VkDebugUtilsMessengerEXT m_debug_messenger = nullptr;
 #endif

@@ -187,6 +187,16 @@ namespace nk {
         pipeline_create_info.subpass = 0;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_create_info.basePipelineIndex = -1;
+        VkPipelineRenderingCreateInfo rendering{};
+        rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+        const VkFormat color_format = create_info.render_pass->color_format();
+        if (m_device->dynamic_rendering()) {
+            rendering.colorAttachmentCount = 1;
+            rendering.pColorAttachmentFormats = &color_format;
+            rendering.depthAttachmentFormat = create_info.render_pass->depth_format();
+            pipeline_create_info.renderPass = VK_NULL_HANDLE;
+            pipeline_create_info.pNext = &rendering;
+        }
 
         result = vkCreateGraphicsPipelines(
             create_info.device->get(),

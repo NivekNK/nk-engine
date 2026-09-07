@@ -51,6 +51,7 @@ namespace nk {
         void copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer);
 
         VkImageView get_view() const { return m_view; }
+        VkImage get() const noexcept { return m_image; }
 
     private:
         Device* m_device = nullptr;

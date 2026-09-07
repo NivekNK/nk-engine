@@ -72,7 +72,15 @@ namespace nk {
 
     void Instance::create_instance(cstr application_name, Platform* platform, mem::Allocator* allocator) {
         VkApplicationInfo app_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        app_info.apiVersion = VK_API_VERSION_1_2;
+        u32 loader_version = VK_API_VERSION_1_0;
+        if (vkEnumerateInstanceVersion(&loader_version) != VK_SUCCESS ||
+            loader_version < VK_API_VERSION_1_2) {
+            ErrorLog("NK requires a Vulkan 1.2 loader or newer.");
+            return;
+        }
+        m_api_version = loader_version >= VK_API_VERSION_1_3
+            ? VK_API_VERSION_1_3 : VK_API_VERSION_1_2;
+        app_info.apiVersion = m_api_version;
         app_info.pApplicationName = application_name;
         app_info.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
         app_info.pEngineName = "nk-engine";

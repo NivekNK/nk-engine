@@ -45,6 +45,8 @@ namespace nk {
             return;
 
         create_logical_device();
+        if (m_logical_device == VK_NULL_HANDLE)
+            return;
         obtain_queues();
         create_command_pool();
 
@@ -70,6 +72,7 @@ namespace nk {
         }
 
         m_physical_device = nullptr;
+        m_commands = {};
         m_supports_device_local_host_visible = false;
 
         m_swapchain_support_info.formats.dyarr_shutdown();
@@ -365,17 +368,146 @@ namespace nk {
         device_create_info.queueCreateInfoCount = unique_queue_family_count;
         device_create_info.pQueueCreateInfos = queue_create_infos;
         device_create_info.pEnabledFeatures = &device_features;
-        device_create_info.enabledExtensionCount = 1;
-        cstr extension_names = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-        device_create_info.ppEnabledExtensionNames = &extension_names;
+        cstr extension_names[3]{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        u32 extension_count = 1;
+        u32 available_count = 0;
+        if (vkEnumerateDeviceExtensionProperties(m_physical_device, nullptr,
+                &available_count, nullptr) != VK_SUCCESS)
+            return;
+        cl::arr<VkExtensionProperties> available;
+        if (!available.arr_init(m_allocator, available_count) ||
+            vkEnumerateDeviceExtensionProperties(m_physical_device, nullptr,
+                &available_count, available.data()) != VK_SUCCESS)
+            return;
+        const auto has_extension = [&available](cstr name) {
+            for (const VkExtensionProperties& extension : available)
+                if (std::strcmp(extension.extensionName, name) == 0)
+                    return true;
+            return false;
+        };
+        const bool core13 = m_instance->api_version() >= VK_API_VERSION_1_3 &&
+            m_properties.apiVersion >= VK_API_VERSION_1_3;
+        const cstr legacy_option = std::getenv("NK_VULKAN_LEGACY");
+        const bool legacy = legacy_option != nullptr && std::strcmp(legacy_option, "1") == 0;
+        const bool query_rendering = !legacy &&
+            (core13 || has_extension(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME));
+        const bool query_sync = !legacy &&
+            (core13 || has_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME));
+        VkPhysicalDeviceFeatures2 supported{};
+        supported.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        VkPhysicalDeviceDynamicRenderingFeatures rendering{};
+        rendering.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+        VkPhysicalDeviceSynchronization2Features sync{};
+        sync.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
+        if (query_rendering) {
+            rendering.pNext = supported.pNext;
+            supported.pNext = &rendering;
+        }
+        if (query_sync) {
+            sync.pNext = supported.pNext;
+            supported.pNext = &sync;
+        }
+        vkGetPhysicalDeviceFeatures2(m_physical_device, &supported);
+        // Query support and enable only features used by this backend.
+        void* enabled_features = nullptr;
+        if (rendering.dynamicRendering) {
+            rendering.pNext = enabled_features;
+            enabled_features = &rendering;
+            if (!core13)
+                extension_names[extension_count++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
+        }
+        if (sync.synchronization2) {
+            sync.pNext = enabled_features;
+            enabled_features = &sync;
+            if (!core13)
+                extension_names[extension_count++] = VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME;
+        }
+        device_create_info.pNext = enabled_features;
+        device_create_info.enabledExtensionCount = extension_count;
+        device_create_info.ppEnabledExtensionNames = extension_names;
 
         // Deprecated and ignored, so pass nothing.
         device_create_info.enabledLayerCount = 0;
         device_create_info.ppEnabledLayerNames = nullptr;
 
         // Create the device.
-        VulkanCheck(vkCreateDevice(m_physical_device, &device_create_info, m_vulkan_allocator, &m_logical_device));
+        const VkResult created = vkCreateDevice(m_physical_device,
+            &device_create_info, m_vulkan_allocator, &m_logical_device);
+        if (created != VK_SUCCESS) {
+            ErrorLog("Vulkan device creation failed: {}.", static_cast<i32>(created));
+            return;
+        }
+        if (rendering.dynamicRendering) {
+            m_commands.begin_rendering = reinterpret_cast<PFN_vkCmdBeginRendering>(
+                vkGetDeviceProcAddr(m_logical_device,
+                    core13 ? "vkCmdBeginRendering" : "vkCmdBeginRenderingKHR"));
+            m_commands.end_rendering = reinterpret_cast<PFN_vkCmdEndRendering>(
+                vkGetDeviceProcAddr(m_logical_device,
+                    core13 ? "vkCmdEndRendering" : "vkCmdEndRenderingKHR"));
+        }
+        if (sync.synchronization2) {
+            m_commands.pipeline_barrier = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(
+                vkGetDeviceProcAddr(m_logical_device,
+                    core13 ? "vkCmdPipelineBarrier2" : "vkCmdPipelineBarrier2KHR"));
+            m_commands.queue_submit = reinterpret_cast<PFN_vkQueueSubmit2>(
+                vkGetDeviceProcAddr(m_logical_device,
+                    core13 ? "vkQueueSubmit2" : "vkQueueSubmit2KHR"));
+        }
+        if ((rendering.dynamicRendering && (!m_commands.begin_rendering || !m_commands.end_rendering)) ||
+            (sync.synchronization2 && (!m_commands.pipeline_barrier || !m_commands.queue_submit))) {
+            ErrorLog("Vulkan device did not expose its enabled commands.");
+            vkDestroyDevice(m_logical_device, m_vulkan_allocator);
+            m_logical_device = VK_NULL_HANDLE;
+            m_commands = {};
+            return;
+        }
+        InfoLog("Vulkan command path: dynamic_rendering={}, synchronization2={}, frames_in_flight=2.",
+            dynamic_rendering(), synchronization2());
         InfoLog("Vulkan Logical Device created.");
+    }
+
+    result<void, renderer_error> Device::submit(
+        const VkCommandBuffer command_buffer, const VkSemaphore acquired,
+        const VkSemaphore rendered, const VkFence completion) {
+        VkResult submitted;
+        if (synchronization2()) {
+            VkSemaphoreSubmitInfo wait{};
+            wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            wait.semaphore = acquired;
+            wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkSemaphoreSubmitInfo signal{};
+            signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            signal.semaphore = rendered;
+            signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            VkCommandBufferSubmitInfo commands{};
+            commands.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+            commands.commandBuffer = command_buffer;
+            VkSubmitInfo2 info{};
+            info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+            info.waitSemaphoreInfoCount = 1;
+            info.pWaitSemaphoreInfos = &wait;
+            info.commandBufferInfoCount = 1;
+            info.pCommandBufferInfos = &commands;
+            info.signalSemaphoreInfoCount = 1;
+            info.pSignalSemaphoreInfos = &signal;
+            submitted = m_commands.queue_submit(m_graphics_queue, 1, &info, completion);
+        } else {
+            const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkSubmitInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            info.waitSemaphoreCount = 1;
+            info.pWaitSemaphores = &acquired;
+            info.pWaitDstStageMask = &wait_stage;
+            info.commandBufferCount = 1;
+            info.pCommandBuffers = &command_buffer;
+            info.signalSemaphoreCount = 1;
+            info.pSignalSemaphores = &rendered;
+            submitted = vkQueueSubmit(m_graphics_queue, 1, &info, completion);
+        }
+        if (submitted != VK_SUCCESS)
+            return err(renderer_error{renderer_error_code::queue_submit_failed,
+                static_cast<i32>(submitted)});
+        return ok();
     }
 
     void Device::obtain_queues() {
