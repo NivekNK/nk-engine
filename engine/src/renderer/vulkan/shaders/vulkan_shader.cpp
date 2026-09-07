@@ -147,12 +147,12 @@ namespace nk {
 
     result<void, renderer_error> VulkanShader::init_descriptor_state(
         DescriptorState& state) {
-        if (!state.generations.arr_init(m_allocator, m_image_count) ||
-            !state.ids.arr_init(m_allocator, m_image_count)) {
+        if (!state.generations.arr_init(m_allocator, m_frame_count) ||
+            !state.ids.arr_init(m_allocator, m_frame_count)) {
             release_descriptor_state(state);
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
         }
-        for (u32 image = 0; image < m_image_count; ++image) {
+        for (u32 image = 0; image < m_frame_count; ++image) {
             state.generations[image] = numeric::invalid_id;
             state.ids[image] = numeric::invalid_id;
         }
@@ -168,6 +168,8 @@ namespace nk {
     }
 
     void VulkanShader::release_instance_state(InstanceState& state) noexcept {
+        state.uploaded_revisions.arr_shutdown();
+        state.uniform_revision = 1;
         for (DescriptorState& sampler : state.sampler_states)
             release_descriptor_state(sampler);
         if (state.sampler_states.allocator() != nullptr)
@@ -273,14 +275,14 @@ namespace nk {
         const ShaderConfig& config,
         const u32 width,
         const u32 height,
-        const u32 image_count,
+        const u32 frame_count,
         RenderPass* render_pass,
         Device* device,
         mem::Allocator* allocator,
         ResourceSystem* resources,
         VkAllocationCallbacks* vulkan_allocator,
         Texture* default_texture) {
-        if (initialized() || width == 0 || height == 0 || image_count == 0 ||
+        if (initialized() || width == 0 || height == 0 || frame_count == 0 ||
             render_pass == nullptr || device == nullptr ||
             device->get() == nullptr || allocator == nullptr ||
             resources == nullptr) {
@@ -306,7 +308,7 @@ namespace nk {
         m_allocator = allocator;
         m_vulkan_allocator = vulkan_allocator;
         m_default_texture = default_texture;
-        m_image_count = image_count;
+        m_frame_count = frame_count;
         m_max_instances = config.max_instances;
 
         auto fail = [this](const renderer_error error)
@@ -378,7 +380,7 @@ namespace nk {
             if (!bindings.arr_init(m_allocator, set.bindings.length()))
                 return fail({renderer_error_code::out_of_memory, 0});
 
-            u64 set_multiplier = image_count;
+            u64 set_multiplier = frame_count;
             if (set.scope == ShaderScope::instance &&
                 !checked_multiply(
                     set_multiplier, config.max_instances, set_multiplier)) {
@@ -483,9 +485,9 @@ namespace nk {
 
         if (m_global_set_index != numeric::invalid_id) {
             cl::arr<VkDescriptorSetLayout> layouts;
-            if (!layouts.arr_init(m_allocator, m_image_count) ||
+            if (!layouts.arr_init(m_allocator, m_frame_count) ||
                 !m_global_descriptor_sets.arr_init(
-                    m_allocator, m_image_count)) {
+                    m_allocator, m_frame_count)) {
                 return fail({renderer_error_code::out_of_memory, 0});
             }
             for (VkDescriptorSetLayout& layout : layouts) {
@@ -496,7 +498,7 @@ namespace nk {
             allocation_info.sType =
                 VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
             allocation_info.descriptorPool = m_descriptor_pool;
-            allocation_info.descriptorSetCount = m_image_count;
+            allocation_info.descriptorSetCount = m_frame_count;
             allocation_info.pSetLayouts = layouts.data();
             native_result = vkAllocateDescriptorSets(
                 m_device->get(),
@@ -511,10 +513,16 @@ namespace nk {
                 ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
                 : 0;
         if (m_global_uniform_size != 0) {
+            u64 global_buffer_size = 0;
+            if (!align_up(m_global_uniform_size,
+                    m_device->uniform_buffer_offset_alignment(), m_global_uniform_stride) ||
+                !checked_multiply(m_global_uniform_stride, m_frame_count, global_buffer_size) ||
+                !m_global_descriptor_written.arr_init(m_allocator, m_frame_count))
+                return fail({renderer_error_code::out_of_memory, 0});
             auto initialized = m_global_uniform_buffer.init(
                 m_device,
                 m_vulkan_allocator,
-                m_global_uniform_size,
+                global_buffer_size,
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -540,7 +548,8 @@ namespace nk {
             if (!checked_multiply(
                     m_instance_uniform_stride,
                     m_max_instances,
-                    instance_buffer_size)) {
+                    m_instance_frame_stride) ||
+                !checked_multiply(m_instance_frame_stride, m_frame_count, instance_buffer_size)) {
                 return fail({renderer_error_code::out_of_memory, 0});
             }
             auto initialized = m_instance_uniform_buffer.init(
@@ -684,6 +693,7 @@ namespace nk {
         (void)m_global_sampler_slots.arr_shutdown();
         (void)m_instance_uniform_data.arr_shutdown();
         (void)m_global_uniform_data.arr_shutdown();
+        (void)m_global_descriptor_written.arr_shutdown();
         (void)m_global_descriptor_sets.arr_shutdown();
         (void)m_descriptor_set_layouts.arr_shutdown();
         (void)m_push_constants.arr_shutdown();
@@ -695,15 +705,17 @@ namespace nk {
         m_default_texture = nullptr;
         m_name.clear();
         m_descriptor_pool = nullptr;
-        m_image_count = 0;
+        m_frame_count = 0;
         m_max_instances = 0;
         m_global_set_index = numeric::invalid_id;
         m_instance_set_index = numeric::invalid_id;
         m_global_uniform_binding = numeric::invalid_id;
         m_instance_uniform_binding = numeric::invalid_id;
         m_global_uniform_size = 0;
+        m_global_uniform_stride = 0;
         m_instance_uniform_size = 0;
         m_instance_uniform_stride = 0;
+        m_instance_frame_stride = 0;
         m_bound_instance_id = numeric::invalid_id;
         m_globals_bound = false;
     }
@@ -773,10 +785,16 @@ namespace nk {
                 }
                 const u64 base =
                     m_instance_uniform_size * m_bound_instance_id;
-                std::memcpy(
-                    m_instance_uniform_data.data() + base + uniform->offset,
-                    data,
-                    size);
+                u8* destination = m_instance_uniform_data.data() + base + uniform->offset;
+                if (std::memcmp(destination, data, size) != 0) {
+                    std::memcpy(destination, data, size);
+                    InstanceState& instance = m_instance_states[m_bound_instance_id];
+                    if (++instance.uniform_revision == 0) {
+                        instance.uniform_revision = 1;
+                        for (u64& revision : instance.uploaded_revisions)
+                            revision = 0;
+                    }
+                }
                 return ok();
             }
             case ShaderScope::local:
@@ -823,8 +841,8 @@ namespace nk {
 
     result<void, renderer_error> VulkanShader::apply_globals(
         const CommandBuffer& command_buffer,
-        const u32 image_index) {
-        if (!m_globals_bound || image_index >= m_image_count)
+        const u32 frame_index) {
+        if (!m_globals_bound || frame_index >= m_frame_count)
             return err(invalid_shader_state());
         if (m_global_set_index == numeric::invalid_id) {
             if (m_global_uniform_size == 0 &&
@@ -833,11 +851,11 @@ namespace nk {
             }
             return err(invalid_shader_state());
         }
-        if (image_index >= m_global_descriptor_sets.length())
+        if (frame_index >= m_global_descriptor_sets.length())
             return err(invalid_shader_state());
 
         const VkDescriptorSet descriptor =
-            m_global_descriptor_sets[image_index];
+            m_global_descriptor_sets[frame_index];
         VkWriteDescriptorSet writes[max_sampler_count + 1]{};
         VkDescriptorImageInfo image_infos[max_sampler_count]{};
         VkDescriptorBufferInfo buffer_info{};
@@ -845,25 +863,28 @@ namespace nk {
 
         if (m_global_uniform_size != 0) {
             auto loaded = m_global_uniform_buffer.load_data(
-                0,
+                m_global_uniform_stride * frame_index,
                 m_global_uniform_size,
                 0,
                 m_global_uniform_data.data());
             if (!loaded)
                 return err(loaded.error());
 
-            buffer_info = {
-                .buffer = m_global_uniform_buffer.get(),
-                .offset = 0,
-                .range = m_global_uniform_size,
-            };
-            VkWriteDescriptorSet& write = writes[write_count++];
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = descriptor;
-            write.dstBinding = m_global_uniform_binding;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            write.descriptorCount = 1;
-            write.pBufferInfo = &buffer_info;
+            if (!m_global_descriptor_written[frame_index]) {
+                buffer_info = {
+                    .buffer = m_global_uniform_buffer.get(),
+                    .offset = m_global_uniform_stride * frame_index,
+                    .range = m_global_uniform_size,
+                };
+                VkWriteDescriptorSet& write = writes[write_count++];
+                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = descriptor;
+                write.dstBinding = m_global_uniform_binding;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                write.descriptorCount = 1;
+                write.pBufferInfo = &buffer_info;
+                m_global_descriptor_written[frame_index] = true;
+            }
         }
 
         u32 image_info_count = 0;
@@ -873,8 +894,8 @@ namespace nk {
                 return err(invalid_shader_state());
 
             DescriptorState& state = m_global_sampler_states[slot];
-            if (state.generations[image_index] == texture->generation &&
-                state.ids[image_index] == texture->id) {
+            if (state.generations[frame_index] == texture->generation &&
+                state.ids[frame_index] == texture->id) {
                 continue;
             }
             TextureData* texture_data =
@@ -895,8 +916,8 @@ namespace nk {
             write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write.descriptorCount = 1;
             write.pImageInfo = &image_info;
-            state.generations[image_index] = texture->generation;
-            state.ids[image_index] = texture->id;
+            state.generations[frame_index] = texture->generation;
+            state.ids[frame_index] = texture->id;
         }
 
         update_descriptors(write_count, writes);
@@ -915,19 +936,19 @@ namespace nk {
 
     result<void, renderer_error> VulkanShader::apply_instance(
         const CommandBuffer& command_buffer,
-        const u32 image_index,
-        const bool needs_update) {
+        const u32 frame_index,
+        const bool /*needs_update*/) {
         if (m_bound_instance_id >= m_instance_states.length() ||
-            image_index >= m_image_count) {
+            frame_index >= m_frame_count) {
             return err(invalid_shader_state());
         }
 
         InstanceState& instance = m_instance_states[m_bound_instance_id];
-        if (image_index >= instance.descriptor_sets.length())
+        if (frame_index >= instance.descriptor_sets.length())
             return err(invalid_shader_state());
 
         const VkDescriptorSet descriptor =
-            instance.descriptor_sets[image_index];
+            instance.descriptor_sets[frame_index];
         VkWriteDescriptorSet writes[max_sampler_count + 1]{};
         VkDescriptorImageInfo image_infos[max_sampler_count]{};
         VkDescriptorBufferInfo buffer_info{};
@@ -935,22 +956,25 @@ namespace nk {
 
         if (m_instance_uniform_size != 0) {
             u32& generation =
-                instance.uniform_state.generations[image_index];
-            if (needs_update || generation == numeric::invalid_id) {
+                instance.uniform_state.generations[frame_index];
+            if (instance.uploaded_revisions[frame_index] != instance.uniform_revision) {
                 auto loaded = m_instance_uniform_buffer.load_data(
-                    m_instance_uniform_stride * m_bound_instance_id,
+                    m_instance_frame_stride * frame_index +
+                        m_instance_uniform_stride * m_bound_instance_id,
                     m_instance_uniform_size,
                     0,
                     m_instance_uniform_data.data() +
                         m_instance_uniform_size * m_bound_instance_id);
                 if (!loaded)
                     return err(loaded.error());
+                instance.uploaded_revisions[frame_index] = instance.uniform_revision;
             }
             if (generation == numeric::invalid_id) {
                 buffer_info = {
                     .buffer = m_instance_uniform_buffer.get(),
                     .offset =
-                        m_instance_uniform_stride * m_bound_instance_id,
+                        m_instance_frame_stride * frame_index +
+                            m_instance_uniform_stride * m_bound_instance_id,
                     .range = m_instance_uniform_size,
                 };
                 VkWriteDescriptorSet& write = writes[write_count++];
@@ -975,8 +999,8 @@ namespace nk {
                 return err(invalid_shader_state());
 
             DescriptorState& state = instance.sampler_states[slot];
-            if (state.generations[image_index] == texture->generation &&
-                state.ids[image_index] == texture->id) {
+            if (state.generations[frame_index] == texture->generation &&
+                state.ids[frame_index] == texture->id) {
                 continue;
             }
             TextureData* texture_data =
@@ -997,8 +1021,8 @@ namespace nk {
             write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write.descriptorCount = 1;
             write.pImageInfo = &image_info;
-            state.generations[image_index] = texture->generation;
-            state.ids[image_index] = texture->id;
+            state.generations[frame_index] = texture->generation;
+            state.ids[frame_index] = texture->id;
         }
 
         update_descriptors(write_count, writes);
@@ -1041,6 +1065,8 @@ namespace nk {
             auto initialized = init_descriptor_state(instance.uniform_state);
             if (!initialized)
                 return fail(initialized.error());
+            if (!instance.uploaded_revisions.arr_init(m_allocator, m_frame_count))
+                return fail({renderer_error_code::out_of_memory, 0});
         }
         if (!m_instance_sampler_slots.empty()) {
             if (!instance.sampler_states.arr_init(
@@ -1148,11 +1174,11 @@ namespace nk {
             sets.allocator() != nullptr) {
             return err(initialization_error());
         }
-        if (!sets.arr_init(m_allocator, m_image_count))
+        if (!sets.arr_init(m_allocator, m_frame_count))
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
 
         cl::arr<VkDescriptorSetLayout> layouts;
-        if (!layouts.arr_init(m_allocator, m_image_count)) {
+        if (!layouts.arr_init(m_allocator, m_frame_count)) {
             (void)sets.arr_shutdown();
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
         }
@@ -1163,7 +1189,7 @@ namespace nk {
         allocation_info.sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocation_info.descriptorPool = m_descriptor_pool;
-        allocation_info.descriptorSetCount = m_image_count;
+        allocation_info.descriptorSetCount = m_frame_count;
         allocation_info.pSetLayouts = layouts.data();
         const VkResult result = vkAllocateDescriptorSets(
             m_device->get(), &allocation_info, sets.data());

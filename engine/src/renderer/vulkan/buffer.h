@@ -89,6 +89,7 @@ namespace nk {
         VkBufferUsageFlags m_usage = 0;
         bool m_is_locked = false;
         bool m_is_bound = false;
+        void* m_mapped_data = nullptr;
         VkDeviceMemory m_memory = nullptr;
         u32 m_memory_index = 0;
         u32 m_memory_property_flags = 0;

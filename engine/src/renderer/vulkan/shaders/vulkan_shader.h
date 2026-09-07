@@ -31,7 +31,7 @@ namespace nk {
             const ShaderConfig& config,
             u32 width,
             u32 height,
-            u32 image_count,
+            u32 frame_count,
             RenderPass* render_pass,
             Device* device,
             mem::Allocator* allocator,
@@ -50,10 +50,10 @@ namespace nk {
             u32 instance_id);
         [[nodiscard]] result<void, renderer_error> apply_globals(
             const CommandBuffer& command_buffer,
-            u32 image_index);
+            u32 frame_index);
         [[nodiscard]] result<void, renderer_error> apply_instance(
             const CommandBuffer& command_buffer,
-            u32 image_index,
+            u32 frame_index,
             bool needs_update);
         [[nodiscard]] result<void, renderer_error> set_uniform(
             const CommandBuffer& command_buffer,
@@ -90,6 +90,8 @@ namespace nk {
             cl::arr<VkDescriptorSet> descriptor_sets;
             DescriptorState uniform_state;
             cl::arr<DescriptorState> sampler_states;
+            cl::arr<u64> uploaded_revisions;
+            u64 uniform_revision = 1;
         };
 
         [[nodiscard]] result<void, renderer_error> init_sampler_slots(
@@ -137,6 +139,7 @@ namespace nk {
         cl::arr<ShaderPushConstantConfig> m_push_constants;
         cl::arr<VkDescriptorSetLayout> m_descriptor_set_layouts;
         cl::arr<VkDescriptorSet> m_global_descriptor_sets;
+        cl::arr<bool> m_global_descriptor_written;
         cl::arr<u8> m_global_uniform_data;
         cl::arr<u8> m_instance_uniform_data;
         cl::arr<SamplerSlot> m_global_sampler_slots;
@@ -150,15 +153,17 @@ namespace nk {
         Buffer m_global_uniform_buffer;
         Buffer m_instance_uniform_buffer;
 
-        u32 m_image_count = 0;
+        u32 m_frame_count = 0;
         u32 m_max_instances = 0;
         u32 m_global_set_index = numeric::invalid_id;
         u32 m_instance_set_index = numeric::invalid_id;
         u32 m_global_uniform_binding = numeric::invalid_id;
         u32 m_instance_uniform_binding = numeric::invalid_id;
         u64 m_global_uniform_size = 0;
+        u64 m_global_uniform_stride = 0;
         u64 m_instance_uniform_size = 0;
         u64 m_instance_uniform_stride = 0;
+        u64 m_instance_frame_stride = 0;
         u32 m_bound_instance_id = numeric::invalid_id;
         bool m_globals_bound = false;
     };

@@ -18,6 +18,20 @@ public configuration types.
 public resource can carry an opaque backend handle, but only its creating
 renderer may interpret or destroy it.
 
+Frame submission is asynchronous. Two frame slots own their acquire semaphore,
+completion fence, descriptor sets and disjoint aligned UBO ranges. The CPU waits
+for a slot's fence before writing its mapped uniform storage. Static instance
+uniforms are copied only when their content revision differs for that slot.
+
+Swapchain images separately own depth attachments, graphics command buffers and
+present-wait semaphores. Acquiring an image permits reuse of its present semaphore;
+its previous graphics fence must complete before the command buffer is recorded
+again. The normal frame loop never calls `vkDeviceWaitIdle`. Resize, shutdown and
+the existing synchronous resource-upload/destruction operations still drain work.
+Host-visible buffer mappings stay alive until resize or destruction; callers must
+not overwrite an in-flight range. Device-local host-visible memory is preferred
+when compatible, with ordinary host-visible memory as the upload/UBO fallback.
+
 Generated API documentation is not committed. Public comments should explain
 behaviour that cannot be expressed by the type system; this document is the
 authority for cross-system ownership and shutdown order.

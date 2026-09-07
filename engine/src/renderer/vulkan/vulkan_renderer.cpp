@@ -72,7 +72,7 @@ namespace nk {
             config,
             m_framebuffer_width,
             m_framebuffer_height,
-            m_swapchain.get_image_count(),
+            m_swapchain.get_max_frames_in_flight(),
             compatible_render_pass,
             &m_device,
             m_allocator,
@@ -199,7 +199,7 @@ namespace nk {
             });
         }
         return shader->apply_globals(
-            m_graphics_command_buffers[m_image_index], m_image_index);
+            m_graphics_command_buffers[m_image_index], m_current_frame);
     }
 
     result<void, renderer_error> VulkanRenderer::apply_shader_instance(
@@ -217,7 +217,7 @@ namespace nk {
         }
         return shader->apply_instance(
             m_graphics_command_buffers[m_image_index],
-            m_image_index,
+            m_current_frame,
             needs_update);
     }
 
@@ -400,7 +400,7 @@ namespace nk {
         if (!m_image_available_semaphores.dyarr_init_len(
                 m_allocator, max_frames_in_flight, max_frames_in_flight) ||
             !m_queue_complete_semaphores.dyarr_init_len(
-                m_allocator, max_frames_in_flight, max_frames_in_flight) ||
+                m_allocator, image_count, image_count) ||
             !m_in_flight_fences.dyarr_init_len(
                 m_allocator, max_frames_in_flight, max_frames_in_flight) ||
             !m_images_in_flight.dyarr_init_len(
@@ -444,13 +444,13 @@ namespace nk {
         // Clean up per-frame semaphores
         const u64 max_frames_in_flight = m_image_available_semaphores.length();
         VkSemaphore* image_available_semaphores = m_image_available_semaphores.data();
-        VkSemaphore* queue_complete_semaphores = m_queue_complete_semaphores.data();
         for (u64 i = 0; i < max_frames_in_flight; i++) {
             if (image_available_semaphores[i] != nullptr)
                 vkDestroySemaphore(m_device, image_available_semaphores[i], m_vulkan_allocator);
-            if (queue_complete_semaphores[i] != nullptr)
-                vkDestroySemaphore(m_device, queue_complete_semaphores[i], m_vulkan_allocator);
         }
+        for (VkSemaphore semaphore : m_queue_complete_semaphores)
+            if (semaphore != VK_NULL_HANDLE)
+                vkDestroySemaphore(m_device, semaphore, m_vulkan_allocator);
 
         m_image_available_semaphores.dyarr_shutdown();
         m_queue_complete_semaphores.dyarr_shutdown();
@@ -514,15 +514,6 @@ namespace nk {
         if (!waited)
             return err(waited.error());
 
-        // Ensure the semaphore we're about to use is not still in use by a previous frame
-        // This prevents the semaphore reuse issue that was causing the original errors
-        const VkResult idle_result = vkDeviceWaitIdle(m_device);
-        if (idle_result != VK_SUCCESS)
-            return err(renderer_error{
-                .code = renderer_error_code::device_wait_failed,
-                .native_code = static_cast<i32>(idle_result),
-            });
-
         // Acquire the next image from the swap chain.
         // Pass along the semaphore that should signaled when this completes.
         // This same semaphore will later be waited on by the queue submission
@@ -540,6 +531,14 @@ namespace nk {
         }
         if (*acquired == swapchain_outcome::suboptimal)
             ++m_framebuffer_size_generation;
+
+        // Retire the image's command buffer/depth storage before resetting or
+        // recording it. Waiting in end_frame would already be too late.
+        if (m_images_in_flight[m_image_index] != nullptr) {
+            auto image_waited = m_images_in_flight[m_image_index]->wait(numeric::u64_max);
+            if (!image_waited)
+                return err(image_waited.error());
+        }
 
         CommandBuffer& command_buffer = m_graphics_command_buffers[m_image_index];
         command_buffer.reset();
@@ -603,13 +602,6 @@ namespace nk {
         if (!command_ended)
             return err(command_ended.error());
 
-        // Make sure the previous frame is not using this image (i.e. its fence is being waited on)
-        if (m_images_in_flight[m_image_index] != nullptr) { // was frame
-            auto waited = m_images_in_flight[m_image_index]->wait(numeric::u64_max);
-            if (!waited)
-                return err(waited.error());
-        }
-
         // Mark the image fence as in-use by this frame.
         m_images_in_flight[m_image_index] = &m_in_flight_fences[m_current_frame];
 
@@ -630,7 +622,7 @@ namespace nk {
 
         // The semaphore(s) to be signaled when the queue is complete.
         submit_info.signalSemaphoreCount = 1;
-        submit_info.pSignalSemaphores = &m_queue_complete_semaphores[m_current_frame];
+        submit_info.pSignalSemaphores = &m_queue_complete_semaphores[m_image_index];
 
         // Wait semaphore ensures that the operation cannot begin until the image is available.
         submit_info.waitSemaphoreCount = 1;
@@ -659,7 +651,7 @@ namespace nk {
 
         auto presented = m_swapchain.present(
             m_device.get_present_queue(),
-            m_queue_complete_semaphores[m_current_frame],
+            m_queue_complete_semaphores[m_image_index],
             m_image_index);
         if (!presented)
             return err(presented.error());
@@ -1157,7 +1149,7 @@ namespace nk {
             // clang-format off
             if (!world_attachments.arr_init_list(m_allocator, {
                 m_swapchain.get_image_view_at(i),
-                m_swapchain.get_depth_attachment()->get_view(),
+                m_swapchain.get_depth_attachment(i)->get_view(),
             })) {
                 return err(renderer_error{
                     .code = renderer_error_code::out_of_memory,
@@ -1240,10 +1232,23 @@ namespace nk {
         const u32 image_count = m_swapchain.get_image_count();
         const u8 max_frames_in_flight = m_swapchain.get_max_frames_in_flight();
 
-        // Resize semaphore arrays to match image count
+        // Called only at startup or after draining for swapchain recreation.
+        // Present-complete semaphores belong to images, acquire/fences to slots.
+        for (VkSemaphore& semaphore : m_queue_complete_semaphores) {
+            if (semaphore != VK_NULL_HANDLE)
+                vkDestroySemaphore(m_device, semaphore, m_vulkan_allocator);
+            semaphore = VK_NULL_HANDLE;
+        }
+        for (VkSemaphore& semaphore : m_image_available_semaphores) {
+            if (semaphore != VK_NULL_HANDLE)
+                vkDestroySemaphore(m_device, semaphore, m_vulkan_allocator);
+            semaphore = VK_NULL_HANDLE;
+        }
+        if (!m_queue_complete_semaphores.dyarr_resize(image_count))
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+
         if (max_frames_in_flight != m_image_available_semaphores.length()) {
-            if (!m_image_available_semaphores.dyarr_resize(max_frames_in_flight) ||
-                !m_queue_complete_semaphores.dyarr_resize(max_frames_in_flight)) {
+            if (!m_image_available_semaphores.dyarr_resize(max_frames_in_flight)) {
                 return err(renderer_error{
                     .code = renderer_error_code::out_of_memory,
                     .native_code = 0,
@@ -1268,6 +1273,9 @@ namespace nk {
                         .native_code = static_cast<i32>(result),
                     });
             }
+        }
+        for (u32 i = 0; i < image_count; ++i) {
+            VkSemaphoreCreateInfo semaphore_create_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
             if (m_queue_complete_semaphores[i] == nullptr) {
                 const VkResult result = vkCreateSemaphore(
                     m_device,

@@ -57,7 +57,7 @@ namespace nk {
             }
             return m_views[index];
         }
-        Image* get_depth_attachment() { return &m_depth_attachment; }
+        Image* get_depth_attachment(u32 image_index) { return &m_depth_attachments[image_index]; }
         u8 get_max_frames_in_flight() const { return m_max_frames_in_flight; }
 
     private:
@@ -78,7 +78,7 @@ namespace nk {
         u32 m_image_count = 0;
         cl::arr<VkImage> m_images;
         cl::arr<VkImageView> m_views;
-        Image m_depth_attachment;
+        cl::arr<Image> m_depth_attachments;
     };
 
     namespace vk {

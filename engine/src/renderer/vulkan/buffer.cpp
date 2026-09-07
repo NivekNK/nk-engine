@@ -86,9 +86,15 @@ namespace nk {
                 memory_requirements.memoryTypeBits,
                 memory_property_flags,
                 &m_memory_index)) {
-            shutdown();
-            return err(buffer_error(
-                renderer_error_code::buffer_memory_failed));
+            // ReBAR/UMA is a preference for host-visible buffers, not a GPU
+            // requirement. Discrete GPUs may only offer ordinary host memory.
+            m_memory_property_flags &= ~VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            if (!(memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
+                !m_device->find_memory_index(memory_requirements.memoryTypeBits,
+                    m_memory_property_flags, &m_memory_index)) {
+                shutdown();
+                return err(buffer_error(renderer_error_code::buffer_memory_failed));
+            }
         }
 
         VkMemoryAllocateInfo memory_allocate_info{};
@@ -127,6 +133,8 @@ namespace nk {
 
     void Buffer::shutdown() {
         if (m_device != nullptr && m_device->get() != nullptr) {
+            if (m_mapped_data != nullptr || m_is_locked)
+                vkUnmapMemory(m_device->get(), m_memory);
             destroy_buffer_storage(
                 *m_device,
                 m_vulkan_allocator,
@@ -141,6 +149,7 @@ namespace nk {
         m_buffer = nullptr;
         m_usage = 0;
         m_is_locked = false;
+        m_mapped_data = nullptr;
         m_is_bound = false;
         m_memory = nullptr;
         m_memory_index = 0;
@@ -255,6 +264,10 @@ namespace nk {
             }
         }
 
+        if (m_mapped_data != nullptr) {
+            vkUnmapMemory(m_device->get(), m_memory);
+            m_mapped_data = nullptr;
+        }
         destroy_buffer_storage(
             *m_device, m_vulkan_allocator, m_buffer, m_memory);
         m_total_size = size;
@@ -285,6 +298,8 @@ namespace nk {
         const u64 offset,
         const u64 size,
         const u32 flags) {
+        if (m_mapped_data != nullptr || m_is_locked)
+            return nullptr;
         void* data = nullptr;
         VulkanCheck(vkMapMemory(
             m_device->get(), m_memory, offset, size, flags, &data));
@@ -305,28 +320,29 @@ namespace nk {
         const u32 flags,
         const void* data) {
         if (m_device == nullptr || m_memory == nullptr || data == nullptr ||
+            m_is_locked || !(m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
             size == 0 || offset > m_total_size ||
             size > m_total_size - offset) {
             return err(buffer_error(
                 renderer_error_code::buffer_memory_failed));
         }
 
-        void* data_ptr = nullptr;
-        const VkResult native_result = vkMapMemory(
-            m_device->get(),
-            m_memory,
-            offset,
-            size,
-            flags,
-            &data_ptr);
-        if (native_result != VK_SUCCESS) {
-            return err(buffer_error(
-                renderer_error_code::buffer_memory_failed,
-                native_result));
+        if (m_mapped_data == nullptr) {
+            const VkResult mapped = vkMapMemory(m_device->get(), m_memory,
+                0, VK_WHOLE_SIZE, flags, &m_mapped_data);
+            if (mapped != VK_SUCCESS)
+                return err(buffer_error(renderer_error_code::buffer_memory_failed, mapped));
         }
 
-        std::memcpy(data_ptr, data, size);
-        vkUnmapMemory(m_device->get(), m_memory);
+        std::memcpy(static_cast<u8*>(m_mapped_data) + offset, data, size);
+        if (!(m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+            range.memory = m_memory;
+            range.size = VK_WHOLE_SIZE;
+            const VkResult flushed = vkFlushMappedMemoryRanges(m_device->get(), 1, &range);
+            if (flushed != VK_SUCCESS)
+                return err(buffer_error(renderer_error_code::buffer_memory_failed, flushed));
+        }
         return ok();
     }
 

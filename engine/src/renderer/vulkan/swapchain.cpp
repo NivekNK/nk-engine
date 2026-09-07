@@ -124,7 +124,9 @@ namespace nk {
             min_image_count = swapchain_support_info.capabilities.maxImageCount;
         }
 
-        m_max_frames_in_flight = min_image_count - 1;
+        // Frame slots are independent of the presentation image count. Keeping
+        // this stable also preserves per-frame descriptor/UBO storage on resize.
+        m_max_frames_in_flight = 2;
 
         // Swapchain create info
         VkSwapchainCreateInfoKHR swapchain_create_info = {};
@@ -138,10 +140,9 @@ namespace nk {
         swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
         const PhysicalDeviceQueueFamilyInfo& queue_family = m_device->get_queue_family_info();
+        const u32 queue_family_indices[2] = {
+            queue_family.graphics_family_index, queue_family.present_family_index};
         if (queue_family.graphics_family_index != queue_family.present_family_index) {
-            u32 queue_family_indices[2] = {
-                queue_family.graphics_family_index,
-                queue_family.present_family_index};
             swapchain_create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
             swapchain_create_info.queueFamilyIndexCount = 2;
             swapchain_create_info.pQueueFamilyIndices = queue_family_indices;
@@ -236,11 +237,16 @@ namespace nk {
             .create_view = true,
             .view_aspect_flags = VK_IMAGE_ASPECT_DEPTH_BIT,
         };
-        auto depth_created = m_depth_attachment.init(
-            depth_create_info, m_device, m_vulkan_allocator);
-        if (!depth_created) {
+        if (!m_depth_attachments.arr_init(m_allocator, m_image_count)) {
             destroy_swapchain();
-            return err(depth_created.error());
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        }
+        for (Image& depth : m_depth_attachments) {
+            auto depth_created = depth.init(depth_create_info, m_device, m_vulkan_allocator);
+            if (!depth_created) {
+                destroy_swapchain();
+                return err(depth_created.error());
+            }
         }
 
         width = swapchain_extent.width;
@@ -253,7 +259,7 @@ namespace nk {
             return;
 
         vkDeviceWaitIdle(m_device->get());
-        m_depth_attachment.shutdown();
+        m_depth_attachments.arr_shutdown();
 
         // Only destroy the views, not the images, since those are owned by the swapchain and are thus
         // destroyed when it is.

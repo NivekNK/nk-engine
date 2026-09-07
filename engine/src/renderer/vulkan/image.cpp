@@ -96,13 +96,13 @@ namespace nk {
             vkDestroyImageView(m_device->get(), m_view, m_vulkan_allocator);
             m_view = nullptr;
         }
-        if (m_memory != nullptr) {
-            vkFreeMemory(m_device->get(), m_memory, m_vulkan_allocator);
-            m_memory = nullptr;
-        }
         if (m_image != nullptr) {
             vkDestroyImage(m_device->get(), m_image, m_vulkan_allocator);
             m_image = nullptr;
+        }
+        if (m_memory != nullptr) {
+            vkFreeMemory(m_device->get(), m_memory, m_vulkan_allocator);
+            m_memory = nullptr;
         }
     }
 
