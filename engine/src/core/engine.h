@@ -47,6 +47,8 @@ namespace nk {
         bool render(f64 delta_time);
         bool resize(u32 width, u32 height);
         void cycle_debug_texture();
+        bool set_debug_sampler(u8 preset);
+        void cycle_debug_sampler();
 
         mem::Allocator* m_allocator = nullptr;
         App* m_app = nullptr;
@@ -61,6 +63,8 @@ namespace nk {
         Geometry* m_test_ui_geometry = nullptr;
         Material* m_test_material = nullptr;
         u8 m_debug_texture_index = 0;
+        u8 m_debug_sampler_index = 0;
+        bool m_sampler_demo = false;
         bool m_initialized = false;
 
         Clock m_clock;

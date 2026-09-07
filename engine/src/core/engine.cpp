@@ -17,6 +17,7 @@
 #include "resources/static_mesh_resource.h"
 
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 // TODO: Temporal include
 #include "core/camera.h"
@@ -69,6 +70,9 @@ namespace nk {
                     Engine::get().cycle_debug_texture();
                     return true;
                 }
+                case KeyCode::P:
+                    Engine::get().cycle_debug_sampler();
+                    return true;
                 default:
                     DebugLog("'{}' key pressed in window.", static_cast<char>(keycode));
                     break;
@@ -99,6 +103,7 @@ namespace nk {
                     DebugLog("'Left Ctrl' key released in window.");
                     break;
                 case KeyCode::T:
+                case KeyCode::P:
                     return true;
                 default:
                     DebugLog("'{}' key released in window.", static_cast<char>(keycode));
@@ -480,6 +485,28 @@ namespace nk {
         ui_config.name.assign("test_ui_geometry");
         ui_config.material_name.assign("test_ui_material");
 
+        const char* sampler_demo = std::getenv("NK_SAMPLER_DEMO");
+        m_sampler_demo = sampler_demo != nullptr && std::strcmp(sampler_demo, "1") == 0;
+        if (m_sampler_demo) {
+            // Same image/material, two UV regions: outside [0,1] for wrap, and
+            // magnified text edges for nearest/linear. No new texture or shader.
+            if (!ui_config.vertices.dyarr_resize(8) || !ui_config.indices.dyarr_resize(12)) {
+                shutdown_impl();
+                return false;
+            }
+            for (u32 panel = 0; panel < 2; ++panel) {
+                const f32 x = panel == 0 ? 16.0f : 528.0f;
+                const glm::vec2 uv_min = panel == 0 ? glm::vec2{-.25f, -.25f} : glm::vec2{.70f, .02f};
+                const glm::vec2 uv_max = panel == 0 ? glm::vec2{1.25f, 1.25f} : glm::vec2{.765f, .085f};
+                ui_config.vertices[panel * 4] = {{x, 16}, uv_min};
+                ui_config.vertices[panel * 4 + 1] = {{x + 480, 496}, uv_max};
+                ui_config.vertices[panel * 4 + 2] = {{x, 496}, {uv_min.x, uv_max.y}};
+                ui_config.vertices[panel * 4 + 3] = {{x + 480, 16}, {uv_max.x, uv_min.y}};
+                constexpr u32 indices[]{2, 1, 0, 3, 0, 1};
+                for (u32 i = 0; i < 6; ++i) ui_config.indices[panel * 6 + i] = indices[i] + panel * 4;
+            }
+        }
+
         auto test_ui_geometry = m_geometry_system->acquire(ui_config, true);
         if (!test_ui_geometry) {
             const geometry_error error = test_ui_geometry.error();
@@ -491,6 +518,10 @@ namespace nk {
             return false;
         }
         m_test_ui_geometry = *test_ui_geometry;
+        if (m_sampler_demo && !set_debug_sampler(0)) {
+            shutdown_impl();
+            return false;
+        }
 
         Camera::init(m_renderer);
 
@@ -601,6 +632,37 @@ namespace nk {
             static_cast<u8>((m_debug_texture_index + 1) % texture_count);
     }
 
+    bool Engine::set_debug_sampler(u8 preset) {
+        if (preset >= 5 || m_test_ui_geometry == nullptr || m_test_ui_geometry->material == nullptr)
+            return false;
+        SamplerConfig sampling;
+        sampling.anisotropy = 1;
+        constexpr cstr names[]{"linear / repeat", "nearest / repeat", "nearest / mirrored_repeat",
+            "linear / clamp_to_edge", "linear / clamp_to_border"};
+        if (preset == 1 || preset == 2)
+            sampling.min_filter = sampling.mag_filter = sampling.mip_filter = TextureFilter::nearest;
+        if (preset == 2) sampling.wrap_u = sampling.wrap_v = sampling.wrap_w = TextureWrap::mirrored_repeat;
+        else if (preset == 3) sampling.wrap_u = sampling.wrap_v = sampling.wrap_w = TextureWrap::clamp_to_edge;
+        else if (preset == 4) sampling.wrap_u = sampling.wrap_v = sampling.wrap_w = TextureWrap::clamp_to_border;
+        auto changed = m_material_system->set_sampler(*m_test_ui_geometry->material, TextureUse::diffuse, sampling);
+        if (!changed) {
+            ErrorLog("Sampler demo update failed: material_error={}, native_code={}",
+                static_cast<u32>(changed.error().code), changed.error().native_code);
+            return false;
+        }
+        m_debug_sampler_index = preset;
+        InfoLog("Sampler demo {}: {}. Left: wrap; right: magnified filtering. Press P to cycle.", preset, names[preset]);
+        return true;
+    }
+
+    void Engine::cycle_debug_sampler() {
+        if (!m_sampler_demo) {
+            InfoLog("Enable NK_SAMPLER_DEMO=1 to inspect wrap and filtering with P.");
+            return;
+        }
+        (void)set_debug_sampler(static_cast<u8>((m_debug_sampler_index + 1) % 5));
+    }
+
     void Engine::run_impl() {
         if (!m_initialized)
             return;
@@ -614,6 +676,9 @@ namespace nk {
         f64 target_frame_seconds = 1.0f / 60;
         u64 smoke_test_frames = 0;
         bool smoke_test_cycle_render_modes = false;
+        const char* cycle_samplers = std::getenv("NK_SMOKE_TEST_CYCLE_SAMPLERS");
+        const bool smoke_test_cycle_samplers = m_sampler_demo && cycle_samplers != nullptr &&
+            std::strcmp(cycle_samplers, "1") == 0;
         const cstr benchmark_option = std::getenv("NK_BENCHMARK");
         const bool benchmark = benchmark_option != nullptr &&
             std::strcmp(benchmark_option, "1") == 0;
@@ -666,6 +731,13 @@ namespace nk {
             }
 
             if (!m_platform->suspended()) {
+                if (smoke_test_cycle_samplers && smoke_test_frames >= 5) {
+                    const u8 preset = static_cast<u8>(glm::min(u64{4}, frame_count / (smoke_test_frames / 5)));
+                    if (preset != m_debug_sampler_index && !set_debug_sampler(preset)) {
+                        m_platform->close();
+                        break;
+                    }
+                }
                 if (smoke_test_cycle_render_modes && smoke_test_frames >= 3) {
                     const u64 mode_segment = smoke_test_frames / 3;
                     RenderViewMode desired_mode =
@@ -723,6 +795,12 @@ namespace nk {
                     .model = glm::mat4{1.0f},
                     .geometry = m_test_ui_geometry,
                 };
+                if (m_sampler_demo) {
+                    const f32 scale = glm::min(1.0f, glm::min(
+                        static_cast<f32>(m_platform->width()) / 1024.0f,
+                        static_cast<f32>(m_platform->height()) / 512.0f));
+                    ui_geometry.model = glm::scale(glm::mat4{1.0f}, glm::vec3{scale, scale, 1});
+                }
                 auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
                     .lighting = scene_lighting,
