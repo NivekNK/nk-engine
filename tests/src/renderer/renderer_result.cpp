@@ -69,6 +69,11 @@ namespace {
             m_failed_instance_acquire_call = call;
         }
         nk::u32 destroyed_textures() const { return m_destroyed_textures; }
+        nk::u32 created_samplers() const { return m_created_samplers; }
+        nk::u32 released_samplers() const { return m_released_samplers; }
+        void fail_sampler_create_on_call(nk::u32 call) { m_failed_sampler_call = call; }
+        void fail_sampler_release(bool fail) { m_fail_sampler_release = fail; }
+        nk::SamplerHandle last_sampler() const { return m_last_sampler; }
         nk::u32 created_textures() const { return m_created_textures; }
         bool default_specular_is_black() const {
             return m_default_specular_is_black;
@@ -203,14 +208,35 @@ namespace {
         nk::result<void, nk::renderer_error> set_shader_sampler(
             nk::ShaderHandle,
             const nk::ShaderUniformHandle uniform,
-            nk::Texture* texture,
+            nk::TextureBinding binding,
             const nk::u32 array_index) override {
+            nk::Texture* texture = binding.texture;
+            m_last_sampler = binding.sampler;
             m_sampler_array_index = array_index;
             if (uniform == nk::builtin_shader_uniform::specular_texture)
                 m_specular_sampler_texture = texture;
             if (uniform == nk::builtin_shader_uniform::normal_texture)
                 m_normal_sampler_texture = texture;
             append_shader_trace(7);
+            return nk::ok();
+        }
+        nk::result<nk::SamplerHandle, nk::renderer_error> create_sampler(const nk::SamplerConfig& config) override {
+            if (!config.valid()) return nk::err(nk::renderer_error{nk::renderer_error_code::sampler_config_invalid, 0});
+            if (++m_sampler_attempts == m_failed_sampler_call)
+                return nk::err(nk::renderer_error{nk::renderer_error_code::texture_sampler_creation_failed, -1});
+            const nk::u32 slot = m_created_samplers++;
+            m_sampler_live[slot] = true;
+            return nk::ok(nk::SamplerHandle{slot, 0});
+        }
+        nk::result<void, nk::renderer_error> release_sampler(nk::SamplerHandle sampler) override {
+            if (!sampler.valid() || sampler.index >= m_created_samplers || !m_sampler_live[sampler.index])
+                return nk::err(nk::renderer_error{nk::renderer_error_code::sampler_handle_invalid, 0});
+            if (m_fail_sampler_release) {
+                m_fail_sampler_release = false;
+                return nk::err(nk::renderer_error{nk::renderer_error_code::device_wait_failed, -1});
+            }
+            m_sampler_live[sampler.index] = false;
+            ++m_released_samplers;
             return nk::ok();
         }
         nk::result<void, nk::renderer_error> create_texture(
@@ -428,6 +454,13 @@ namespace {
         bool m_default_specular_is_black = false;
         bool m_default_normal_is_flat = false;
         nk::u32 m_failed_instance_acquire_call = 0;
+        nk::u32 m_created_samplers = 0;
+        nk::u32 m_released_samplers = 0;
+        nk::u32 m_sampler_attempts = 0;
+        nk::u32 m_failed_sampler_call = 0;
+        bool m_fail_sampler_release = false;
+        bool m_sampler_live[4096]{};
+        nk::SamplerHandle m_last_sampler{};
         nk::u32 m_instance_acquire_attempts = 0;
         nk::u32 m_acquired_instances = 0;
         nk::u32 m_released_instances = 0;
@@ -1044,7 +1077,7 @@ TEST(ShaderSystem, RoutesTypedScopeOperationsThroughTheCurrentShader) {
     ASSERT_TRUE(instance);
     ASSERT_TRUE(shaders->bind_instance(*instance));
     ASSERT_TRUE(shaders->set_uniform(*diffuse_color, glm::vec4{1.0f}));
-    ASSERT_TRUE(shaders->set_sampler(*diffuse_texture, nullptr));
+    ASSERT_TRUE(shaders->set_sampler(*diffuse_texture, {}));
     ASSERT_TRUE(shaders->apply_instance());
     ASSERT_TRUE(shaders->set_uniform(*model, glm::mat4{1.0f}));
     ASSERT_TRUE(shaders->release_instance(*shader, *instance));
@@ -1217,10 +1250,10 @@ TEST(ShaderSystem, RoutesSamplerArrayElementsWithoutTemporaryNames) {
     ASSERT_TRUE(textures);
     ASSERT_TRUE(shaders->use(*shader));
     ASSERT_TRUE(shaders->bind_globals());
-    ASSERT_TRUE(shaders->set_sampler(*textures, nullptr, 2));
+    ASSERT_TRUE(shaders->set_sampler(*textures, {}, 2));
     EXPECT_EQ(renderer.sampler_array_index(), 2u);
 
-    auto out_of_bounds = shaders->set_sampler(*textures, nullptr, 3);
+    auto out_of_bounds = shaders->set_sampler(*textures, {}, 3);
     ASSERT_FALSE(out_of_bounds);
     EXPECT_EQ(
         out_of_bounds.error().code,
@@ -1428,6 +1461,91 @@ TEST(MaterialSystem, LoadsCachesAndAutoReleasesMaterialResources) {
 
     systems.shutdown();
     EXPECT_EQ(renderer.released_instances(), 4u);
+}
+
+TEST(MaterialSystem, SharesImagesButOwnsIndependentSamplersAndReplacesThemTransactionally) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init(4));
+    nk::MaterialConfig first;
+    first.name.assign("linear");
+    first.type = nk::MaterialType::ui;
+    first.diffuse_map_name.assign("paving");
+    nk::MaterialConfig second = first;
+    second.name.assign("nearest");
+    second.diffuse_sampler.mag_filter = nk::TextureFilter::nearest;
+    second.diffuse_sampler.anisotropy = 1;
+    auto a = systems.materials->acquire(first), b = systems.materials->acquire(second);
+    ASSERT_TRUE(a); ASSERT_TRUE(b);
+    EXPECT_EQ((*a)->diffuse_map.texture, (*b)->diffuse_map.texture);
+    EXPECT_NE((*a)->diffuse_map.sampler, (*b)->diffuse_map.sampler);
+    EXPECT_EQ(systems.textures->reference_count("paving"), 2);
+    const auto original = (*a)->diffuse_map.sampler;
+    const auto generation = (*a)->generation;
+    renderer.fail_sampler_create_on_call(renderer.created_samplers() + 1);
+    EXPECT_FALSE(systems.materials->set_sampler(**a, nk::TextureUse::diffuse, second.diffuse_sampler));
+    EXPECT_EQ((*a)->diffuse_map.sampler, original);
+    EXPECT_EQ((*a)->generation, generation);
+    renderer.fail_sampler_create_on_call(0);
+    renderer.fail_sampler_release(true);
+    EXPECT_FALSE(systems.materials->set_sampler(**a, nk::TextureUse::diffuse, second.diffuse_sampler));
+    EXPECT_EQ((*a)->diffuse_map.sampler, original);
+    EXPECT_EQ((*a)->diffuse_map.sampling, first.diffuse_sampler);
+    ASSERT_TRUE(systems.shaders->use((*a)->shader));
+    ASSERT_TRUE(systems.materials->apply_instance(**a, 5));
+    EXPECT_EQ(renderer.last_sampler(), original);
+    ASSERT_TRUE(systems.materials->set_sampler(**a, nk::TextureUse::diffuse, second.diffuse_sampler));
+    EXPECT_NE((*a)->diffuse_map.sampler, original);
+    EXPECT_NE((*a)->generation, generation);
+    ASSERT_TRUE(systems.materials->apply_instance(**a, 5)); // Same frame, different sampler.
+    EXPECT_EQ(renderer.last_sampler(), (*a)->diffuse_map.sampler);
+    const auto created = renderer.created_samplers();
+    ASSERT_TRUE(systems.materials->set_sampler(**a, nk::TextureUse::diffuse, second.diffuse_sampler));
+    EXPECT_EQ(renderer.created_samplers(), created); // No-op creates nothing.
+    EXPECT_FALSE(systems.materials->set_sampler(**a, nk::TextureUse::normal, {}));
+    EXPECT_EQ(systems.textures->reference_count("paving"), 2);
+    systems.materials->release("linear");
+    EXPECT_EQ(systems.textures->reference_count("paving"), 1);
+    EXPECT_TRUE((*b)->diffuse_map.sampler.valid());
+    systems.materials->release("nearest");
+    systems.shutdown();
+    EXPECT_EQ(renderer.created_samplers(), renderer.released_samplers());
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0);
+}
+
+TEST(MaterialSystem, RollsBackEveryPartialMapSamplerAcquisition) {
+    for (nk::u32 failed_map = 0; failed_map < 3; ++failed_map) {
+        nk::mem::MallocAllocator allocator{nk::mem::untracked};
+        TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+        TestRenderSystems systems{allocator, renderer};
+        ASSERT_TRUE(systems.init(4));
+        const nk::u32 live_before = renderer.created_samplers() - renderer.released_samplers();
+        renderer.fail_sampler_create_on_call(renderer.created_samplers() + failed_map + 1);
+        auto material = systems.materials->acquire("test_material");
+        ASSERT_FALSE(material);
+        EXPECT_EQ(material.error().code, nk::material_error_code::texture_failed);
+        EXPECT_EQ(systems.textures->loaded_count(), 0);
+        EXPECT_EQ(systems.materials->loaded_count(), 0);
+        EXPECT_EQ(renderer.created_samplers() - renderer.released_samplers(), live_before);
+        systems.shutdown();
+        EXPECT_EQ(renderer.created_samplers(), renderer.released_samplers());
+        EXPECT_EQ(allocator.get_active_allocation_count(), 0);
+    }
+}
+
+TEST(MaterialSystem, RollsBackDefaultSamplersDuringInitializationFailure) {
+    for (nk::u32 failed = 1; failed <= 4; ++failed) {
+        nk::mem::MallocAllocator allocator{nk::mem::untracked};
+        TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+        TestRenderSystems systems{allocator, renderer};
+        renderer.fail_sampler_create_on_call(failed);
+        EXPECT_FALSE(systems.init(4));
+        systems.shutdown();
+        EXPECT_EQ(renderer.created_samplers(), renderer.released_samplers());
+        EXPECT_EQ(renderer.acquired_instances(), renderer.released_instances());
+        EXPECT_EQ(allocator.get_active_allocation_count(), 0);
+    }
 }
 
 TEST(MaterialSystem, UsesNonOwnedDefaultsForOmittedMaterialMaps) {

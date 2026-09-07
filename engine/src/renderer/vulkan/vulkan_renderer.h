@@ -11,6 +11,7 @@
 #include "vulkan/command_buffer.h"
 #include "vulkan/fence.h"
 #include "vulkan/buffer.h"
+#include "vulkan/samplers.h"
 
 #include "vulkan/shaders/vulkan_shader.h"
 
@@ -53,8 +54,10 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> set_shader_sampler(
             ShaderHandle shader,
             ShaderUniformHandle uniform,
-            Texture* texture,
+            TextureBinding binding,
             u32 array_index = 0) override;
+        [[nodiscard]] result<SamplerHandle, renderer_error> create_sampler(const SamplerConfig& config) override;
+        [[nodiscard]] result<void, renderer_error> release_sampler(SamplerHandle sampler) override;
 
         virtual result<void, renderer_error> init() override;
         virtual void shutdown() override;
@@ -88,6 +91,7 @@ namespace nk {
         virtual void destroy_geometry(Geometry& geometry) override;
 
     private:
+        bool sampler_mutation_allowed() const noexcept;
         void on_default_texture_changed(Texture* texture) override;
         [[nodiscard]] result<void, renderer_error> set_shader_uniform_raw(
             ShaderHandle shader,
@@ -148,6 +152,8 @@ namespace nk {
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
         Instance m_instance;
         Device m_device;
+        vk::Samplers m_samplers;
+        SamplerHandle m_default_sampler{};
         Swapchain m_swapchain;
         RenderPass m_world_render_pass;
         RenderPass m_ui_render_pass;

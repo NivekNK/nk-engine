@@ -79,6 +79,8 @@ namespace nk {
         }
         u32 max_texture_dimension() const noexcept { return m_properties.limits.maxImageDimension2D; }
         f32 max_sampler_anisotropy() const noexcept { return m_properties.limits.maxSamplerAnisotropy; }
+        bool sampler_anisotropy() const noexcept { return m_anisotropy_enabled; }
+        u32 max_sampler_count() const noexcept { return m_properties.limits.maxSamplerAllocationCount; }
         bool supports_linear_blit(VkFormat format) const noexcept;
         f32 timestamp_period() const noexcept { return m_properties.limits.timestampPeriod; }
         u32 timestamp_valid_bits() const noexcept { return m_timestamp_valid_bits; }
@@ -113,6 +115,7 @@ namespace nk {
         PhysicalDeviceQueueFamilyInfo m_queue_family_info{};
         VkPhysicalDeviceProperties m_properties{};
         VkPhysicalDeviceFeatures m_features{};
+        bool m_anisotropy_enabled = false;
         VkPhysicalDeviceMemoryProperties m_memory{};
         u32 m_timestamp_valid_bits = 0;
         bool m_supports_device_local_host_visible = false;

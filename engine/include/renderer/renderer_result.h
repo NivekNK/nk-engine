@@ -41,6 +41,9 @@ namespace nk {
         texture_decode_failed,
         texture_limits_exceeded,
         material_failed,
+        sampler_config_invalid,
+        sampler_handle_invalid,
+        sampler_capacity_exceeded,
     };
 
     struct renderer_error {

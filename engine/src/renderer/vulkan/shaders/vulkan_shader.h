@@ -7,6 +7,7 @@
 #include "renderer/shader.h"
 #include "renderer/shader_config.h"
 #include "resources/texture.h"
+#include "vulkan/samplers.h"
 #include "vulkan/buffer.h"
 #include "vulkan/pipeline.h"
 #include "vulkan/shaders/utils.h"
@@ -37,7 +38,7 @@ namespace nk {
             mem::Allocator* allocator,
             ResourceSystem* resources,
             VkAllocationCallbacks* vulkan_allocator,
-            Texture* default_texture);
+            Texture* default_texture, vk::Samplers* samplers, SamplerHandle default_sampler);
         void shutdown();
 
         [[nodiscard]] bool initialized() const noexcept {
@@ -63,7 +64,7 @@ namespace nk {
             u32 size);
         [[nodiscard]] result<void, renderer_error> set_sampler(
             ShaderUniformHandle uniform,
-            Texture* texture,
+            TextureBinding binding,
             u32 array_index = 0);
         [[nodiscard]] result<u32, renderer_error> acquire_resources();
         [[nodiscard]] result<void, renderer_error> release_resources(
@@ -78,7 +79,7 @@ namespace nk {
 
         struct DescriptorState {
             cl::arr<u32> generations;
-            cl::arr<u32> ids;
+            cl::arr<vk::SampledImageKey> images;
         };
 
         struct SamplerSlot {
@@ -132,6 +133,8 @@ namespace nk {
         mem::Allocator* m_allocator = nullptr;
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
         Texture* m_default_texture = nullptr;
+        vk::Samplers* m_samplers = nullptr;
+        SamplerHandle m_default_sampler{};
         strbuf<255> m_name;
 
         ShaderMetadata m_metadata;
@@ -144,8 +147,8 @@ namespace nk {
         cl::arr<u8> m_instance_uniform_data;
         cl::arr<SamplerSlot> m_global_sampler_slots;
         cl::arr<SamplerSlot> m_instance_sampler_slots;
-        cl::arr<Texture*> m_global_textures;
-        cl::arr<Texture*> m_instance_textures;
+        cl::arr<TextureBinding> m_global_textures;
+        cl::arr<TextureBinding> m_instance_textures;
         cl::arr<DescriptorState> m_global_sampler_states;
         cl::arr<InstanceState> m_instance_states;
         VkDescriptorPool m_descriptor_pool = nullptr;

@@ -6,9 +6,30 @@
 #include "memory/allocator.h"
 #include "renderer/renderer.h"
 #include "resources/image_loader.h"
+#include "resources/material.h"
 #include "systems/resource_system.h"
 
 namespace nk {
+    result<void, texture_error> TextureSystem::acquire_map_resources(TextureMap& map) {
+        if (!m_initialized) return err(texture_error{texture_error_code::not_initialized, 0});
+        if (map.sampler.valid()) return err(texture_error{texture_error_code::renderer_failed, 0});
+        auto created = m_renderer->create_sampler(map.sampling);
+        if (!created) return err(texture_error{
+            created.error().code == renderer_error_code::out_of_memory ? texture_error_code::out_of_memory :
+                texture_error_code::renderer_failed, created.error().native_code});
+        map.sampler = *created;
+        return ok();
+    }
+
+    result<void, texture_error> TextureSystem::release_map_resources(TextureMap& map) {
+        if (!map.sampler.valid()) return ok();
+        if (!m_initialized) return err(texture_error{texture_error_code::not_initialized, 0});
+        auto released = m_renderer->release_sampler(map.sampler);
+        if (!released) return err(texture_error{texture_error_code::renderer_failed, released.error().native_code});
+        map.sampler = {};
+        return ok();
+    }
+
     namespace {
         texture_error translate_resource_error(
             const resource_error& error) noexcept {

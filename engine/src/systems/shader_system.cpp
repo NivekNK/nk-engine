@@ -663,7 +663,7 @@ namespace nk {
 
     result<void, shader_system_error> ShaderSystem::set_sampler(
         const ShaderUniformHandle uniform,
-        Texture* texture,
+        TextureBinding binding,
         const u32 array_index) {
         const ShaderUniformMetadata* metadata = current_uniform(uniform);
         if (metadata == nullptr)
@@ -678,7 +678,7 @@ namespace nk {
         auto set = m_renderer->set_shader_sampler(
             m_current_shader,
             uniform,
-            texture,
+            binding,
             array_index);
         if (!set)
             return err(from_renderer(set.error()));

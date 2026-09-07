@@ -126,7 +126,7 @@ namespace nk {
             u32 size);
         [[nodiscard]] result<void, shader_system_error> set_sampler(
             ShaderUniformHandle uniform,
-            Texture* texture,
+            TextureBinding binding,
             u32 array_index = 0);
 
         [[nodiscard]] ShaderHandle current_shader() const noexcept {

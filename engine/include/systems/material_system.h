@@ -59,6 +59,8 @@ namespace nk {
         [[nodiscard]] result<Material*, material_error> acquire(
             const MaterialConfig& config);
         void release(strview name);
+        [[nodiscard]] result<void, material_error> set_sampler(
+            Material& material, TextureUse use, const SamplerConfig& sampling);
 
         [[nodiscard]] result<void, material_error> set_diffuse_texture(
             Material& material,
@@ -168,6 +170,8 @@ namespace nk {
             const MaterialConfig& config,
             Material& material);
         void destroy_material(Material& material);
+        [[nodiscard]] result<void, material_error> acquire_samplers(Material& material);
+        void release_samplers(Material& material);
         u32 find_free_slot() const noexcept;
 
         mem::Allocator* m_allocator = nullptr;

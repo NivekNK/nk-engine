@@ -80,7 +80,7 @@ namespace nk {
             m_allocator,
             m_resources,
             m_vulkan_allocator,
-            m_default_texture);
+            m_default_texture, &m_samplers, m_default_sampler);
         if (!initialized) {
             (void)m_allocator->deconstruct_t(VulkanShader, shader);
             return err(initialized.error());
@@ -273,7 +273,7 @@ namespace nk {
     result<void, renderer_error> VulkanRenderer::set_shader_sampler(
         const ShaderHandle handle,
         const ShaderUniformHandle uniform,
-        Texture* texture,
+        TextureBinding binding,
         const u32 array_index) {
         VulkanShader* shader = resolve_shader(handle);
         if (shader == nullptr || handle != m_active_shader)
@@ -283,7 +283,29 @@ namespace nk {
                     : renderer_error_code::shader_state_invalid,
                 0,
             });
-        return shader->set_sampler(uniform, texture, array_index);
+        return shader->set_sampler(uniform, binding, array_index);
+    }
+
+    bool VulkanRenderer::sampler_mutation_allowed() const noexcept {
+        for (const CommandBuffer& commands : m_graphics_command_buffers)
+            if (commands.state() == CommandBufferState::Recording ||
+                commands.state() == CommandBufferState::InRenderPass ||
+                commands.state() == CommandBufferState::RecordingEnded) return false;
+        return true;
+    }
+
+    result<SamplerHandle, renderer_error> VulkanRenderer::create_sampler(const SamplerConfig& config) {
+        if (!sampler_mutation_allowed())
+            return err(renderer_error{renderer_error_code::shader_state_invalid, 0});
+        return m_samplers.create(config);
+    }
+
+    result<void, renderer_error> VulkanRenderer::release_sampler(SamplerHandle sampler) {
+        if (!sampler_mutation_allowed())
+            return err(renderer_error{renderer_error_code::shader_state_invalid, 0});
+        if (sampler == m_default_sampler)
+            return err(renderer_error{renderer_error_code::sampler_handle_invalid, 0});
+        return m_samplers.release(sampler);
     }
 
     void VulkanRenderer::on_default_texture_changed(Texture* texture) {
@@ -315,6 +337,12 @@ namespace nk {
 
         m_device.init(m_platform, &m_instance, m_allocator, m_vulkan_allocator);
         m_device_initialized = true;
+        auto samplers_initialized = m_samplers.init(*m_allocator, m_device, m_vulkan_allocator,
+            {m_device.sampler_anisotropy(), m_device.max_sampler_anisotropy(), m_device.max_sampler_count()}, {});
+        if (!samplers_initialized) return err(samplers_initialized.error());
+        auto default_sampler = m_samplers.create({});
+        if (!default_sampler) return err(default_sampler.error());
+        m_default_sampler = *default_sampler;
         if (m_device.get() == nullptr)
             return err(renderer_error{
                 .code = renderer_error_code::initialization_failed,
@@ -443,6 +471,9 @@ namespace nk {
         InfoLog("Vulkan Object Buffers shutdown.");
 
         destroy_all_shaders();
+        InfoLog("Vulkan sampler teardown: {} native sampler(s) remaining (renderer fallback included).", m_samplers.live_count());
+        m_samplers.shutdown();
+        m_default_sampler = {};
         InfoLog("Vulkan shaders shutdown.");
 
         // Clean up per-frame semaphores
@@ -868,37 +899,6 @@ namespace nk {
             return err(command_ended.error());
         }
         
-        // Create a sampler for the texture
-        VkSamplerCreateInfo sampler_info;
-        memset(&sampler_info, 0, sizeof(VkSamplerCreateInfo));
-        sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        // TODO: These filters should be configurable.
-        sampler_info.magFilter = VK_FILTER_LINEAR;
-        sampler_info.minFilter = VK_FILTER_LINEAR;
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        sampler_info.anisotropyEnable = VK_TRUE;
-        sampler_info.maxAnisotropy = glm::min(16.0f, m_device.max_sampler_anisotropy());
-        sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-        sampler_info.unnormalizedCoordinates = VK_FALSE;
-        sampler_info.compareEnable = VK_FALSE;
-        sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-        sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        sampler_info.mipLodBias = 0.0f;
-        sampler_info.minLod = 0.0f;
-        sampler_info.maxLod = static_cast<f32>(mip_levels - 1);
-
-        VkResult result = vkCreateSampler(m_device, &sampler_info, m_vulkan_allocator, &texture_data->sampler);
-        if (!vk::is_success(result)) {
-            texture_data->image.shutdown();
-            m_allocator->deconstruct_t(TextureData, texture_data);
-            return err(renderer_error{
-                .code = renderer_error_code::texture_sampler_creation_failed,
-                .native_code = static_cast<i32>(result),
-            });
-        }
-
         texture.has_transparency = has_transparency;
         DebugLog("Texture '{}' uploaded with {} mip level(s).", name, mip_levels);
         *out_texture = texture;
@@ -917,8 +917,6 @@ namespace nk {
         TextureData* texture_data = static_cast<TextureData*>(texture->m_internal_data);
 
         texture_data->image.shutdown();
-        vkDestroySampler(m_device, texture_data->sampler, m_vulkan_allocator);
-        texture_data->sampler = nullptr;
 
         m_allocator->deconstruct_t(TextureData, texture_data);
         *texture = {};

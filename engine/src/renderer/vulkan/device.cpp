@@ -136,7 +136,7 @@ namespace nk {
             // NOTE: Enable this if compute will be required.
             .compute = false,
             .transfer = true,
-            .sampler_anisotropy = true,
+            .sampler_anisotropy = false,
             // Integrated GPUs and software Vulkan implementations are valid.
             .discrete_gpu = false,
             .extensions = {},
@@ -362,7 +362,12 @@ namespace nk {
         // Request device features.
         // TODO: should be configurable.
         VkPhysicalDeviceFeatures device_features = {};
-        device_features.samplerAnisotropy = VK_TRUE; // Request anistrophy
+        const char* anisotropy = std::getenv("NK_VULKAN_ANISOTROPY");
+        m_anisotropy_enabled = m_features.samplerAnisotropy &&
+            (anisotropy == nullptr || std::strcmp(anisotropy, "0") != 0);
+        device_features.samplerAnisotropy = m_anisotropy_enabled ? VK_TRUE : VK_FALSE;
+        InfoLog("Vulkan sampler anisotropy: enabled={}, limit={}",
+            m_anisotropy_enabled, m_anisotropy_enabled ? max_sampler_anisotropy() : 1.0f);
 
         VkDeviceCreateInfo device_create_info = {};
         device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

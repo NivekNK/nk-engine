@@ -279,56 +279,20 @@ namespace nk {
     }
 
     result<void, material_error> MaterialSystem::create_default_materials() {
-        Material world{};
-        world.name.assign(default_material_name);
-        world.shader = m_world_bindings.shader;
-        world.type = MaterialType::world;
-        world.diffuse_color = glm::vec4{1.0f};
-        world.diffuse_map = {
-            .texture = &m_textures->default_texture(),
-            .use = TextureUse::diffuse,
-        };
-        world.diffuse_map_name.assign(default_texture_name);
-        world.specular_map = {
-            .texture = &m_textures->default_specular_texture(),
-            .use = TextureUse::specular,
-        };
-        world.specular_map_name.assign(default_specular_texture_name);
-        world.normal_map = {
-            .texture = &m_textures->default_normal_texture(),
-            .use = TextureUse::normal,
-        };
-        world.normal_map_name.assign(default_normal_texture_name);
-        world.shininess = 32.0f;
-        world.generation = 0;
-
-        auto world_created = m_shaders->acquire_instance(world.shader);
-        if (!world_created) {
-            return err(translate_shader_error(world_created.error()));
-        }
-        world.internal_id = *world_created;
-
-        Material ui{};
-        ui.name.assign(default_ui_material_name);
-        ui.shader = m_ui_bindings.shader;
-        ui.type = MaterialType::ui;
-        ui.diffuse_color = glm::vec4{1.0f};
-        ui.diffuse_map = {
-            .texture = &m_textures->default_texture(),
-            .use = TextureUse::diffuse,
-        };
-        ui.diffuse_map_name.assign(default_texture_name);
-        ui.generation = 0;
-
-        auto ui_created = m_shaders->acquire_instance(ui.shader);
+        MaterialConfig world_config;
+        world_config.name.assign(default_material_name);
+        Material world;
+        auto world_created = load_material(world_config, world);
+        if (!world_created) return err(world_created.error());
+        MaterialConfig ui_config;
+        ui_config.name.assign(default_ui_material_name);
+        ui_config.type = MaterialType::ui;
+        Material ui;
+        auto ui_created = load_material(ui_config, ui);
         if (!ui_created) {
-            (void)m_shaders->release_instance(
-                world.shader,
-                world.internal_id);
-            return err(translate_shader_error(ui_created.error()));
+            destroy_material(world);
+            return err(ui_created.error());
         }
-        ui.internal_id = *ui_created;
-
         m_default_material = world;
         m_default_ui_material = ui;
         return ok();
@@ -711,6 +675,51 @@ namespace nk {
         return ok();
     }
 
+    result<void, material_error> MaterialSystem::acquire_samplers(Material& material) {
+        TextureMap* maps[]{&material.diffuse_map, &material.specular_map, &material.normal_map};
+        const u32 count = material.type == MaterialType::world ? 3 : 1;
+        for (u32 i = 0; i < count; ++i) {
+            auto acquired = m_textures->acquire_map_resources(*maps[i]);
+            if (!acquired) {
+                release_samplers(material);
+                return err(material_error{acquired.error().code == texture_error_code::out_of_memory ?
+                    material_error_code::out_of_memory : material_error_code::texture_failed, acquired.error().native_code});
+            }
+        }
+        return ok();
+    }
+
+    void MaterialSystem::release_samplers(Material& material) {
+        for (TextureMap* map : {&material.normal_map, &material.specular_map, &material.diffuse_map}) {
+            auto released = m_textures->release_map_resources(*map);
+            if (!released) ErrorLog("Failed to release material sampler: {}", released.error().native_code);
+        }
+    }
+
+    result<void, material_error> MaterialSystem::set_sampler(
+        Material& material, TextureUse use, const SamplerConfig& sampling) {
+        if (!m_initialized) return err(material_error{material_error_code::not_initialized, 0});
+        if (!material.valid() || !sampling.valid() ||
+            (material.type == MaterialType::ui && use != TextureUse::diffuse))
+            return err(material_error{material_error_code::invalid_config, 0});
+        TextureMap* map = use == TextureUse::diffuse ? &material.diffuse_map :
+            use == TextureUse::specular ? &material.specular_map : use == TextureUse::normal ? &material.normal_map : nullptr;
+        if (map == nullptr) return err(material_error{material_error_code::invalid_config, 0});
+        if (map->sampling == sampling) return ok();
+        TextureMap replacement{map->texture, map->use, sampling, {}};
+        auto acquired = m_textures->acquire_map_resources(replacement);
+        if (!acquired) return err(material_error{material_error_code::texture_failed, acquired.error().native_code});
+        auto released = m_textures->release_map_resources(*map);
+        if (!released) {
+            (void)m_textures->release_map_resources(replacement);
+            return err(material_error{material_error_code::texture_failed, released.error().native_code});
+        }
+        *map = replacement;
+        if (++material.generation == numeric::invalid_id) material.generation = 0;
+        material.apply_state = {};
+        return ok();
+    }
+
     result<void, material_error> MaterialSystem::set_shininess(
         Material& material,
         const f32 shininess) {
@@ -892,18 +901,18 @@ namespace nk {
                 return err(translate_shader_error(color_set.error()));
             auto texture_set = m_shaders->set_sampler(
                 uniform->diffuse_texture,
-                diffuse_texture);
+                material.diffuse_map.binding());
             if (!texture_set)
                 return err(translate_shader_error(texture_set.error()));
             if (material.type == MaterialType::world) {
                 auto specular_set = m_shaders->set_sampler(
                     uniform->specular_texture,
-                    specular_texture);
+                    material.specular_map.binding());
                 if (!specular_set)
                     return err(translate_shader_error(specular_set.error()));
                 auto normal_set = m_shaders->set_sampler(
                     uniform->normal_texture,
-                    normal_texture);
+                    material.normal_map.binding());
                 if (!normal_set)
                     return err(translate_shader_error(normal_set.error()));
                 auto shininess_set = m_shaders->set_uniform(
@@ -960,6 +969,11 @@ namespace nk {
     result<void, material_error> MaterialSystem::load_material(
         const MaterialConfig& config,
         Material& material) {
+        if (!config.diffuse_sampler.valid() || !config.specular_sampler.valid() || !config.normal_sampler.valid())
+            return err(material_error{material_error_code::invalid_config, 0});
+        material.diffuse_map.sampling = config.diffuse_sampler;
+        material.specular_map.sampling = config.specular_sampler;
+        material.normal_map.sampling = config.normal_sampler;
         material.name.assign(config.name.view());
         material.type = config.type;
         material.diffuse_color = config.diffuse_color;
@@ -990,7 +1004,6 @@ namespace nk {
 
         bool diffuse_acquired = false;
         bool specular_acquired = false;
-        bool normal_acquired = false;
         if (config.diffuse_map_name.empty() ||
             config.diffuse_map_name.view() == default_texture_name) {
             material.diffuse_map.texture = &m_textures->default_texture();
@@ -1062,20 +1075,18 @@ namespace nk {
                     });
                 }
                 material.normal_map.texture = *texture;
-                normal_acquired = true;
             }
         }
 
+        auto sampled = acquire_samplers(material);
+        if (!sampled) {
+            destroy_material(material);
+            return err(sampled.error());
+        }
         material.generation = 0;
         auto created = m_shaders->acquire_instance(material.shader);
         if (!created) {
-            if (normal_acquired)
-                m_textures->release(material.normal_map_name.view());
-            if (specular_acquired)
-                m_textures->release(material.specular_map_name.view());
-            if (diffuse_acquired)
-                m_textures->release(material.diffuse_map_name.view());
-            material = {};
+            destroy_material(material);
             return err(translate_shader_error(created.error()));
         }
         material.internal_id = *created;
@@ -1101,6 +1112,7 @@ namespace nk {
                     released.error().native_code);
             }
         }
+        release_samplers(material);
         if (!texture_name.empty() &&
             texture_name.view() != default_texture_name) {
             m_textures->release(texture_name.view());

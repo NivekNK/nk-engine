@@ -5,10 +5,12 @@
 #include "core/result.h"
 #include "core/str.h"
 #include "resources/texture.h"
+#include "renderer/sampler.h"
 
 namespace nk {
     class Renderer;
     class ResourceSystem;
+    struct TextureMap;
     namespace mem { class Allocator; }
 
     inline constexpr strview default_texture_name{"default", 7};
@@ -60,6 +62,8 @@ namespace nk {
             strview name,
             bool auto_release);
         void release(strview name);
+        [[nodiscard]] result<void, texture_error> acquire_map_resources(TextureMap& map);
+        [[nodiscard]] result<void, texture_error> release_map_resources(TextureMap& map);
 
         Texture& default_texture() noexcept { return m_default_texture; }
         const Texture& default_texture() const noexcept {

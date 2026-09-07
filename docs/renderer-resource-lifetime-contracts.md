@@ -29,6 +29,13 @@ features, through core 1.3 or KHR entry points; `NK_VULKAN_LEGACY=1` exercises
 the render-pass/legacy-barrier/submit fallback. Neither path requires mesh
 shaders, descriptor heaps, device-address commands or Resizable BAR.
 
+Image and sampler identities are now independent. `TextureBinding` is a borrowed
+image pointer plus a generational sampler handle, copied into shader binding
+storage. The compatibility backend combines them only when writing a descriptor.
+This follows NoGraphicsAPI's separation of texture and sampler descriptions,
+while retaining ordinary `VkSampler` objects instead of requiring descriptor
+heaps. Sampler policy does not belong to shared image storage.
+
 Image transitions describe producer/consumer uses; discarding an attachment
 does not waive its acquire/fence dependency. Swapchain acquisition and its first
 color transition share the color-output execution scope. Dynamic world and UI
@@ -131,6 +138,9 @@ These orderings are invariants:
 | `VulkanGeometryData` ranges | Vulkan geometry slot | Suballocators of the object vertex/index buffers | Vulkan renderer after graphics work using the ranges completes |
 | `Texture` slot | `TextureSystem` | No high-level resource; opaque backend data belongs to `Renderer` | `TextureSystem`, through `Renderer::destroy_texture` |
 | `TextureMap::texture` | Borrowed by its `Material` | `TextureSystem` slot or default texture | Never by `TextureMap`; its material releases the acquired texture reference |
+| `TextureMap::sampler` | Its material owns one acquisition; native object lives in the renderer registry | Creating renderer/device | Material → `TextureSystem::release_map_resources` → `Renderer::release_sampler` |
+| `TextureBinding` | Borrowed value copied into shader slots | Texture and sampler owners | Never releases either resource |
+| Renderer fallback sampler | Vulkan renderer | Device, all shader slots using the implicit default | Renderer after shader shutdown and GPU drain |
 | `Material` slot | `MaterialSystem` | `ShaderSystem` instance, `TextureSystem` and texture maps | `MaterialSystem`, through `ShaderSystem::release_instance` and texture release |
 | `Geometry` slot | `GeometrySystem` | `MaterialSystem`, `Renderer`, material | `GeometrySystem`, through `Renderer::destroy_geometry` and material release |
 | `Mesh` value | Its caller or containing `dyarr<Mesh>` | `GeometrySystem` and one acquired reference per subgeometry | `Mesh::reset`/destructor before `GeometrySystem` shutdown |
@@ -251,11 +261,29 @@ never delete or separately release them.
   the renderer that created it.
 - Vulkan uploads level zero and generates the complete mip chain in the same
   startup/upload command buffer when the format supports linear source/destination
-  blits. Every subresource is transitioned before sampling; the image view and
-  sampler expose only initialized levels. Unsupported formats and the diagnostic
+  blits. Every subresource is transitioned before sampling; the image view
+  exposes only initialized levels. Independent samplers use `VK_LOD_CLAMP_NONE`
+  and sampling is constrained by those view levels. Unsupported formats and the diagnostic
   `NK_VULKAN_MIPMAPS=0` mode retain a single level. Depth attachments always use
   one level. The current RGBA8 UNORM color convention is unchanged; sRGB-aware
   import/filtering is a separate asset-pipeline change.
+- `acquire_map_resources`/`release_map_resources` delegate independent sampler
+  ownership to the renderer. They do not acquire or release the map's image.
+  Empty sampler release is idempotent; failed release leaves its handle intact.
+- Minification, magnification, mip filtering and U/V/W wrap are renderer-neutral
+  enums mapped once in `vk::sampler_create_info`. Anisotropy 1 disables it;
+  larger finite values are clamped to the enabled device limit. Missing support
+  (or `NK_VULKAN_ANISOTROPY=0`) disables it rather than excluding that GPU.
+  Border wrap uses opaque float black with normalized coordinates.
+- `vk::Samplers` caps live native objects at `min(4096, maxSamplerAllocationCount)`
+  including the fallback. Identical configs remain independent acquisitions, with
+  no NK deduplication cache. Slot reuse increments generation; stale handles fail
+  resolution instead of silently binding a different sampler.
+- Sampler creation/replacement/release occurs between frames. The Vulkan frontend
+  rejects mutation while graphics commands are recording or await submission.
+  Release waits for submitted work before destroying the native sampler, matching
+  the current conservative resource-destruction policy. No sampler allocation or
+  device-idle wait is added to an unchanged draw. Deferred destruction is future work.
 
 ## MaterialSystem contract
 
@@ -263,11 +291,11 @@ never delete or separately release them.
   pointers returned by `acquire` are borrowed.
 - A material retains one reference to each non-default texture it successfully
   acquires. Material destruction first returns its instance ID to `ShaderSystem`
-  and then releases those texture references.
+  before releasing its per-map samplers and then those texture references.
 - Default world and UI materials live for the entire MaterialSystem lifetime and
   borrow the TextureSystem default texture without incrementing its count. Their
-  shader instances are acquired transactionally; failure to create the second
-  default releases the first.
+  samplers and shader instances are acquired transactionally; failure to create
+  the second default releases the first. World maps own three samplers, UI one.
 - Material resources declare `shader=`. Omission remains backward-compatible by
   selecting the built-in world or UI shader. The current material contract only
   accepts the matching built-in shader for each `MaterialType`, because those
@@ -281,9 +309,19 @@ never delete or separately release them.
 - `set_diffuse_texture` acquires the replacement before publishing it, updates
   the material generation and only then releases the previous texture. Failure
   leaves the original binding intact.
-- A missing diffuse texture during material loading currently degrades to the
-  default texture and logs a warning. Invalid material configuration and shader
-  failures remain hard errors returned through `result`.
+- `set_sampler(material, use, config)` creates the replacement first, preserves
+  image references, drains/releases the old sampler, and only then publishes the
+  new handle and material generation. No-op changes allocate nothing. Failure
+  leaves the previous configuration usable. Callers use this method, not direct
+  edits of a live `TextureMap`'s sampling fields.
+- Per-frame Vulkan descriptor keys include image identity/generation and sampler
+  handle/generation. This catches sampler-only changes and distinguishes default
+  images even though those textures share the invalid registry ID. Missing or
+  invalid images use the fallback image with the selected sampler; an unset binding
+  uses the renderer fallback sampler. Stale explicit sampler handles are errors.
+- Omitted texture names borrow defaults. Failure to load an explicitly requested
+  texture, invalid configuration and shader failures return typed errors and roll
+  back the acquisitions already completed.
 
 ## GeometrySystem contract
 

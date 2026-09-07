@@ -149,21 +149,19 @@ namespace nk {
     result<void, renderer_error> VulkanShader::init_descriptor_state(
         DescriptorState& state) {
         if (!state.generations.arr_init(m_allocator, m_frame_count) ||
-            !state.ids.arr_init(m_allocator, m_frame_count)) {
+            !state.images.arr_init(m_allocator, m_frame_count)) {
             release_descriptor_state(state);
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
         }
         for (u32 image = 0; image < m_frame_count; ++image) {
             state.generations[image] = numeric::invalid_id;
-            state.ids[image] = numeric::invalid_id;
         }
         return ok();
     }
 
     void VulkanShader::release_descriptor_state(
         DescriptorState& state) noexcept {
-        if (state.ids.allocator() != nullptr)
-            (void)state.ids.arr_shutdown();
+        state.images.arr_shutdown();
         if (state.generations.allocator() != nullptr)
             (void)state.generations.arr_shutdown();
     }
@@ -236,10 +234,10 @@ namespace nk {
             }
         }
 
-        for (Texture*& texture : m_global_textures)
-            texture = nullptr;
-        for (Texture*& texture : m_instance_textures)
-            texture = nullptr;
+        for (TextureBinding& texture : m_global_textures)
+            texture = {};
+        for (TextureBinding& texture : m_instance_textures)
+            texture = {};
         for (DescriptorState& state : m_global_sampler_states) {
             auto initialized = init_descriptor_state(state);
             if (!initialized)
@@ -282,11 +280,11 @@ namespace nk {
         mem::Allocator* allocator,
         ResourceSystem* resources,
         VkAllocationCallbacks* vulkan_allocator,
-        Texture* default_texture) {
+        Texture* default_texture, vk::Samplers* samplers, SamplerHandle default_sampler) {
         if (initialized() || width == 0 || height == 0 || frame_count == 0 ||
             render_pass == nullptr || device == nullptr ||
             device->get() == nullptr || allocator == nullptr ||
-            resources == nullptr) {
+            resources == nullptr || samplers == nullptr || samplers->resolve(default_sampler) == VK_NULL_HANDLE) {
             return err(initialization_error());
         }
 
@@ -309,6 +307,8 @@ namespace nk {
         m_allocator = allocator;
         m_vulkan_allocator = vulkan_allocator;
         m_default_texture = default_texture;
+        m_samplers = samplers;
+        m_default_sampler = default_sampler;
         m_frame_count = frame_count;
         m_max_instances = config.max_instances;
 
@@ -704,6 +704,8 @@ namespace nk {
         m_allocator = nullptr;
         m_vulkan_allocator = nullptr;
         m_default_texture = nullptr;
+        m_samplers = nullptr;
+        m_default_sampler = {};
         m_name.clear();
         m_descriptor_pool = nullptr;
         m_frame_count = 0;
@@ -810,7 +812,7 @@ namespace nk {
 
     result<void, renderer_error> VulkanShader::set_sampler(
         const ShaderUniformHandle uniform_handle,
-        Texture* texture,
+        TextureBinding binding,
         const u32 array_index) {
         const ShaderUniformMetadata* uniform =
             m_metadata.uniform(uniform_handle);
@@ -828,15 +830,19 @@ namespace nk {
         if (slot == numeric::invalid_id)
             return err(invalid_uniform());
 
+        if (binding.sampler == SamplerHandle{}) binding.sampler = m_default_sampler;
+        if (m_samplers->resolve(binding.sampler) == VK_NULL_HANDLE)
+            return err(renderer_error{renderer_error_code::sampler_handle_invalid, 0});
+
         if (uniform->scope == ShaderScope::global) {
-            m_global_textures[slot] = texture;
+            m_global_textures[slot] = binding;
             return ok();
         }
         if (m_bound_instance_id >= m_instance_states.length())
             return err(invalid_shader_state());
         m_instance_textures[
             m_bound_instance_id * m_instance_sampler_slots.length() + slot] =
-            texture;
+            binding;
         return ok();
     }
 
@@ -890,13 +896,18 @@ namespace nk {
 
         u32 image_info_count = 0;
         for (u32 slot = 0; slot < m_global_sampler_slots.length(); ++slot) {
-            Texture* texture = valid_texture(m_global_textures[slot]);
+            const TextureBinding binding = m_global_textures[slot];
+            Texture* texture = valid_texture(binding.texture);
+            const SamplerHandle sampler = binding.sampler == SamplerHandle{} ? m_default_sampler : binding.sampler;
+            const VkSampler native_sampler = m_samplers->resolve(sampler);
+            if (native_sampler == VK_NULL_HANDLE)
+                return err(renderer_error{renderer_error_code::sampler_handle_invalid, 0});
             if (texture == nullptr)
                 return err(invalid_shader_state());
 
             DescriptorState& state = m_global_sampler_states[slot];
-            if (state.generations[frame_index] == texture->generation &&
-                state.ids[frame_index] == texture->id) {
+            const vk::SampledImageKey key{texture, texture->generation, sampler};
+            if (state.images[frame_index] == key) {
                 continue;
             }
             TextureData* texture_data =
@@ -906,7 +917,7 @@ namespace nk {
             image_info.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             image_info.imageView = texture_data->image.get_view();
-            image_info.sampler = texture_data->sampler;
+            image_info.sampler = native_sampler;
 
             const SamplerSlot& configured = m_global_sampler_slots[slot];
             VkWriteDescriptorSet& write = writes[write_count++];
@@ -917,8 +928,7 @@ namespace nk {
             write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write.descriptorCount = 1;
             write.pImageInfo = &image_info;
-            state.generations[frame_index] = texture->generation;
-            state.ids[frame_index] = texture->id;
+            state.images[frame_index] = key;
         }
 
         update_descriptors(write_count, writes);
@@ -991,17 +1001,21 @@ namespace nk {
 
         u32 image_info_count = 0;
         for (u32 slot = 0; slot < m_instance_sampler_slots.length(); ++slot) {
-            Texture* texture = valid_texture(
-                m_instance_textures[
+            const TextureBinding binding = m_instance_textures[
                     m_bound_instance_id *
                         m_instance_sampler_slots.length() +
-                    slot]);
+                    slot];
+            Texture* texture = valid_texture(binding.texture);
+            const SamplerHandle sampler = binding.sampler == SamplerHandle{} ? m_default_sampler : binding.sampler;
+            const VkSampler native_sampler = m_samplers->resolve(sampler);
+            if (native_sampler == VK_NULL_HANDLE)
+                return err(renderer_error{renderer_error_code::sampler_handle_invalid, 0});
             if (texture == nullptr)
                 return err(invalid_shader_state());
 
             DescriptorState& state = instance.sampler_states[slot];
-            if (state.generations[frame_index] == texture->generation &&
-                state.ids[frame_index] == texture->id) {
+            const vk::SampledImageKey key{texture, texture->generation, sampler};
+            if (state.images[frame_index] == key) {
                 continue;
             }
             TextureData* texture_data =
@@ -1011,7 +1025,7 @@ namespace nk {
             image_info.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             image_info.imageView = texture_data->image.get_view();
-            image_info.sampler = texture_data->sampler;
+            image_info.sampler = native_sampler;
 
             const SamplerSlot& configured = m_instance_sampler_slots[slot];
             VkWriteDescriptorSet& write = writes[write_count++];
@@ -1022,8 +1036,7 @@ namespace nk {
             write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write.descriptorCount = 1;
             write.pImageInfo = &image_info;
-            state.generations[frame_index] = texture->generation;
-            state.ids[frame_index] = texture->id;
+            state.images[frame_index] = key;
         }
 
         update_descriptors(write_count, writes);
@@ -1091,7 +1104,7 @@ namespace nk {
         for (u32 slot = 0; slot < m_instance_sampler_slots.length(); ++slot) {
             m_instance_textures[
                 instance_id * m_instance_sampler_slots.length() + slot] =
-                nullptr;
+                {};
         }
         return ok(instance_id);
     }
@@ -1112,7 +1125,7 @@ namespace nk {
         for (u32 slot = 0; slot < m_instance_sampler_slots.length(); ++slot) {
             m_instance_textures[
                 instance_id * m_instance_sampler_slots.length() + slot] =
-                nullptr;
+                {};
         }
         if (m_bound_instance_id == instance_id)
             m_bound_instance_id = numeric::invalid_id;

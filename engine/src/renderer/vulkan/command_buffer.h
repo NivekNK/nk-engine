@@ -48,6 +48,7 @@ namespace nk {
 
         void reset() { m_state = CommandBufferState::Ready; }
         void set_state(CommandBufferState state) { m_state = state; }
+        CommandBufferState state() const noexcept { return m_state; }
 
         VkCommandBuffer get() const { return m_command_buffer; }
         VkCommandBuffer operator()() { return m_command_buffer; }

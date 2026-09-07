@@ -5,6 +5,7 @@
 #include <glm/vertex_2d.h>
 
 #include "resources/texture.h"
+#include "renderer/sampler.h"
 #include "renderer/geometry_render_data.h"
 #include "renderer/lighting.h"
 #include "renderer/renderer_result.h"
@@ -78,8 +79,11 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> set_shader_sampler(
             ShaderHandle shader,
             ShaderUniformHandle uniform,
-            Texture* texture,
+            TextureBinding binding,
             u32 array_index = 0) = 0;
+
+        [[nodiscard]] virtual result<SamplerHandle, renderer_error> create_sampler(const SamplerConfig& config) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> release_sampler(SamplerHandle sampler) = 0;
 
         template <ShaderUniformValue T>
         [[nodiscard]] result<void, renderer_error> set_shader_uniform(

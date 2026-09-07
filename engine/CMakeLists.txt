@@ -77,6 +77,7 @@ set(SOURCES
     src/resources/loaders.cpp
     src/resources/static_mesh_loader.cpp
     src/resources/static_mesh_binary.cpp
+    src/renderer/vulkan/samplers.cpp
     src/resources/tinyobjloader.cpp
     src/resources/mesh.cpp
     src/resources/shader_loader.cpp
