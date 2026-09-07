@@ -50,7 +50,8 @@ namespace nk {
             const Texture& texture,
             const TextureRegion region,
             const cl::slice<const u8> pixels) noexcept {
-            if (pixels.data() == nullptr || region.width == 0 ||
+            if (texture.channel_count == 0 || texture.channel_count > 4 ||
+                pixels.data() == nullptr || region.width == 0 ||
                 region.height == 0 || region.x >= texture.width ||
                 region.y >= texture.height ||
                 region.width > texture.width - region.x ||
@@ -431,8 +432,11 @@ namespace nk {
         const cl::slice<const u8> pixels) {
         if (!m_initialized)
             return err(texture_error{texture_error_code::not_initialized, 0});
-        if (!texture.valid() || !texture.writable() || texture.external())
+        if (texture.id >= m_textures.length() ||
+            &m_textures[texture.id] != &texture || !texture.valid() ||
+            !texture.writable() || texture.external()) {
             return err(texture_error{texture_error_code::invalid_operation, 0});
+        }
         if (!valid_region(texture, region, pixels))
             return err(texture_error{texture_error_code::invalid_region, 0});
 
@@ -452,8 +456,11 @@ namespace nk {
         const u32 height) {
         if (!m_initialized)
             return err(texture_error{texture_error_code::not_initialized, 0});
-        if (!texture.valid() || !texture.writable() || texture.external())
+        if (texture.id >= m_textures.length() ||
+            &m_textures[texture.id] != &texture || !texture.valid() ||
+            !texture.writable() || texture.external()) {
             return err(texture_error{texture_error_code::invalid_operation, 0});
+        }
         if (!valid_texture_extent(width, height, texture.channel_count))
             return err(texture_error{texture_error_code::invalid_dimensions, 0});
         if (texture.width == width && texture.height == height)

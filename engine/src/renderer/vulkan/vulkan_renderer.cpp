@@ -921,7 +921,8 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::create_writable_texture(
         Texture* texture) {
-        if (texture == nullptr || texture->m_internal_data != nullptr ||
+        if (!m_device_initialized || m_allocator == nullptr ||
+            texture == nullptr || texture->m_internal_data != nullptr ||
             texture->width == 0 || texture->height == 0 ||
             !texture->writable() || texture->external()) {
             return err(renderer_error{
@@ -1000,7 +1001,9 @@ namespace nk {
         Texture& texture,
         const TextureRegion region,
         const cl::slice<const u8> pixels) {
-        if (!texture.valid() || !texture.writable() || texture.external() ||
+        if (!m_device_initialized || m_allocator == nullptr ||
+            !texture.valid() || !texture.writable() || texture.external() ||
+            texture_format(texture.channel_count) == VK_FORMAT_UNDEFINED ||
             pixels.data() == nullptr || region.width == 0 ||
             region.height == 0 || region.x >= texture.width ||
             region.y >= texture.height ||
@@ -1076,7 +1079,8 @@ namespace nk {
         Texture& texture,
         const u32 width,
         const u32 height) {
-        if (!texture.valid() || !texture.writable() || texture.external() ||
+        if (!m_device_initialized || m_allocator == nullptr ||
+            !texture.valid() || !texture.writable() || texture.external() ||
             width == 0 || height == 0) {
             return err(renderer_error{
                 renderer_error_code::texture_state_invalid,
@@ -1156,6 +1160,10 @@ namespace nk {
     void VulkanRenderer::destroy_texture(Texture* texture) {
         if (texture == nullptr)
             std::abort();
+        if (texture->external()) {
+            WarnLog("External textures must be released by their owner.");
+            return;
+        }
         if (texture->m_internal_data == nullptr) {
             *texture = {};
             return;

@@ -1502,6 +1502,25 @@ TEST(TextureSystem, ManagesWritableTexturesAndValidatesRegions) {
     EXPECT_EQ(renderer.texture_writes(), 1u);
     EXPECT_EQ(texture->generation, 1u);
 
+    nk::Texture unmanaged{
+        .id = texture->id,
+        .width = texture->width,
+        .height = texture->height,
+        .channel_count = texture->channel_count,
+        .flags = nk::TextureFlag::writable,
+        .generation = 0,
+        .m_internal_data = reinterpret_cast<void*>(0x3),
+    };
+    auto unmanaged_write = textures->write(
+        unmanaged,
+        {1, 1, 2, 2},
+        nk::cl::slice<const nk::u8>{region_pixels});
+    ASSERT_FALSE(unmanaged_write);
+    EXPECT_EQ(
+        unmanaged_write.error().code,
+        nk::texture_error_code::invalid_operation);
+    EXPECT_EQ(renderer.texture_writes(), 1u);
+
     const nk::u8 short_pixels[15]{};
     auto invalid_write = textures->write(
         *texture,
@@ -1573,6 +1592,12 @@ TEST(TextureSystem, KeepsFileAndRuntimeNamespacesCompatible) {
     EXPECT_EQ(
         reserved.error().code,
         nk::texture_error_code::incompatible_texture);
+    auto invalid_dimensions = textures->acquire_writable(
+        "invalid_runtime", 4, 4, 0, false);
+    ASSERT_FALSE(invalid_dimensions);
+    EXPECT_EQ(
+        invalid_dimensions.error().code,
+        nk::texture_error_code::invalid_dimensions);
 
     textures->release("cobblestone");
     nk::TextureSystem::destroy(allocator, textures);
