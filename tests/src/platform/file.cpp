@@ -172,6 +172,53 @@ TEST(File, TransfersReadAllOwnershipThroughDyarr) {
     EXPECT_EQ(allocator.get_active_allocation_count(), 0);
 }
 
+TEST(File, RejectsOversizedReadsBeforeAllocatingPayload) {
+    TemporaryFile source{file_contents, sizeof(file_contents)};
+    ASSERT_TRUE(source.valid());
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::File file{allocator};
+    ASSERT_TRUE(file.open(source.path(), nk::FileMode::Read, true));
+    const auto allocations = allocator.get_active_allocation_count();
+    auto read = file.read_all_bytes(sizeof(file_contents) - 1);
+    ASSERT_FALSE(read);
+    EXPECT_EQ(read.error(), nk::file_error::size_limit_exceeded);
+    EXPECT_EQ(allocator.get_active_allocation_count(), allocations);
+    EXPECT_TRUE(file.read_all_bytes(sizeof(file_contents)));
+}
+
+TEST(File, PublishesAtomicReplacementsAndPreservesOpenReaders) {
+    TemporaryFile source{file_contents, sizeof(file_contents)};
+    ASSERT_TRUE(source.valid());
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    nk::File old_reader{allocator};
+    ASSERT_TRUE(old_reader.open(source.path(), nk::FileMode::Read, true));
+    constexpr nk::u8 replacement[]{0, 1, 2, 3, 255};
+    ASSERT_TRUE(nk::File::write_atomic(source.path(), {replacement}));
+    auto old_bytes = old_reader.read_all_bytes();
+    ASSERT_TRUE(old_bytes);
+    ASSERT_EQ(old_bytes->length(), sizeof(file_contents));
+    EXPECT_EQ(std::memcmp(old_bytes->data(), file_contents, sizeof(file_contents)), 0);
+    nk::File new_reader{allocator};
+    ASSERT_TRUE(new_reader.open(source.path(), nk::FileMode::Read, true));
+    auto new_bytes = new_reader.read_all_bytes();
+    ASSERT_TRUE(new_bytes);
+    ASSERT_EQ(new_bytes->length(), sizeof(replacement));
+    EXPECT_EQ(std::memcmp(new_bytes->data(), replacement, sizeof(replacement)), 0);
+    EXPECT_TRUE(nk::File::write_atomic(source.path(), {}));
+}
+
+TEST(File, AtomicWriteRejectsInvalidPathsAndFailedReplacement) {
+    constexpr nk::u8 content[]{42};
+    EXPECT_FALSE(nk::File::write_atomic({}, {content}));
+    EXPECT_FALSE(nk::File::write_atomic(nk::strview{"a\0b", 3}, {content}));
+    char directory[] = "/tmp/nk-atomic-directory-XXXXXX";
+    ASSERT_NE(mkdtemp(directory), nullptr);
+    auto failed = nk::File::write_atomic(directory, {content});
+    ASSERT_FALSE(failed);
+    EXPECT_EQ(failed.error(), nk::file_error::replace_failed);
+    EXPECT_EQ(::rmdir(directory), 0);
+}
+
 TEST(File, PreservesOutOfMemoryAndSeekFailures) {
     FailingAllocator failing_allocator;
     ASSERT_NE(

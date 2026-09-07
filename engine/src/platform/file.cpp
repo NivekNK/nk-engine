@@ -1,9 +1,14 @@
 #include "nkpch.h"
 
 #include <cerrno>
+#include <atomic>
+#if defined(NK_PLATFORM_LINUX)
+#include <fcntl.h>
+#endif
 
 #include "platform/file.h"
 #include "memory/allocator.h"
+#include "core/format.h"
 
 namespace nk {
     File::~File() {
@@ -16,6 +21,85 @@ namespace nk {
             return false;
         struct stat buffer;
         return stat(path, &buffer) == 0;
+    }
+
+    result<void, file_error> File::write_atomic(
+        const strview path, const cl::slice<const u8> input) {
+        strbuf<1023> destination;
+        if (path.empty() || !destination.assign(path))
+            return err(file_error::invalid_path);
+        for (char character : path)
+            if (character == '\0')
+                return err(file_error::invalid_path);
+        static std::atomic<u64> sequence{0};
+#if defined(NK_PLATFORM_WINDOWS)
+        const u64 process = GetCurrentProcessId();
+#else
+        const u64 process = static_cast<u64>(getpid());
+#endif
+        strbuf<1023> temporary;
+        for (u32 attempt = 0; attempt < 32; ++attempt) {
+            if (!format_to(temporary, "{}.tmp.{}.{}", path, process,
+                    sequence.fetch_add(1, std::memory_order_relaxed)))
+                return err(file_error::invalid_path);
+#if defined(NK_PLATFORM_WINDOWS)
+            HANDLE file = CreateFileA(temporary.cstr(), GENERIC_WRITE, 0,
+                nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE) {
+                if (GetLastError() == ERROR_FILE_EXISTS || GetLastError() == ERROR_ALREADY_EXISTS)
+                    continue;
+                return err(file_error::open_failed);
+            }
+            bool success = true;
+            for (u64 offset = 0; offset < input.length();) {
+                const DWORD chunk = static_cast<DWORD>(
+                    input.length() - offset > 1024 * 1024 ? 1024 * 1024 : input.length() - offset);
+                DWORD written = 0;
+                if (!WriteFile(file, input.data() + offset, chunk, &written, nullptr) || written == 0) {
+                    success = false;
+                    break;
+                }
+                offset += written;
+            }
+            if (!FlushFileBuffers(file))
+                success = false;
+            if (!CloseHandle(file))
+                success = false;
+            const bool replaced = success && MoveFileExA(temporary.cstr(), destination.cstr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+            const int file = ::open(temporary.cstr(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+            if (file < 0) {
+                if (errno == EEXIST)
+                    continue;
+                return err(file_error::open_failed);
+            }
+            bool success = true;
+            for (u64 offset = 0; offset < input.length();) {
+                const u64 remaining = input.length() - offset;
+                const auto written = ::write(file, input.data() + offset,
+                    remaining > 1024 * 1024 ? 1024 * 1024 : remaining);
+                if (written < 0 && errno == EINTR)
+                    continue;
+                if (written <= 0) {
+                    success = false;
+                    break;
+                }
+                offset += static_cast<u64>(written);
+            }
+            if (::fsync(file) != 0)
+                success = false;
+            if (::close(file) != 0)
+                success = false;
+            const bool replaced = success && std::rename(temporary.cstr(), destination.cstr()) == 0;
+#endif
+            if (!replaced) {
+                (void)std::remove(temporary.cstr());
+                return err(success ? file_error::replace_failed : file_error::write_failed);
+            }
+            return ok();
+        }
+        return err(file_error::open_failed);
     }
 
     result<void, file_error> File::open(
@@ -126,7 +210,7 @@ namespace nk {
         return ok(bytes_read);
     }
 
-    result<cl::dyarr<u8>, file_error> File::read_all_bytes() {
+    result<cl::dyarr<u8>, file_error> File::read_all_bytes(const u64 max_bytes) {
         if (!m_open)
             return err(file_error::not_open);
         if ((m_mode & FileMode::Read) == 0)
@@ -139,6 +223,8 @@ namespace nk {
             return err(file_error::seek_failed);
 
         const u64 size = static_cast<u64>(file_size);
+        if (size > max_bytes)
+            return err(file_error::size_limit_exceeded);
         cl::dyarr<u8> data;
         if (size == 0) {
             if (!data.dyarr_init(m_allocator, 0))

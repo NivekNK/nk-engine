@@ -30,6 +30,8 @@ namespace nk {
         write_failed,
         close_failed,
         out_of_memory,
+        size_limit_exceeded,
+        replace_failed,
     };
 
     enum class read_line_outcome : u8 {
@@ -55,6 +57,11 @@ namespace nk {
         File& operator=(File&&) = delete;
 
         static bool exists(cstr path);
+        // Publish a complete file using an exclusive temporary in the same
+        // directory. A failure leaves the destination unchanged. Does not
+        // promise directory-entry durability across a power failure.
+        [[nodiscard]] static result<void, file_error> write_atomic(
+            strview path, cl::slice<const u8> input);
 
         [[nodiscard]] result<void, file_error> open(
             strview path,
@@ -67,7 +74,8 @@ namespace nk {
         [[nodiscard]] result<void, file_error> write_line(strview line);
 
         [[nodiscard]] result<u64, file_error> read(cl::slice<u8> output);
-        [[nodiscard]] result<cl::dyarr<u8>, file_error> read_all_bytes();
+        [[nodiscard]] result<cl::dyarr<u8>, file_error> read_all_bytes(
+            u64 max_bytes = numeric::u64_max);
 
         [[nodiscard]] result<u64, file_error> write(
             cl::slice<const u8> input);
