@@ -109,7 +109,7 @@ Automated cycling with Vulkan synchronization validation requested:
 
 ```bash
 NK_SAMPLER_DEMO=1 NK_SMOKE_TEST_CYCLE_SAMPLERS=1 NK_SMOKE_TEST_FRAMES=300 \
-VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT \
+VK_LAYER_VALIDATE_SYNC=1 \
 nix run .#run -- Debug
 ```
 

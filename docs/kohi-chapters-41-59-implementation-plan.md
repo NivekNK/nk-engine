@@ -1,6 +1,6 @@
 # Plan de implementación de Kohi 41–59 en NK Engine
 
-- Estado: en progreso; capítulos 41–56 adaptados
+- Estado: en progreso; capítulos 41–57 adaptados
 - Fecha de análisis: 2026-09-02
 - Punto de partida de NK Engine: capítulos 34–40 adaptados; rama `feature/textures`
 
@@ -999,28 +999,77 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ## Capítulo 57 — Enhancing Texture Maps
 
+- Estado: completado en NK Engine (2026-09-07).
 - Vídeo: [Kohi #057](https://youtu.be/hGA2veSznn8?list=PLv8Ddw9K0JPg1BEO-RS-0MYs423cvLVtj)
 - Referencia principal: [`879ccc4`](https://github.com/travisvroman/kohi/commit/879ccc411f44d5df28ffdcc9c30d27a0febd6a3e)
 
 ### Plan
 
-- [ ] Mover la configuración de sampler desde `TextureData` hacia `TextureMap`:
+- [x] Mover la configuración de sampler desde `TextureData` hacia `TextureMap`:
   filtros min/mag, wrap U/V/W y anisotropía.
-- [ ] Mantener `Texture` como imagen compartible y dar al renderer un recurso de
+- [x] Mantener `Texture` como imagen compartible y dar al renderer un recurso de
   sampler separado con ownership claro.
-- [ ] Traducir enums renderer-neutral a Vulkan en un único punto y validar soporte.
-- [ ] Limitar anisotropía a `maxSamplerAnisotropy`; desactivarla si el dispositivo
+- [x] Traducir enums renderer-neutral a Vulkan en un único punto y validar soporte.
+- [x] Limitar anisotropía a `maxSamplerAnisotropy`; desactivarla si el dispositivo
   no la soporta, en vez de fijarla siempre a 16.
-- [ ] Actualizar material configs y la versión de `.nkmesh` con defaults backward
+- [x] Actualizar material configs y la versión de `.nkmesh` con defaults backward
   compatible o rechazo explícito de la versión antigua.
-- [ ] Cachear samplers idénticos sólo si las mediciones justifican la complejidad;
+- [x] Cachear samplers idénticos sólo si las mediciones justifican la complejidad;
   el primer alcance puede administrar uno por map.
 
 ### Validación y commits
 
-- [ ] Tests de defaults, parsing, enum mapping, clamp, acquire/release y fallo
+- [x] Tests de defaults, parsing, enum mapping, clamp, acquire/release y fallo
   parcial; smoke con wrap/filter visualmente distinguible.
-- [ ] Commit sugerido: `feat(materials): configure samplers per texture map`.
+- [x] Avances segmentados:
+  - `89d1ef0 feat(resources): configure and serialize per-map sampling`
+  - `4baf7ef feat(renderer): separate image and sampler resource lifetimes`
+  - `b0e20bd feat(editor): add interactive sampler comparison demo`
+
+### Adaptación y cierre
+
+- API y ejemplos: [texture-map-sampling.md](texture-map-sampling.md).
+  `SamplerConfig` contiene min/mag/mip filter, wrap U/V/W y anisotropía;
+  `TextureMap` conserva imagen/uso y agrega configuración más `SamplerHandle`.
+  Materiales `.kmt` aceptan `diffuse_sampler.*`, `specular_sampler.*` y
+  `normal_sampler.*`; archivos existentes conservan linear/repeat/anisotropía16.
+- `TextureData` sólo contiene imagen. El renderer administra samplers nativos
+  independientes en `vk::Samplers`, sin caché de deduplicación: máximo
+  `min(4096, maxSamplerAllocationCount)`, incluyendo el fallback. Handles con
+  generación rechazan usos obsoletos tras reciclar slots. Anisotropía ya no es
+  un requisito de selección de GPU; se habilita si existe soporte y se limita
+  al dispositivo. `NK_VULKAN_ANISOTROPY=0` permite verificar el camino sin ella.
+- `TextureBinding` es una vista copiada de imagen + sampler, nunca un puntero
+  a un material temporal. Descriptores por frame detectan cambios de sampler,
+  generación e identidad de imagen, incluso entre defaults con el mismo ID.
+  `MaterialSystem::set_sampler` reemplaza transaccionalmente sin cambiar las
+  referencias de la imagen. Defaults y fallos parciales liberan samplers/instancias.
+- El diseño sigue la independencia imagen/sampler y vidas explícitas de
+  [NoGraphicsAPI](https://github.com/sebbbi/NoGraphicsAPI), usando `VkSampler`
+  convencional en nuestra capa compatible, sin descriptor heaps ni extensiones
+  obligatorias nuevas. Mutaciones sólo entre frames; release espera submissions
+  completadas. No hay creación de samplers ni espera idle en dibujos sin cambios.
+  Destrucción diferida y deduplicación quedan para cuando estén justificadas.
+- `.nkmesh` **v2** serializa tres configs de sampler (28 bytes cada una) por
+  material. Rechaza v1 explícitamente y regenera desde OBJ; binarios standalone
+  viejos requieren reexportar. La geometría y revisión del importador no cambian.
+  Sin cambios de dependencias/submódulos/CSV, modelos, texturas ni shaders Slang.
+- Demo opcional: `NK_SAMPLER_DEMO=1 nix run .#run -- Release`, **P** recorre cinco
+  presets. Un panel muestra UV fuera de `[0,1]`, el otro amplía la misma textura;
+  ambos se ajustan a ventanas tiled. La escena habitual sigue igual sin el flag.
+- Verificación: **256/256 Debug**, **247/247 Release**, **256/256 ASan/UBSan**;
+  ejecutables Debug normales restaurados y suite repetida. Build pura
+  `nix build .#nk-engine` correcta; el paquete ejecutó 300 frames con los cinco
+  presets y assets de sólo lectura (caché no escribible = warning no fatal).
+- Wayland/niri sobre AMD Radeon Graphics RADV RENOIR: escena normal 120 frames;
+  demo moderna 2400 frames; demo legacy sin anisotropía 300 frames; demo Release
+  300 frames. Cierre final: dos runs Debug de 300 frames con
+  `VK_LAYER_VALIDATE_SYNC=1`, moderno y legacy/sin anisotropía. Sin errores Vulkan
+  detectados, cero allocation events en frames estables, cero fugas reportadas
+  por los allocators del motor y exactamente el sampler fallback restante antes
+  del shutdown del renderer. Los cambios de preset ocurren entre frames, fuera
+  del contador estable. Smoke automatizado, no comparación automática de píxeles.
+  Windows mantiene la ruta común, pero no fue ejecutado en esta máquina.
 
 ## Capítulo 58 — Writable Textures
 
