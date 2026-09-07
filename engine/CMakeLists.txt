@@ -76,6 +76,7 @@ set(SOURCES
     src/resources/image_loader.cpp
     src/resources/loaders.cpp
     src/resources/static_mesh_loader.cpp
+    src/resources/static_mesh_binary.cpp
     src/resources/tinyobjloader.cpp
     src/resources/mesh.cpp
     src/resources/shader_loader.cpp
