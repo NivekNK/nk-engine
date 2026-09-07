@@ -5,6 +5,8 @@
 #include "collections/arr.h"
 #include "core/result.h"
 #include "renderer/renderer_result.h"
+#include "resources/texture.h"
+#include "vulkan/resources/texture_data.h"
 
 namespace nk {
     class Device;
@@ -48,7 +50,15 @@ namespace nk {
             u32 present_image_index);
 
         VkSurfaceFormatKHR get_image_format() const { return m_image_format; }
-        VkImage get_image_at(u32 index) const { return m_images[index]; }
+        VkImage get_image_at(u32 index) const {
+            return m_texture_data[index].image.get();
+        }
+        Texture* get_render_texture_at(u32 index) {
+            return index < m_image_count ? &m_render_textures[index] : nullptr;
+        }
+        const Texture* get_render_texture_at(u32 index) const {
+            return index < m_image_count ? &m_render_textures[index] : nullptr;
+        }
         bool is_initialized() const { return m_swapchain != nullptr; }
         u32 get_image_count() const { return m_image_count; }
         VkImageView get_image_view_at(u32 index) {
@@ -56,7 +66,7 @@ namespace nk {
                 ErrorLog("nk::Swapchain::get_image_view_at Index '{}' out of bounds!", index);
                 return nullptr;
             }
-            return m_views[index];
+            return m_texture_data[index].image.get_view();
         }
         Image* get_depth_attachment(u32 image_index) { return &m_depth_attachments[image_index]; }
         u8 get_max_frames_in_flight() const { return m_max_frames_in_flight; }
@@ -78,8 +88,10 @@ namespace nk {
         VkSwapchainKHR m_swapchain = nullptr;
         u32 m_image_count = 0;
         cl::arr<VkImage> m_images;
-        cl::arr<VkImageView> m_views;
+        cl::arr<Texture> m_render_textures;
+        cl::arr<TextureData> m_texture_data;
         cl::arr<Image> m_depth_attachments;
+        u32 m_render_texture_generation = numeric::invalid_id;
     };
 
     namespace vk {

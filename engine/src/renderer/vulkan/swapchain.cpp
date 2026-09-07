@@ -182,8 +182,10 @@ namespace nk {
             });
         }
         if (!m_images.arr_init(m_allocator, m_image_count) ||
-            !m_views.arr_init(m_allocator, m_image_count)) {
-            m_views.arr_shutdown();
+            !m_render_textures.arr_init(m_allocator, m_image_count) ||
+            !m_texture_data.arr_init(m_allocator, m_image_count)) {
+            m_texture_data.arr_shutdown();
+            m_render_textures.arr_shutdown();
             m_images.arr_shutdown();
             destroy_swapchain();
             return err(renderer_error{
@@ -201,29 +203,33 @@ namespace nk {
             });
         }
 
+        const u32 next_generation =
+            m_render_texture_generation == numeric::invalid_id ||
+                m_render_texture_generation + 1 == numeric::invalid_id
+            ? 0
+            : m_render_texture_generation + 1;
         for (u32 i = 0; i < m_image_count; i++) {
-            VkImageViewCreateInfo view_info = {};
-            view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            view_info.image = m_images[i];
-            view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            view_info.format = m_image_format.format;
-            view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            view_info.subresourceRange.baseMipLevel = 0;
-            view_info.subresourceRange.levelCount = 1;
-            view_info.subresourceRange.baseArrayLayer = 0;
-            view_info.subresourceRange.layerCount = 1;
-            result = vkCreateImageView(
-                m_device->get(),
-                &view_info,
-                m_vulkan_allocator,
-                &m_views[i]);
-            if (result != VK_SUCCESS) {
+            auto wrapped = m_texture_data[i].image.init_external(
+                m_images[i],
+                swapchain_extent,
+                m_image_format.format,
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                m_device,
+                m_vulkan_allocator);
+            if (!wrapped) {
+                const renderer_error error = wrapped.error();
                 destroy_swapchain();
-                return err(renderer_error{
-                    .code = renderer_error_code::image_view_creation_failed,
-                    .native_code = static_cast<i32>(result),
-                });
+                return err(error);
             }
+            m_render_textures[i] = Texture{
+                .id = i,
+                .width = swapchain_extent.width,
+                .height = swapchain_extent.height,
+                .channel_count = 4,
+                .flags = TextureFlag::writable | TextureFlag::external,
+                .generation = next_generation,
+                .m_internal_data = &m_texture_data[i],
+            };
         }
 
         // Create depth image and its view.
@@ -251,6 +257,7 @@ namespace nk {
 
         width = swapchain_extent.width;
         height = swapchain_extent.height;
+        m_render_texture_generation = next_generation;
         return ok();
     }
 
@@ -260,15 +267,10 @@ namespace nk {
 
         vkDeviceWaitIdle(m_device->get());
         m_depth_attachments.arr_shutdown();
-
-        // Only destroy the views, not the images, since those are owned by the swapchain and are thus
-        // destroyed when it is.
-        for (u32 i = 0; i < m_image_count; i++) {
-            if (!m_views.empty() && m_views[i] != nullptr)
-                vkDestroyImageView(m_device->get(), m_views[i], m_vulkan_allocator);
-        }
-
-        m_views.arr_shutdown();
+        // TextureData destroys only each wrapper-owned view. The VkImages are
+        // external and remain owned by the swapchain until vkDestroySwapchainKHR.
+        m_texture_data.arr_shutdown();
+        m_render_textures.arr_shutdown();
         m_images.arr_shutdown();
 
         if (m_swapchain != nullptr) {
