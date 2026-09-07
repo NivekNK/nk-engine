@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/defines.h"
 #include "vulkan/vk.h"
 
 namespace nk {

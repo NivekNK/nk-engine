@@ -4,8 +4,12 @@ set -Eeuo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 build_type="${1:-Release}"
 frames="${2:-660}"
-if [[ ! "$frames" =~ ^[0-9]+$ ]] || ((frames <= 60)); then
-    echo "Benchmark needs more than 60 frames (the first 60 warm up the GPU)." >&2
+case "$build_type" in
+    Debug|RelWithDebInfo|Release) ;;
+    *) echo "Invalid build type '$build_type'. Use Debug, RelWithDebInfo, or Release." >&2; exit 2 ;;
+esac
+if [[ ! "$frames" =~ ^[1-9][0-9]{0,8}$ ]] || ((frames <= 60)); then
+    echo "Benchmark frames must be a decimal integer between 61 and 999999999 (60 warmup frames)." >&2
     exit 2
 fi
 
