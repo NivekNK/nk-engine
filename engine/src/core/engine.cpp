@@ -614,6 +614,15 @@ namespace nk {
         f64 target_frame_seconds = 1.0f / 60;
         u64 smoke_test_frames = 0;
         bool smoke_test_cycle_render_modes = false;
+        const cstr benchmark_option = std::getenv("NK_BENCHMARK");
+        const bool benchmark = benchmark_option != nullptr &&
+            std::strcmp(benchmark_option, "1") == 0;
+        constexpr u64 benchmark_warmup = 60;
+        u64 benchmark_frames = 0;
+        u64 benchmark_gpu_samples = 0;
+        f64 benchmark_seconds = 0.0;
+        f64 benchmark_gpu_ms = 0.0;
+        f64 benchmark_max_ms = 0.0;
 #if NK_MEMORY_TRACKING_ENABLED
         u64 stable_frame_allocation_events = 0;
         u64 stable_frames_checked = 0;
@@ -698,7 +707,7 @@ namespace nk {
                     break;
                 }
 
-                if (!m_test_meshes.empty()) {
+                if (!benchmark && !m_test_meshes.empty()) {
                     const glm::quat rotation = glm::angleAxis(
                         static_cast<f32>(0.5 * delta),
                         glm::vec3{0.0f, 1.0f, 0.0f});
@@ -736,6 +745,17 @@ namespace nk {
                 // Figure out how long the frame took
                 f64 frame_end_time = m_platform->get_absolute_time();
                 f64 frame_elapsed_time = frame_end_time - frame_start_time;
+                if (benchmark && frame_count >= benchmark_warmup &&
+                    *frame == frame_outcome::rendered) {
+                    ++benchmark_frames;
+                    benchmark_seconds += delta;
+                    if (delta * 1000.0 > benchmark_max_ms)
+                        benchmark_max_ms = delta * 1000.0;
+                    if (m_renderer->gpu_frame_ms() >= 0.0) {
+                        ++benchmark_gpu_samples;
+                        benchmark_gpu_ms += m_renderer->gpu_frame_ms();
+                    }
+                }
                 running_time += frame_elapsed_time;
                 f64 remaining_seconds = target_frame_seconds - frame_elapsed_time;
 
@@ -789,6 +809,14 @@ namespace nk {
         }
 #endif
 
+        if (benchmark && benchmark_frames != 0) {
+            InfoLog("Benchmark: {}x{}, frames={}, warmup={}, avg_ms={:.3f}, fps={:.2f}, max_ms={:.3f}, gpu_ms={:.3f}, gpu_samples={}",
+                m_platform->width(), m_platform->height(), benchmark_frames,
+                benchmark_warmup, benchmark_seconds * 1000.0 / benchmark_frames,
+                benchmark_frames / benchmark_seconds, benchmark_max_ms,
+                benchmark_gpu_samples ? benchmark_gpu_ms / benchmark_gpu_samples : -1.0,
+                benchmark_gpu_samples);
+        }
         m_platform->close();
     }
 

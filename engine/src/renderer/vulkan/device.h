@@ -69,6 +69,8 @@ namespace nk {
         u32 max_push_constant_size() const noexcept {
             return m_properties.limits.maxPushConstantsSize;
         }
+        f32 timestamp_period() const noexcept { return m_properties.limits.timestampPeriod; }
+        u32 timestamp_valid_bits() const noexcept { return m_timestamp_valid_bits; }
         mem::Allocator* allocator() const { return m_allocator; }
 
         VkDevice get() { return m_logical_device; }
@@ -95,6 +97,7 @@ namespace nk {
         VkPhysicalDeviceProperties m_properties{};
         VkPhysicalDeviceFeatures m_features{};
         VkPhysicalDeviceMemoryProperties m_memory{};
+        u32 m_timestamp_valid_bits = 0;
         bool m_supports_device_local_host_visible = false;
         SwapchainSupportInfo m_swapchain_support_info{};
 

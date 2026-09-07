@@ -5,6 +5,7 @@
 #include "vulkan/utils.h"
 #include "vulkan/instance.h"
 #include "memory/allocator.h"
+#include "collections/arr.h"
 
 namespace nk {
     bool physical_device_meets_requirements(
@@ -229,6 +230,15 @@ namespace nk {
         m_properties = properties;
         m_features = features;
         m_memory = memory;
+        u32 queue_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(m_physical_device, &queue_count, nullptr);
+        cl::arr<VkQueueFamilyProperties> queue_properties;
+        if (queue_properties.arr_init(m_allocator, queue_count)) {
+            vkGetPhysicalDeviceQueueFamilyProperties(
+                m_physical_device, &queue_count, queue_properties.data());
+            m_timestamp_valid_bits = queue_properties[
+                m_queue_family_info.graphics_family_index].timestampValidBits;
+        }
         m_supports_device_local_host_visible = false;
         for (u32 index = 0; index < m_memory.memoryTypeCount; ++index) {
             constexpr VkMemoryPropertyFlags required =
@@ -242,7 +252,13 @@ namespace nk {
 
         m_allocator->free_lot_t(VkPhysicalDevice, physical_devices, physical_device_count);
 
-        InfoLog("Vulkan Physical Device Selected.");
+        InfoLog("Vulkan device: '{}' (API {}.{}.{}, type={}).",
+            properties.deviceName, VK_API_VERSION_MAJOR(properties.apiVersion),
+            VK_API_VERSION_MINOR(properties.apiVersion),
+            VK_API_VERSION_PATCH(properties.apiVersion),
+            static_cast<u32>(properties.deviceType));
+        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU)
+            WarnLog("Software Vulkan device selected: rendering uses the CPU.");
         return true;
     }
 

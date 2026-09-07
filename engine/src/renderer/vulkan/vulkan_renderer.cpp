@@ -428,6 +428,12 @@ namespace nk {
         if (m_device_initialized && m_device.get() != nullptr)
             vkDeviceWaitIdle(m_device);
 
+        if (m_timestamp_pool != VK_NULL_HANDLE) {
+            vkDestroyQueryPool(m_device, m_timestamp_pool, m_vulkan_allocator);
+            m_timestamp_pool = VK_NULL_HANDLE;
+        }
+        m_timestamp_pending.arr_shutdown();
+
         m_object_vertex_buffer.shutdown();
         m_object_index_buffer.shutdown();
         InfoLog("Vulkan Object Buffers shutdown.");
@@ -541,6 +547,27 @@ namespace nk {
         if (!command_begun)
             return err(command_begun.error());
 
+        m_gpu_frame_ms = -1.0;
+        if (m_timestamp_pool != VK_NULL_HANDLE) {
+            const u32 query = m_image_index * 2;
+            if (m_timestamp_pending[m_image_index]) {
+                u64 samples[4]{};
+                const VkResult sampled = vkGetQueryPoolResults(
+                    m_device, m_timestamp_pool, query, 2, sizeof(samples), samples,
+                    sizeof(u64) * 2,
+                    VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+                if (sampled == VK_SUCCESS && samples[1] && samples[3]) {
+                    const u32 bits = m_device.timestamp_valid_bits();
+                    const u64 mask = bits == 64 ? numeric::u64_max : (u64{1} << bits) - 1;
+                    m_gpu_frame_ms = static_cast<f64>((samples[2] - samples[0]) & mask) *
+                        m_device.timestamp_period() / 1000000.0;
+                }
+            }
+            vkCmdResetQueryPool(command_buffer, m_timestamp_pool, query, 2);
+            vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                m_timestamp_pool, query);
+        }
+
         // Dynamic state
         VkViewport viewport;
         viewport.x = 0.0f;
@@ -565,6 +592,12 @@ namespace nk {
 
     result<frame_outcome, renderer_error> VulkanRenderer::end_frame(f64) {
         CommandBuffer& command_buffer = m_graphics_command_buffers[m_image_index];
+
+        if (m_timestamp_pool != VK_NULL_HANDLE) {
+            vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                m_timestamp_pool, m_image_index * 2 + 1);
+            m_timestamp_pending[m_image_index] = true;
+        }
 
         auto command_ended = command_buffer.end();
         if (!command_ended)
@@ -1165,6 +1198,26 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::recreate_command_buffers() {
         const u32 image_count = m_swapchain.get_image_count();
+
+        if (m_timestamp_pool != VK_NULL_HANDLE) {
+            vkDestroyQueryPool(m_device, m_timestamp_pool, m_vulkan_allocator);
+            m_timestamp_pool = VK_NULL_HANDLE;
+        }
+        m_timestamp_pending.arr_shutdown();
+        const cstr benchmark = std::getenv("NK_BENCHMARK");
+        if (benchmark != nullptr && std::strcmp(benchmark, "1") == 0 &&
+            m_device.timestamp_valid_bits() != 0) {
+            if (!m_timestamp_pending.arr_init(m_allocator, image_count))
+                return err(renderer_error{renderer_error_code::out_of_memory, 0});
+            VkQueryPoolCreateInfo query_info{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            query_info.queryCount = image_count * 2;
+            const VkResult created = vkCreateQueryPool(
+                m_device, &query_info, m_vulkan_allocator, &m_timestamp_pool);
+            if (created != VK_SUCCESS)
+                return err(renderer_error{renderer_error_code::initialization_failed,
+                    static_cast<i32>(created)});
+        }
 
         if (image_count != m_graphics_command_buffers.length()) {
             if (!m_graphics_command_buffers.dyarr_resize(image_count))

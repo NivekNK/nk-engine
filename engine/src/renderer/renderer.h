@@ -50,6 +50,9 @@ namespace nk {
             const RenderPacket& packet);
 
         void resize(u32 width, u32 height);
+        // Most recently retired GPU sample; negative when profiling is disabled
+        // or this frame has no completed timestamp pair. Never waits for the GPU.
+        [[nodiscard]] virtual f64 gpu_frame_ms() const noexcept { return -1.0; }
 
         [[nodiscard]] virtual result<ShaderHandle, renderer_error> create_shader(
             const ShaderConfig& config,

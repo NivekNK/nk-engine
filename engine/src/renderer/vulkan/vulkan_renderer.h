@@ -25,6 +25,7 @@ namespace nk {
         ~VulkanRenderer() = default;
 
         virtual void on_resized(u32 width, u32 height) override;
+        f64 gpu_frame_ms() const noexcept override { return m_gpu_frame_ms; }
 
         [[nodiscard]] virtual result<ShaderHandle, renderer_error> create_shader(
             const ShaderConfig& config,
@@ -153,6 +154,9 @@ namespace nk {
         cl::dyarr<Framebuffer> m_world_framebuffers;
         cl::dyarr<Framebuffer> m_ui_framebuffers;
         cl::dyarr<CommandBuffer> m_graphics_command_buffers;
+        VkQueryPool m_timestamp_pool = VK_NULL_HANDLE;
+        cl::arr<bool> m_timestamp_pending;
+        f64 m_gpu_frame_ms = -1.0;
 
         // Per-frame semaphores for synchronization
         cl::dyarr<VkSemaphore> m_image_available_semaphores;
