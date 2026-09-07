@@ -52,6 +52,23 @@
           inherit (pkgs) lib;
           mesaArch = lib.head (lib.splitString "-" system);
           lavapipeIcd = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${mesaArch}.json";
+          # Keep explicit Vulkan overrides authoritative. Mesa from the same
+          # Nix closure avoids mixing host and Nix libc/driver dependencies.
+          vulkanRuntimeEnv = ''
+            if [[ -z "''${VK_DRIVER_FILES:-}" && -z "''${VK_ICD_FILENAMES:-}" ]]; then
+              case "''${NK_VULKAN_DRIVER:-auto}" in
+                auto)
+                  export VK_ADD_DRIVER_FILES="${pkgs.mesa}/share/vulkan/icd.d''${VK_ADD_DRIVER_FILES:+:$VK_ADD_DRIVER_FILES}"
+                  ;;
+                software) export VK_DRIVER_FILES="${lavapipeIcd}" ;;
+                system) ;;
+                *) echo "NK_VULKAN_DRIVER must be auto, software, or system." >&2; exit 2 ;;
+              esac
+            fi
+            if [[ -d /run/opengl-driver/lib ]]; then
+              export LD_LIBRARY_PATH="/run/opengl-driver/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            fi
+          '';
 
           nk-engine = pkgs.stdenv.mkDerivation {
             pname = "nk-engine";
@@ -147,7 +164,7 @@
                 "$out/libexec/nk-engine/editor" \
                 "$out/bin/nk-editor" \
                 --chdir "$out/share/nk-engine" \
-                --set-default VK_DRIVER_FILES "${lavapipeIcd}"
+                --run ${lib.escapeShellArg vulkanRuntimeEnv}
 
               runHook postInstall
             '';
@@ -230,12 +247,7 @@
               fi
 
               export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d"
-              if [[ -z "''${VK_DRIVER_FILES:-}" && -z "''${VK_ICD_FILENAMES:-}" ]]; then
-                export VK_DRIVER_FILES="${lavapipeIcd}"
-              fi
-              if [[ -d /run/opengl-driver/lib ]]; then
-                export LD_LIBRARY_PATH="/run/opengl-driver/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-              fi
+              ${vulkanRuntimeEnv}
 
               exec ${lib.getExe pkgs.bashNonInteractive} "$project_root/.scripts/run.sh" "$@"
             '';
@@ -246,6 +258,7 @@
             nk-engine
             build-command
             lavapipeIcd
+            vulkanRuntimeEnv
             run-command
             pkgs
             ;
@@ -296,7 +309,7 @@
         system:
         let
           project = perSystem system;
-          inherit (project) pkgs lavapipeIcd;
+          inherit (project) pkgs vulkanRuntimeEnv;
           inherit (pkgs) lib;
         in
         {
@@ -332,9 +345,7 @@
               export Vulkan_INCLUDE_DIR="${lib.getDev pkgs.vulkan-headers}/include"
               export Vulkan_LIBRARY="${lib.getLib pkgs.vulkan-loader}/lib/libvulkan.so"
               export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d"
-              if [[ -z "''${VK_DRIVER_FILES:-}" && -z "''${VK_ICD_FILENAMES:-}" ]]; then
-                export VK_DRIVER_FILES="${lavapipeIcd}"
-              fi
+              ${vulkanRuntimeEnv}
 
               echo "NK Engine development shell"
               echo "  Build: .scripts/build.sh [Debug|RelWithDebInfo|Release]"

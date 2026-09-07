@@ -146,13 +146,14 @@ namespace nk {
 
         bool found_physical_device = false;
         u64 selected_physical_device_index = 0;
+        u32 selected_score = 0;
 
         for (u64 i = 0; i < physical_device_count; i++) {
             vkGetPhysicalDeviceProperties(physical_devices[i], &properties);
             vkGetPhysicalDeviceFeatures(physical_devices[i], &features);
             vkGetPhysicalDeviceMemoryProperties(physical_devices[i], &memory);
 
-            bool meet_requirements = physical_device_meets_requirements(
+            const bool meet_requirements = physical_device_meets_requirements(
                 &m_queue_family_info,
                 &m_swapchain_support_info,
                 m_allocator,
@@ -163,13 +164,16 @@ namespace nk {
                 requirements);
 
             if (meet_requirements) {
-                found_physical_device = true;
-                selected_physical_device_index = i;
-                break;
+                const u32 score = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 4 :
+                    properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 3 :
+                    properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU ? 2 : 1;
+                if (!found_physical_device || score > selected_score) {
+                    found_physical_device = true;
+                    selected_physical_device_index = i;
+                    selected_score = score;
+                }
             }
         }
-
-        requirements.extensions.dyarr_shutdown();
 
         if (!found_physical_device) {
             ErrorLog("nk::Device::select_physical_device No physical devices were found which meet the requirements.");
@@ -178,6 +182,20 @@ namespace nk {
             m_swapchain_support_info.present_modes.dyarr_shutdown();
             return false;
         }
+
+        // The last enumerated device need not be the winner. Restore both its
+        // properties and surface/queue data before logical-device creation.
+        const VkPhysicalDevice selected = physical_devices[selected_physical_device_index];
+        vkGetPhysicalDeviceProperties(selected, &properties);
+        vkGetPhysicalDeviceFeatures(selected, &features);
+        vkGetPhysicalDeviceMemoryProperties(selected, &memory);
+        if (!physical_device_meets_requirements(
+                &m_queue_family_info, &m_swapchain_support_info, m_allocator,
+                selected, m_surface, properties, features, requirements)) {
+            m_allocator->free_lot_t(VkPhysicalDevice, physical_devices, physical_device_count);
+            return false;
+        }
+        requirements.extensions.dyarr_shutdown();
 
 #if defined(NK_DEBUG)
         DebugLog("Selected device: '{}'.", properties.deviceName);
@@ -386,6 +404,8 @@ namespace nk {
         const VkPhysicalDeviceFeatures& features,
         const PhysicalDeviceRequirements& requirements) {
         // Evaluate device properties to determine if it meets the needs of our application.
+        if (properties.apiVersion < VK_API_VERSION_1_2)
+            return false;
         out_queue_family->graphics_family_index = numeric::u32_max;
         out_queue_family->present_family_index = numeric::u32_max;
         out_queue_family->compute_family_index = numeric::u32_max;
@@ -518,7 +538,7 @@ namespace nk {
         u32 format_count = 0;
         VulkanCheck(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, nullptr));
         if (format_count > 0) {
-            if (out_swapchain_support_info->formats.length() < format_count)
+            if (out_swapchain_support_info->formats.length() != format_count)
                 out_swapchain_support_info->formats.dyarr_resize(format_count);
 
             VulkanCheck(vkGetPhysicalDeviceSurfaceFormatsKHR(
@@ -534,7 +554,7 @@ namespace nk {
         u32 present_mode_count = 0;
         VulkanCheck(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_mode_count, nullptr));
         if (present_mode_count > 0) {
-            if (out_swapchain_support_info->present_modes.length() < present_mode_count)
+            if (out_swapchain_support_info->present_modes.length() != present_mode_count)
                 out_swapchain_support_info->present_modes.dyarr_resize(present_mode_count);
 
             VulkanCheck(vkGetPhysicalDeviceSurfacePresentModesKHR(
