@@ -15,6 +15,33 @@
 static_assert(!std::is_copy_constructible_v<nk::Resource>);
 static_assert(std::is_move_constructible_v<nk::Resource>);
 
+TEST(ResourceSystem, ParsesPerMapSamplingAndPreservesLegacyDefaults) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    auto created = nk::ResourceSystem::create(allocator, NK_TEST_FIXTURE_ROOT);
+    ASSERT_TRUE(created);
+    auto* resources = *created;
+    auto loaded = resources->load("sampling", nk::ResourceType::material);
+    ASSERT_TRUE(loaded);
+    const auto& config = *loaded->as<nk::MaterialConfig>();
+    EXPECT_EQ(config.diffuse_sampler.min_filter, nk::TextureFilter::nearest);
+    EXPECT_EQ(config.diffuse_sampler.mag_filter, nk::TextureFilter::linear);
+    EXPECT_EQ(config.diffuse_sampler.mip_filter, nk::TextureFilter::nearest);
+    EXPECT_EQ(config.diffuse_sampler.wrap_u, nk::TextureWrap::mirrored_repeat);
+    EXPECT_EQ(config.diffuse_sampler.wrap_v, nk::TextureWrap::clamp_to_edge);
+    EXPECT_EQ(config.diffuse_sampler.wrap_w, nk::TextureWrap::clamp_to_border);
+    EXPECT_EQ(config.diffuse_sampler.anisotropy, 1);
+    EXPECT_EQ(config.specular_sampler.anisotropy, 8);
+    EXPECT_EQ(config.normal_sampler, nk::SamplerConfig{});
+    EXPECT_TRUE(resources->unload(*loaded));
+    for (nk::strview name : {"invalid_sampling", "invalid_anisotropy"}) {
+        auto invalid = resources->load(name, nk::ResourceType::material);
+        ASSERT_FALSE(invalid);
+        EXPECT_EQ(invalid.error().code, nk::resource_error_code::invalid_data);
+    }
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0);
+}
+
 TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     auto created = nk::ResourceSystem::create(

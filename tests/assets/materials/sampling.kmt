@@ -1,0 +1,10 @@
+name=sampling
+diffuse_sampler.min_filter=nearest
+diffuse_sampler.mag_filter=linear
+diffuse_sampler.mip_filter=nearest
+diffuse_sampler.wrap_u=mirrored_repeat
+diffuse_sampler.wrap_v=clamp_to_edge
+diffuse_sampler.wrap_w=clamp_to_border
+diffuse_sampler.anisotropy=1
+specular_sampler.anisotropy=8
+normal_sampler.wrap_v=repeat

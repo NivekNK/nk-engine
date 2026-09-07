@@ -89,6 +89,27 @@ namespace nk::mesh_binary {
                 point.x <= maximum.x && point.y <= maximum.y && point.z <= maximum.z;
         }
 
+        SamplerConfig read_sampler(Reader& reader) {
+            const u32 min = reader.integer(), mag = reader.integer(), mip = reader.integer();
+            const u32 u = reader.integer(), v = reader.integer(), w = reader.integer();
+            const f32 anisotropy = reader.number();
+            if (min > 1 || mag > 1 || mip > 1 || u > 3 || v > 3 || w > 3 || anisotropy < 1)
+                reader.reject(error::invalid_data);
+            return {static_cast<TextureFilter>(min), static_cast<TextureFilter>(mag),
+                static_cast<TextureFilter>(mip), static_cast<TextureWrap>(u),
+                static_cast<TextureWrap>(v), static_cast<TextureWrap>(w), anisotropy};
+        }
+
+        void write_sampler(Writer& writer, const SamplerConfig& sampler) {
+            writer.integer(static_cast<u32>(sampler.min_filter));
+            writer.integer(static_cast<u32>(sampler.mag_filter));
+            writer.integer(static_cast<u32>(sampler.mip_filter));
+            writer.integer(static_cast<u32>(sampler.wrap_u));
+            writer.integer(static_cast<u32>(sampler.wrap_v));
+            writer.integer(static_cast<u32>(sampler.wrap_w));
+            writer.number(sampler.anisotropy);
+        }
+
         void read_body(Reader& reader, Counts counts, mem::Allocator* allocator, Archive* output) {
             if (output != nullptr &&
                 (!output->dependencies.dyarr_init_len(allocator, counts.dependencies, counts.dependencies) ||
@@ -136,6 +157,9 @@ namespace nk::mesh_binary {
                 material.diffuse_color = reader.vec4();
                 material.shininess = reader.number();
                 if (material.shininess <= 0) reader.reject(error::invalid_data);
+                material.diffuse_sampler = read_sampler(reader);
+                material.specular_sampler = read_sampler(reader);
+                material.normal_sampler = read_sampler(reader);
                 if (output != nullptr && reader.good()) output->mesh.materials[i] = material;
             }
             u64 vertices_total = 0, indices_total = 0;
@@ -233,6 +257,9 @@ namespace nk::mesh_binary {
                 writer.integer(material.auto_release ? 1 : 0);
                 writer.vec4(material.diffuse_color);
                 writer.number(material.shininess);
+                write_sampler(writer, material.diffuse_sampler);
+                write_sampler(writer, material.specular_sampler);
+                write_sampler(writer, material.normal_sampler);
             }
             for (const GeometryConfig& geometry : mesh.geometries) {
                 writer.string(geometry.name.view());

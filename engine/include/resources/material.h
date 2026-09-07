@@ -4,6 +4,7 @@
 
 #include "core/strbuf.h"
 #include "renderer/shader.h"
+#include "renderer/sampler.h"
 #include "resources/texture.h"
 
 namespace nk {
@@ -26,6 +27,10 @@ namespace nk {
     struct TextureMap {
         Texture* texture = nullptr;
         TextureUse use = TextureUse::unknown;
+        SamplerConfig sampling{};
+        SamplerHandle sampler{};
+
+        TextureBinding binding() const noexcept { return {texture, sampler}; }
     };
 
     struct MaterialConfig {
@@ -38,6 +43,9 @@ namespace nk {
         strbuf<texture_name_capacity> specular_map_name;
         strbuf<texture_name_capacity> normal_map_name;
         f32 shininess = 32.0f;
+        SamplerConfig diffuse_sampler{};
+        SamplerConfig specular_sampler{};
+        SamplerConfig normal_sampler{};
     };
 
     struct MaterialApplyState {

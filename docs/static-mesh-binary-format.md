@@ -16,7 +16,7 @@ the explicit resource ownership and small Vulkan command layer inspired by
 [NoGraphicsAPI](https://github.com/sebbbi/NoGraphicsAPI). It adds no GPU features
 or driver requirements.
 
-## Version 1 header
+## Version 2 header
 
 All integers are unsigned, fixed-width, little-endian. Floats are IEEE-754 binary32
 serialized by their bits, also little-endian. Header size is exactly 64 bytes.
@@ -24,7 +24,7 @@ serialized by their bits, also little-endian. Header size is exactly 64 bytes.
 | Offset | Bytes | Field |
 | --- | --- | --- |
 | 0 | 8 | Magic `NKMESH\r\n` |
-| 8 | 4 | Format version: 1 |
+| 8 | 4 | Format version: 2 |
 | 12 | 4 | Endianness marker: `0x01020304` |
 | 16 | 4 | Header bytes: 64 |
 | 20 | 4 | Serialized vertex stride: 48 |
@@ -56,6 +56,11 @@ alignment gaps or unchecked offsets. Records appear in the following order.
    (255 each); `u32 type`, `u32 auto_release`; four diffuse-color floats and one
    shininess float. Name is required; only world materials, boolean 0/1 and finite
    values with positive shininess are accepted. Missing maps remain empty.
+   Next are three sampler configurations (diffuse, specular, normal), each 28 bytes:
+   six `u32` enums (min/mag/mip filter, wrap U/V/W), then `f32 anisotropy`.
+   Filters: nearest=0, linear=1. Wrap: repeat=0, mirrored_repeat=1,
+   clamp_to_edge=2, clamp_to_border=3. Anisotropy must be finite and >=1 (1=off).
+   This stores requested settings, never GPU-clamped values or sampler handles.
 3. Geometries: required name (255) and material name (255); `u32 vertex_count`,
    `u32 index_count`, `u32 vertex_stride` (48), `u32 index_stride` (4),
    `u64 vertex_and_index_bytes`; center, minimum and maximum (three floats each);
@@ -85,6 +90,12 @@ of a triangle, hostile counts/strides/indices/floats with recomputed checksums,
 unsupported versions, invalid paths and allocation rollback.
 
 ## Loader policy and regression switch
+
+Version 1 is explicitly rejected, including files with zero inline materials.
+With OBJ present it is regenerated as version 2; binary-only assets must be
+re-exported. The importer revision remains 1 because geometry import did not
+change. Existing text materials and OBJ imports use linear/repeat/anisotropy16
+defaults; changing the vertex format or future map fields still requires a bump.
 
 `models/<name>.nkmesh` takes precedence over `models/<name>.obj`. A cache miss,
 unsupported revision, truncation or invalid data falls back to OBJ when available.

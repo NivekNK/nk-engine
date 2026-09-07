@@ -115,6 +115,27 @@ namespace nk {
             value = parsed;
             return true;
         }
+
+        bool parse_sampler_setting(SamplerConfig& sampler, strview key, strview value) {
+            if (key == "anisotropy") return parse_f32(value, sampler.anisotropy) && sampler.valid();
+            TextureFilter* filter = key == "min_filter" ? &sampler.min_filter :
+                key == "mag_filter" ? &sampler.mag_filter : key == "mip_filter" ? &sampler.mip_filter : nullptr;
+            if (filter != nullptr) {
+                if (value == "nearest") *filter = TextureFilter::nearest;
+                else if (value == "linear") *filter = TextureFilter::linear;
+                else return false;
+                return true;
+            }
+            TextureWrap* wrap = key == "wrap_u" ? &sampler.wrap_u :
+                key == "wrap_v" ? &sampler.wrap_v : key == "wrap_w" ? &sampler.wrap_w : nullptr;
+            if (wrap == nullptr) return false;
+            if (value == "repeat") *wrap = TextureWrap::repeat;
+            else if (value == "mirrored_repeat") *wrap = TextureWrap::mirrored_repeat;
+            else if (value == "clamp_to_edge") *wrap = TextureWrap::clamp_to_edge;
+            else if (value == "clamp_to_border") *wrap = TextureWrap::clamp_to_border;
+            else return false;
+            return true;
+        }
     }
 
     result<void, resource_error> TextResourceLoader::load(
@@ -308,6 +329,16 @@ namespace nk {
 
             const strview key = trim(content.substr(0, separator));
             const strview value = trim(content.substr(separator + 1));
+            SamplerConfig* sampler = nullptr;
+            u64 sampler_prefix = 0;
+            if (key.starts_with("diffuse_sampler.")) { sampler = &parsed.diffuse_sampler; sampler_prefix = 16; }
+            else if (key.starts_with("specular_sampler.")) { sampler = &parsed.specular_sampler; sampler_prefix = 17; }
+            else if (key.starts_with("normal_sampler.")) { sampler = &parsed.normal_sampler; sampler_prefix = 15; }
+            if (sampler != nullptr) {
+                if (!parse_sampler_setting(*sampler, key.substr(sampler_prefix), value))
+                    return err(resource_error{resource_error_code::invalid_data, 0});
+                continue;
+            }
             if (key == strview{"name", 4}) {
                 if (!parsed.name.assign(value)) {
                     return err(resource_error{
