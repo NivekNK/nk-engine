@@ -65,7 +65,7 @@ bin/Win32-Debug/editor.exe
 
 ## Nix workflow
 
-The flake provides a reproducible CMake, Ninja, GCC, Wayland, xkbcommon, XCB, Vulkan, Slang, and Mesa toolchain on Linux. Its run wrappers default to Mesa Lavapipe so the editor can start even when the host GPU driver is not visible inside Nix. Set `VK_DRIVER_FILES` or `VK_ICD_FILENAMES` before running to select a hardware Vulkan driver instead.
+The flake provides a reproducible CMake, Ninja, GCC, Wayland, xkbcommon, XCB, Vulkan, Slang, and Mesa toolchain on Linux. Its run wrappers and development shell discover hardware drivers, adding Mesa from the matching Nix closure. The renderer prefers a suitable discrete or integrated GPU over software rendering and logs its choice. Explicit `VK_DRIVER_FILES` or `VK_ICD_FILENAMES` overrides remain authoritative. Set `NK_VULKAN_DRIVER=software` before entering Nix to force Lavapipe for diagnostics, or `NK_VULKAN_DRIVER=system` to skip adding Nix Mesa drivers.
 
 On Linux the engine selects native Wayland whenever `WAYLAND_DISPLAY` is available. Set `NK_PLATFORM_BACKEND=xcb` to prefer the XCB/XWayland fallback, or `NK_PLATFORM_BACKEND=wayland` to prefer Wayland explicitly.
 
@@ -111,6 +111,23 @@ nix develop
 .scripts/build.sh Debug
 .scripts/run.sh Debug
 ```
+
+Measure a built release configuration (60 warmup frames, then 1200 samples):
+
+```bash
+nix develop --command .scripts/benchmark.sh Release 1260
+```
+
+Keep the window size and camera unchanged between runs. Mailbox presentation
+reports render throughput, not the monitor's visible refresh rate. The benchmark
+logs both frame intervals and GPU timestamps; Debug validation/tracking is not
+representative of release performance.
+
+Vulkan selects dynamic rendering and synchronization2 when supported, with a
+Vulkan 1.2-compatible fallback. `NK_VULKAN_LEGACY=1` forces that fallback and
+`NK_VULKAN_MIPMAPS=0` disables mip generation for A/B diagnosis. See the
+[Sponza performance and NoGraphicsAPI evaluation](docs/vulkan-performance-and-nographicsapi.md)
+for measurements, hardware requirements, design decisions and regression checks.
 
 The PowerShell library-management scripts also have Bash equivalents:
 

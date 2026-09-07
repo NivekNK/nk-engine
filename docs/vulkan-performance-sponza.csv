@@ -1,0 +1,9 @@
+variant,revision,driver,resolution,measured_frames,warmup_frames,avg_frame_ms,fps,max_frame_ms,avg_gpu_ms,gpu_samples
+baseline_software,de3aece,Lavapipe Mesa26.2.1 LLVM21.1.8,936x999,300,60,43.600,22.94,52.674,43.365,300
+baseline_explicit_hardware,de3aece,RADV Mesa26.2.1,936x999,300,60,2.935,340.72,3.990,1.801,300
+automatic_hardware,a944feb,RADV Mesa26.2.1,936x999,300,60,2.927,341.63,4.094,1.817,300
+overlapped_frames,02b3384,RADV Mesa26.2.1,936x999,600,60,2.077,481.43,4.167,1.753,600
+modern_commands,16ad0e3,RADV Mesa26.2.1,936x999,1200,60,2.062,484.88,4.229,1.753,1200
+mipmaps_on_a,685ed81,RADV Mesa26.2.1,936x999,1200,60,1.829,546.70,4.124,1.542,1200
+mipmaps_off,685ed81,RADV Mesa26.2.1,936x999,1200,60,1.994,501.50,4.500,1.725,1200
+mipmaps_on_b,685ed81,RADV Mesa26.2.1,936x999,1200,60,1.845,541.87,3.797,1.526,1200
