@@ -168,6 +168,35 @@ never delete or separately release them.
 - `active_resource_count()` must return to zero before shutdown. A nonzero value
   is a lifecycle error even though shutdown continues defensively.
 
+## Static mesh import and binary cache contract
+
+- `StaticMeshResourceLoader` prefers a validated `.nkmesh` archive; otherwise it
+  imports OBJ using the existing tinyobjloader boundary. Both routes publish the
+  same owning `StaticMeshResource` with NK `dyarr` geometry and inline materials.
+  Parsing uses a borrowed stream over bounded NK byte storage; tinyobj's STL
+  objects never escape the loader. Its internal allocations remain the existing
+  third-party exception to allocator tracking/recoverable OOM.
+- Cache dependencies record content hashes of OBJ and attempted MTL files,
+  including missing libraries, and presence of candidate PNG maps. When the OBJ
+  exists, every dependency must match before the cache is used. With no OBJ, a
+  structurally valid archive is a standalone asset; texture pixels are still
+  separate resources. A corrupt standalone archive fails without publishing data.
+- Decoding validates the entire wire representation before allocating its payload.
+  The format and its limits are documented in [static-mesh-binary-format.md](static-mesh-binary-format.md).
+  Serialization never includes native Vulkan resources, device addresses or C++
+  object layouts. `Resource::data_size` includes the logical CPU configuration,
+  material, vertex and index bytes, not disk bytes or GPU allocation sizes.
+- Cache writes use an exclusive temporary next to the destination and atomic
+  replacement. Failure to track, encode or save a cache is non-fatal to a valid
+  OBJ import. `NK_MESH_CACHE=off` bypasses cache reads and writes for regression
+  checks. It does not bypass bounded source reads or change triangulation.
+- Imported/decoded CPU geometry is passed through `Mesh::create` and
+  `GeometrySystem` to the existing renderer upload path. The Vulkan backend owns
+  the resulting buffer ranges and synchronization; it never borrows archive bytes
+  beyond upload. Unloading the CPU resource must not invalidate a live GPU mesh.
+  NoGraphicsAPI-inspired command/resource scopes, optional dynamic rendering and
+  the legacy fallback retain their previous contracts and GPU requirements.
+
 ## Shader resource and ShaderSystem contract
 
 - Shader resources use the versioned `.shadercfg` format. Their fixed-capacity

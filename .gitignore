@@ -7,6 +7,8 @@ build/
 .cache/
 compile_commands.json
 [Ee]ngine/[Aa]ssets/[Ss]haders/*.spv
+*.nkmesh
+*.nkmesh.tmp.*
 
 # Visual Studio
 .vscode/

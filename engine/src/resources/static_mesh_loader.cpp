@@ -3,14 +3,21 @@
 #include "resources/loaders.h"
 
 #include <bit>
+#include <cerrno>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <istream>
+#include <streambuf>
 #include <string>
+#include <sys/stat.h>
 
 #include "collections/map.h"
 #include "core/format.h"
 #include "core/hash.h"
 #include "memory/allocator.h"
 #include "platform/file.h"
+#include "resources/static_mesh_binary.h"
 #include "resources/static_mesh_resource.h"
 #include "systems/geometry_system.h"
 #include "systems/material_system.h"
@@ -71,6 +78,174 @@ namespace nk {
                        "{}/models/{}.obj",
                        asset_base_path,
                        name));
+        }
+
+        resource_error file_failure(file_error failure) {
+            return {failure == file_error::out_of_memory ? resource_error_code::out_of_memory :
+                resource_error_code::file_failed, static_cast<i32>(failure)};
+        }
+
+        result<cl::dyarr<u8>, file_error> read_mesh_file(
+            mem::Allocator& allocator, strview path, u64 max_bytes = mesh_binary::max_file_bytes) {
+            strbuf<511> terminated;
+            if (!terminated.assign(path)) return err(file_error::invalid_path);
+            for (char character : path)
+                if (character == '\0') return err(file_error::invalid_path);
+            // Never open a directory, device or FIFO as an import/cache payload.
+            struct stat status{};
+            if (stat(terminated.cstr(), &status) != 0)
+                return err(errno == ENOENT || errno == ENOTDIR ? file_error::not_found : file_error::open_failed);
+#if defined(NK_PLATFORM_WINDOWS)
+            if ((status.st_mode & _S_IFMT) != _S_IFREG) return err(file_error::invalid_path);
+#else
+            if (!S_ISREG(status.st_mode)) return err(file_error::invalid_path);
+#endif
+            File file{allocator};
+            auto opened = file.open(path, FileMode::Read, true);
+            if (!opened) return err(opened.error());
+            return file.read_all_bytes(max_bytes);
+        }
+
+        // Only this non-owning stream adapter and tinyobj's own parser objects
+        // cross the existing third-party STL boundary. Runtime data stays in NK containers.
+        struct BorrowedInput final : std::streambuf {
+            char empty = 0;
+            explicit BorrowedInput(cl::dyarr<u8>& bytes) {
+                char* begin = bytes.empty() ? &empty : reinterpret_cast<char*>(bytes.data());
+                setg(begin, begin, begin + bytes.length());
+            }
+        };
+
+        bool relative_material_path(strview directory, strview filename, strbuf<511>& output) {
+            if (filename.empty() || filename[0] == '/' || filename[0] == '\\') return false;
+            strbuf<1023> combined;
+            if (!format_to(combined, "{}{}", directory, filename)) return false;
+            output.clear();
+            u64 start = 0;
+            for (u64 i = 0; i <= combined.length(); ++i) {
+                if (i != combined.length() && combined.data()[i] != '/' && combined.data()[i] != '\\') continue;
+                const strview part = combined.view().substr(start, i - start);
+                start = i + 1;
+                if (part.empty() || part == ".") continue;
+                if (part == "..") {
+                    if (output.empty()) return false;
+                    u64 end = output.length();
+                    while (end != 0 && output.data()[end - 1] != '/') --end;
+                    output.assign(output.view().substr(0, end == 0 ? 0 : end - 1));
+                } else {
+                    if (!output.empty() && !output.append('/')) return false;
+                    if (!output.append(part)) return false;
+                }
+            }
+            return mesh_binary::safe_relative_path(output.view());
+        }
+
+        struct ImportDependencies {
+            mem::Allocator& allocator;
+            strview base;
+            cl::dyarr<mesh_binary::Dependency> entries;
+            bool cacheable;
+
+            ImportDependencies(mem::Allocator& allocator, strview base, bool enabled)
+                : allocator{allocator}, base{base}, cacheable{enabled} {}
+
+            void record(strview path, mesh_binary::DependencyKind kind, bool present,
+                cl::slice<const u8> contents = {}) {
+                if (!cacheable) return;
+                mesh_binary::Dependency dependency;
+                if (!dependency.path.assign(path) || !mesh_binary::safe_relative_path(path)) {
+                    cacheable = false;
+                    return;
+                }
+                dependency.kind = kind;
+                dependency.present = present;
+                if (kind == mesh_binary::DependencyKind::content && present) {
+                    dependency.size = contents.length();
+                    dependency.digest = hash64_bytes(contents.data(), contents.length());
+                }
+                for (const auto& previous : entries) {
+                    if (previous.path.view() != path) continue;
+                    // The source changed during this import: do not cache mixed snapshots.
+                    cacheable = previous.kind == kind && previous.present == present &&
+                        previous.size == dependency.size && previous.digest == dependency.digest;
+                    return;
+                }
+                if (entries.length() == mesh_binary::max_dependencies ||
+                    (entries.empty() && !entries.dyarr_init(&allocator, 8)) ||
+                    !entries.dyarr_push_copy(dependency)) cacheable = false;
+            }
+        };
+
+        bool dependencies_current(mem::Allocator& allocator, strview base, strview source,
+            cl::slice<const mesh_binary::Dependency> dependencies) {
+            bool has_source = false;
+            u64 remaining = mesh_binary::max_file_bytes;
+            for (const auto& dependency : dependencies) {
+                strbuf<511> full_path;
+                if (!format_to(full_path, "{}/{}", base, dependency.path)) return false;
+                const bool present = File::exists(full_path.cstr());
+                if (present != dependency.present) return false;
+                if (dependency.kind == mesh_binary::DependencyKind::presence) continue;
+                if (dependency.path.view() == source && present) has_source = true;
+                if (!present) continue;
+                auto contents = read_mesh_file(allocator, full_path.view(), remaining);
+                if (!contents || contents->length() > remaining || contents->length() != dependency.size ||
+                    hash64_bytes(contents->data(), contents->length()) != dependency.digest) return false;
+                remaining -= contents->length();
+            }
+            return has_source;
+        }
+
+        struct ObjMaterialReader final : tinyobj::MaterialReader {
+            ImportDependencies& dependencies;
+            strview directory;
+            file_error failure = file_error::none;
+            u64 remaining;
+
+            ObjMaterialReader(ImportDependencies& dependencies, strview directory, u64 obj_bytes)
+                : dependencies{dependencies}, directory{directory}, remaining{mesh_binary::max_file_bytes - obj_bytes} {}
+
+            bool operator()(const std::string& id, std::vector<tinyobj::material_t>* materials,
+                std::map<std::string, int>* material_map, std::string* warning, std::string* error) override {
+                if (failure != file_error::none) return false;
+                strbuf<511> relative, full_path;
+                if (!relative_material_path(directory, {id.data(), id.size()}, relative) ||
+                    !format_to(full_path, "{}/{}", dependencies.base, relative)) {
+                    failure = file_error::invalid_path;
+                    return false;
+                }
+                auto bytes = read_mesh_file(dependencies.allocator, full_path.view(), remaining);
+                if (!bytes) {
+                    if (bytes.error() == file_error::not_found)
+                        dependencies.record(relative.view(), mesh_binary::DependencyKind::content, false);
+                    else failure = bytes.error();
+                    return false;
+                }
+                if (bytes->length() > remaining) {
+                    failure = file_error::size_limit_exceeded;
+                    return false;
+                }
+                remaining -= bytes->length();
+                dependencies.record(relative.view(), mesh_binary::DependencyKind::content, true,
+                    cl::slice<const u8>{*bytes});
+                BorrowedInput buffer{*bytes};
+                std::istream stream{&buffer};
+                tinyobj::LoadMtl(material_map, materials, &stream, warning, error);
+                return true;
+            }
+        };
+
+        result<void, resource_error> publish_mesh(mem::Allocator& allocator,
+            StaticMeshResource&& mesh, Resource& output) {
+            u64 size = sizeof(StaticMeshResource) + mesh.materials.length() * sizeof(MaterialConfig) +
+                mesh.geometries.length() * sizeof(GeometryConfig);
+            for (const auto& geometry : mesh.geometries)
+                size += geometry.vertices.length() * sizeof(glm::Vertex3D) + geometry.indices.length() * sizeof(u32);
+            auto* owned = allocator.construct_t(StaticMeshResource, std::move(mesh));
+            if (owned == nullptr) return err(resource_error{resource_error_code::out_of_memory, 0});
+            output.data = owned;
+            output.data_size = size;
+            return ok();
         }
 
         u32 canonical_float_bits(const f32 value) noexcept {
@@ -203,7 +378,8 @@ namespace nk {
         bool assign_available_texture(
             const strview asset_base_path,
             const std::string& source_path,
-            strbuf<texture_name_capacity>& destination) noexcept {
+            strbuf<texture_name_capacity>& destination,
+            ImportDependencies& dependencies) noexcept {
             const strview stem = texture_stem(source_path);
             if (stem.empty())
                 return true;
@@ -216,7 +392,12 @@ namespace nk {
                     stem)) {
                 return false;
             }
-            if (!File::exists(png_path.cstr()))
+            const bool present = File::exists(png_path.cstr());
+            strbuf<511> relative;
+            if (format_to(relative, "textures/{}.png", stem))
+                dependencies.record(relative.view(), mesh_binary::DependencyKind::presence, present);
+            else dependencies.cacheable = false;
+            if (!present)
                 return true;
             return destination.assign(stem);
         }
@@ -225,7 +406,8 @@ namespace nk {
             mem::Allocator& allocator,
             const strview asset_base_path,
             const std::vector<tinyobj::material_t>& source,
-            StaticMeshResource& destination) {
+            StaticMeshResource& destination,
+            ImportDependencies& dependencies) {
             if (source.empty())
                 return ok();
             if (source.size() > numeric::u32_max ||
@@ -248,15 +430,15 @@ namespace nk {
                     !assign_available_texture(
                         asset_base_path,
                         input.diffuse_texname,
-                        output.diffuse_map_name) ||
+                        output.diffuse_map_name, dependencies) ||
                     !assign_available_texture(
                         asset_base_path,
                         input.specular_texname,
-                        output.specular_map_name) ||
+                        output.specular_map_name, dependencies) ||
                     !assign_available_texture(
                         asset_base_path,
                         input.bump_texname,
-                        output.normal_map_name)) {
+                        output.normal_map_name, dependencies)) {
                     return err(mesh_error(
                         resource_error_code::invalid_data,
                         static_mesh_parse_error::name_too_long));
@@ -641,54 +823,97 @@ namespace nk {
         const strview asset_base_path,
         const strview name,
         Resource& out_resource) const {
-        if (!prepare_resource(out_resource, asset_base_path, name)) {
+        const auto started = std::chrono::steady_clock::now();
+        strbuf<511> source_relative, cache_path;
+        if (!prepare_resource(out_resource, asset_base_path, name) ||
+            !format_to(source_relative, "models/{}.obj", name) ||
+            !mesh_binary::safe_relative_path(source_relative.view()) ||
+            !format_to(cache_path, "{}/models/{}.nkmesh", asset_base_path, name)) {
             return err(resource_error{
                 resource_error_code::invalid_name,
                 0,
             });
         }
 
-        tinyobj::ObjReaderConfig config;
-        // Triangulate here so all triangles originating from one polygon keep
-        // a shared flat-normal identity when the OBJ has smoothing disabled.
-        config.triangulate = false;
-        config.vertex_color = false;
-        const std::string full_path{out_resource.full_path.cstr()};
-        if (!File::exists(full_path.c_str())) {
-            return err(resource_error{
-                resource_error_code::file_failed,
-                static_cast<i32>(file_error::not_found),
-            });
+        const auto report_load = [&](strview route) {
+            const f64 milliseconds = std::chrono::duration<f64, std::milli>(
+                std::chrono::steady_clock::now() - started).count();
+            InfoLog("Static mesh '{}' loaded from {} in {:.3f} ms", name, route, milliseconds);
+        };
+        const char* mode = std::getenv("NK_MESH_CACHE");
+        const bool cache_enabled = mode == nullptr || strview{mode} != "off";
+        const bool source_present = File::exists(out_resource.full_path.cstr());
+        if (cache_enabled && File::exists(cache_path.cstr())) {
+            auto bytes = read_mesh_file(allocator, cache_path.view());
+            if (bytes) {
+                auto archive = mesh_binary::decode(allocator, cl::slice<const u8>{*bytes});
+                if (archive) {
+                    if (!source_present || dependencies_current(allocator, asset_base_path,
+                            source_relative.view(), cl::slice<const mesh_binary::Dependency>{archive->dependencies})) {
+                        auto published = publish_mesh(allocator, std::move(archive->mesh), out_resource);
+                        if (!published) return published;
+                        out_resource.full_path = cache_path;
+                        report_load("nkmesh");
+                        return ok();
+                    }
+                    InfoLog("Static mesh '{}' cache dependencies changed; importing OBJ", name);
+                } else {
+                    if (archive.error() == mesh_binary::error::out_of_memory)
+                        return err(resource_error{resource_error_code::out_of_memory, 0});
+                    if (!source_present)
+                        return err(resource_error{resource_error_code::decode_failed, static_cast<i32>(archive.error())});
+                    WarnLog("Static mesh '{}' cache rejected ({}); importing OBJ", name, static_cast<i32>(archive.error()));
+                }
+            } else {
+                if (!source_present || bytes.error() == file_error::out_of_memory)
+                    return err(file_failure(bytes.error()));
+                WarnLog("Static mesh '{}' cache unreadable ({}); importing OBJ", name, static_cast<i32>(bytes.error()));
+            }
         }
-        const std::string::size_type separator = full_path.find_last_of("/\\");
-        if (separator != std::string::npos)
-            config.mtl_search_path = full_path.substr(0, separator + 1);
 
-        tinyobj::ObjReader reader;
-        if (!reader.ParseFromFile(full_path, config)) {
-            if (!reader.Error().empty()) {
+        auto source = read_mesh_file(allocator, out_resource.full_path.view());
+        if (!source) return err(file_failure(source.error()));
+        ImportDependencies dependencies{allocator, asset_base_path, cache_enabled};
+        dependencies.record(source_relative.view(), mesh_binary::DependencyKind::content, true,
+            cl::slice<const u8>{*source});
+        u64 directory_end = source_relative.length();
+        while (directory_end != 0 && source_relative.data()[directory_end - 1] != '/') --directory_end;
+        ObjMaterialReader material_reader{dependencies, source_relative.view().substr(0, directory_end), source->length()};
+        BorrowedInput buffer{*source};
+        std::istream stream{&buffer};
+        tinyobj::attrib_t attributes;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warning, error;
+        // Keep NK's triangulation, normal generation and UV convention intact.
+        const bool imported = tinyobj::LoadObj(&attributes, &shapes, &materials,
+            &warning, &error, &stream, &material_reader, false, false);
+        if (material_reader.failure != file_error::none) return err(file_failure(material_reader.failure));
+        if (!imported) {
+            if (!error.empty()) {
                 ErrorLog(
                     "OBJ '{}' failed to parse: {}",
                     name,
-                    strview{reader.Error().data(), reader.Error().size()});
+                    strview{error.data(), error.size()});
             }
             return err(mesh_error(
                 resource_error_code::decode_failed,
                 static_mesh_parse_error::parser_failed));
         }
-        if (!reader.Warning().empty()) {
+        if (!warning.empty()) {
             WarnLog(
                 "OBJ '{}' parser warning: {}",
                 name,
-                strview{reader.Warning().data(), reader.Warning().size()});
+                strview{warning.data(), warning.size()});
         }
 
         StaticMeshResource parsed;
         auto materials_converted = convert_materials(
             allocator,
             asset_base_path,
-            reader.GetMaterials(),
-            parsed);
+            materials,
+            parsed,
+            dependencies);
         if (!materials_converted)
             return err(materials_converted.error());
 
@@ -696,8 +921,8 @@ namespace nk {
         cl::map<u64, u32> group_indices;
         auto counted = count_groups(
             allocator,
-            reader.GetShapes(),
-            reader.GetMaterials().size(),
+            shapes,
+            materials.size(),
             groups,
             group_indices);
         if (!counted)
@@ -708,8 +933,8 @@ namespace nk {
             return err(initialized.error());
 
         auto converted = convert_geometry(
-            reader.GetAttrib(),
-            reader.GetShapes(),
+            attributes,
+            shapes,
             group_indices,
             groups);
         if (!converted)
@@ -718,29 +943,28 @@ namespace nk {
         auto finished = finish_groups(
             allocator,
             name,
-            reader.GetMaterials(),
+            materials,
             groups,
             parsed);
         if (!finished)
             return err(finished.error());
 
-        u64 data_size = sizeof(StaticMeshResource);
-        for (const GeometryConfig& geometry : parsed.geometries) {
-            data_size += geometry.vertices.length() * sizeof(glm::Vertex3D);
-            data_size += geometry.indices.length() * sizeof(u32);
+        if (dependencies.cacheable) {
+            auto encoded = mesh_binary::encode(allocator, parsed,
+                cl::slice<const mesh_binary::Dependency>{dependencies.entries});
+            if (encoded) {
+                auto saved = File::write_atomic(cache_path.view(), cl::slice<const u8>{*encoded});
+                if (!saved)
+                    WarnLog("Static mesh '{}' cache write skipped ({}); OBJ remains usable", name, static_cast<i32>(saved.error()));
+            } else {
+                WarnLog("Static mesh '{}' cache encoding skipped ({}); OBJ remains usable", name, static_cast<i32>(encoded.error()));
+            }
+        } else if (cache_enabled) {
+            WarnLog("Static mesh '{}' dependency tracking unavailable; OBJ remains usable", name);
         }
-        StaticMeshResource* resource = allocator.construct_t(
-            StaticMeshResource,
-            std::move(parsed));
-        if (resource == nullptr) {
-            return err(resource_error{
-                resource_error_code::out_of_memory,
-                0,
-            });
-        }
-
-        out_resource.data_size = data_size;
-        out_resource.data = resource;
+        auto published = publish_mesh(allocator, std::move(parsed), out_resource);
+        if (!published) return published;
+        report_load("OBJ");
         return ok();
     }
 

@@ -83,3 +83,52 @@ Tests pin the wire header/field offsets independently of the decoder, round-trip
 all current attributes, compare deterministic bytes and cover every truncation
 of a triangle, hostile counts/strides/indices/floats with recomputed checksums,
 unsupported versions, invalid paths and allocation rollback.
+
+## Loader policy and regression switch
+
+`models/<name>.nkmesh` takes precedence over `models/<name>.obj`. A cache miss,
+unsupported revision, truncation or invalid data falls back to OBJ when available.
+The importer preserves NK's existing triangulation, deduplication, normal/tangent
+generation, UV convention, material grouping and PNG-name resolution. Inline
+materials make the binary independently loadable without its OBJ/MTL files.
+Texture pixels are not embedded; normal texture loading/fallback still applies.
+
+When OBJ exists, cache reuse requires its own content dependency and matching
+content digests for every attempted MTL, even initially missing files. Relative
+MTL paths are normalized within the asset root (including nested directories and
+escaped spaces handled by tinyobj). Paths outside that root are rejected.
+Candidate PNG presence is tracked because it determines map names during import;
+pixel edits need no mesh rebuild. Same-size edits with preserved timestamps are
+detected. Sources are hashed each load; avoiding OBJ parsing, triangulation and
+normal/tangent generation is the acceleration, not avoiding all source I/O.
+Import dependencies describe bytes actually parsed; if sources change afterward,
+the next load invalidates that snapshot. This is not live/hot reload.
+
+Assets are trusted local content, not a filesystem security sandbox: symlinks in
+the asset tree are still followed. Archive limits protect decoding, but are not
+a total process-memory bound on tinyobj's text parsing/temporary allocations.
+Source files must be regular files and their aggregate imported bytes are bounded.
+
+The importer writes an exclusive temporary beside the final path and atomically
+replaces it only after complete serialization and flushing. Failed replacement
+removes its own temporary, never the existing destination. Cache write/encoding
+failures are warnings and **do not** fail a usable OBJ. Read-only assets, including
+the Nix store, can still import OBJ; they need a pre-generated binary to benefit
+from caching. CMake copies supplied `.nkmesh` model assets as well as OBJ/MTL.
+Generated caches and their temporaries are ignored by Git; no large binary fixture
+is needed because tests pin a tiny triangle's wire bytes directly.
+
+Run the same build and scene with caching disabled for comparison or rollback:
+
+```bash
+nix run .#build -- Release
+nix run .#run -- Release
+NK_MESH_CACHE=off nix run .#run -- Release
+```
+
+The first default run generates the cache in `bin/Linux-Release/assets/models/`;
+later runs use it if dependencies still match. Startup logs report each mesh's
+`OBJ` or `nkmesh` route and elapsed load milliseconds (including validation and,
+on import, cache generation). This affects loading time, not steady-frame FPS.
+Windows uses the same format and loader with Win32 atomic replacement; native
+Windows execution must be validated on that platform.

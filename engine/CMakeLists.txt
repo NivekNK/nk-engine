@@ -282,6 +282,7 @@ add_dependencies(engine SHADER_CONFIGS)
 file(GLOB MODEL_FILES
     "assets/models/*.obj"
     "assets/models/*.mtl"
+    "assets/models/*.nkmesh"
 )
 
 foreach(MODEL ${MODEL_FILES})
