@@ -202,6 +202,15 @@ namespace nk {
         }
         m_texture_system = *texture_system;
 
+        const cstr writable_smoke =
+            std::getenv("NK_SMOKE_TEST_WRITABLE_TEXTURE");
+        if (writable_smoke != nullptr &&
+            std::strcmp(writable_smoke, "1") == 0 &&
+            !run_writable_texture_smoke()) {
+            shutdown_impl();
+            return false;
+        }
+
         auto shader_system = ShaderSystem::create(
             *m_allocator,
             *m_renderer,
@@ -635,6 +644,81 @@ namespace nk {
 
         m_debug_texture_index =
             static_cast<u8>((m_debug_texture_index + 1) % texture_count);
+    }
+
+    bool Engine::run_writable_texture_smoke() {
+        constexpr strview name{"__nk_writable_texture_smoke", 27};
+        auto acquired = m_texture_system->acquire_writable(
+            name,
+            4,
+            4,
+            4,
+            true);
+        if (!acquired) {
+            ErrorLog(
+                "Writable texture smoke create failed: texture_error={}, native_code={}",
+                static_cast<u32>(acquired.error().code),
+                acquired.error().native_code);
+            return false;
+        }
+
+        Texture* texture = *acquired;
+        u8 initial_pixels[4 * 4 * 4]{};
+        for (u32 index = 0; index < 4 * 4; ++index) {
+            initial_pixels[index * 4] = static_cast<u8>(index * 13);
+            initial_pixels[index * 4 + 1] = static_cast<u8>(255 - index * 11);
+            initial_pixels[index * 4 + 2] = 127;
+            initial_pixels[index * 4 + 3] = 255;
+        }
+        auto written = m_texture_system->write(
+            *texture,
+            {0, 0, 4, 4},
+            cl::slice<const u8>{initial_pixels});
+        if (!written) {
+            ErrorLog(
+                "Writable texture smoke upload failed: texture_error={}, native_code={}",
+                static_cast<u32>(written.error().code),
+                written.error().native_code);
+            m_texture_system->release(name);
+            return false;
+        }
+
+        auto resized = m_texture_system->resize(*texture, 8, 4);
+        if (!resized) {
+            ErrorLog(
+                "Writable texture smoke resize failed: texture_error={}, native_code={}",
+                static_cast<u32>(resized.error().code),
+                resized.error().native_code);
+            m_texture_system->release(name);
+            return false;
+        }
+
+        u8 region_pixels[4 * 2 * 4]{};
+        for (u32 index = 0; index < 4 * 2; ++index) {
+            region_pixels[index * 4] = 255;
+            region_pixels[index * 4 + 1] = 64;
+            region_pixels[index * 4 + 2] = 192;
+            region_pixels[index * 4 + 3] = 255;
+        }
+        written = m_texture_system->write(
+            *texture,
+            {2, 1, 4, 2},
+            cl::slice<const u8>{region_pixels});
+        if (!written) {
+            ErrorLog(
+                "Writable texture smoke region upload failed: texture_error={}, native_code={}",
+                static_cast<u32>(written.error().code),
+                written.error().native_code);
+            m_texture_system->release(name);
+            return false;
+        }
+
+        const u32 generation = texture->generation;
+        m_texture_system->release(name);
+        InfoLog(
+            "Writable texture smoke passed (create, full upload, resize, region upload; generation {}).",
+            generation);
+        return true;
     }
 
     bool Engine::set_debug_sampler(u8 preset) {

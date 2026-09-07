@@ -31,6 +31,38 @@ namespace nk {
     }
 
     namespace {
+        u32 next_generation(const u32 generation) noexcept {
+            if (generation == numeric::invalid_id)
+                return 0;
+            const u32 next = generation + 1;
+            return next == numeric::invalid_id ? 0 : next;
+        }
+
+        bool valid_texture_extent(
+            const u32 width,
+            const u32 height,
+            const u8 channel_count) noexcept {
+            return width != 0 && height != 0 && channel_count >= 1 &&
+                   channel_count <= 4;
+        }
+
+        bool valid_region(
+            const Texture& texture,
+            const TextureRegion region,
+            const cl::slice<const u8> pixels) noexcept {
+            if (pixels.data() == nullptr || region.width == 0 ||
+                region.height == 0 || region.x >= texture.width ||
+                region.y >= texture.height ||
+                region.width > texture.width - region.x ||
+                region.height > texture.height - region.y) {
+                return false;
+            }
+            const u64 texels =
+                static_cast<u64>(region.width) * region.height;
+            return texels <= numeric::u64_max / texture.channel_count &&
+                   pixels.length() == texels * texture.channel_count;
+        }
+
         texture_error translate_resource_error(
             const resource_error& error) noexcept {
             switch (error.code) {
@@ -154,6 +186,7 @@ namespace nk {
         m_default_specular_texture = {};
         m_default_normal_texture = {};
         m_loaded_count = 0;
+        m_runtime_count = 0;
         m_initialized = false;
         m_renderer = nullptr;
         m_resources = nullptr;
@@ -256,6 +289,11 @@ namespace nk {
 
         if (TextureReference* reference = m_references.find(name);
             reference != nullptr) {
+            if (reference->source != TextureSource::file)
+                return err(texture_error{
+                    texture_error_code::incompatible_texture,
+                    0,
+                });
             ++reference->reference_count;
             return ok(&m_textures[reference->slot]);
         }
@@ -286,6 +324,7 @@ namespace nk {
                 .reference_count = 1,
                 .slot = slot,
                 .auto_release = auto_release,
+                .source = TextureSource::file,
             });
         if (!inserted) {
             m_renderer->destroy_texture(&texture);
@@ -298,6 +337,138 @@ namespace nk {
             "Texture '{}' acquired with reference count 1.",
             name);
         return ok(&m_textures[slot]);
+    }
+
+    result<Texture*, texture_error> TextureSystem::acquire_writable(
+        const strview name,
+        const u32 width,
+        const u32 height,
+        const u8 channel_count,
+        const bool has_transparency,
+        const bool auto_release) {
+        if (!m_initialized)
+            return err(texture_error{texture_error_code::not_initialized, 0});
+        if (name.empty())
+            return err(texture_error{texture_error_code::invalid_name, 0});
+        if (name == default_texture_name ||
+            name == default_specular_texture_name ||
+            name == default_normal_texture_name) {
+            return err(texture_error{
+                texture_error_code::incompatible_texture,
+                0,
+            });
+        }
+        if (!valid_texture_extent(width, height, channel_count))
+            return err(texture_error{texture_error_code::invalid_dimensions, 0});
+
+        if (TextureReference* reference = m_references.find(name);
+            reference != nullptr) {
+            Texture& existing = m_textures[reference->slot];
+            if (reference->source != TextureSource::runtime ||
+                existing.width != width || existing.height != height ||
+                existing.channel_count != channel_count ||
+                existing.has_transparency() != has_transparency) {
+                return err(texture_error{
+                    texture_error_code::incompatible_texture,
+                    0,
+                });
+            }
+            ++reference->reference_count;
+            return ok(&existing);
+        }
+
+        const u32 slot = find_free_slot();
+        if (slot == numeric::invalid_id)
+            return err(texture_error{
+                texture_error_code::capacity_exceeded,
+                0,
+            });
+
+        Texture texture{
+            .id = slot,
+            .width = width,
+            .height = height,
+            .channel_count = channel_count,
+            .flags = TextureFlag::writable |
+                (has_transparency
+                    ? TextureFlag::has_transparency
+                    : TextureFlag::none),
+        };
+        auto created = m_renderer->create_writable_texture(&texture);
+        if (!created)
+            return err(texture_error{
+                texture_error_code::renderer_failed,
+                created.error().native_code,
+            });
+        texture.generation = 0;
+
+        str owned_name{*m_allocator};
+        if (!owned_name.assign(name)) {
+            m_renderer->destroy_texture(&texture);
+            return err(texture_error{texture_error_code::out_of_memory, 0});
+        }
+        auto inserted = m_references.try_emplace(
+            std::move(owned_name),
+            TextureReference{
+                .reference_count = 1,
+                .slot = slot,
+                .auto_release = auto_release,
+                .source = TextureSource::runtime,
+            });
+        if (!inserted) {
+            m_renderer->destroy_texture(&texture);
+            return err(texture_error{texture_error_code::out_of_memory, 0});
+        }
+
+        m_textures[slot] = texture;
+        ++m_runtime_count;
+        return ok(&m_textures[slot]);
+    }
+
+    result<void, texture_error> TextureSystem::write(
+        Texture& texture,
+        const TextureRegion region,
+        const cl::slice<const u8> pixels) {
+        if (!m_initialized)
+            return err(texture_error{texture_error_code::not_initialized, 0});
+        if (!texture.valid() || !texture.writable() || texture.external())
+            return err(texture_error{texture_error_code::invalid_operation, 0});
+        if (!valid_region(texture, region, pixels))
+            return err(texture_error{texture_error_code::invalid_region, 0});
+
+        auto written = m_renderer->write_texture(texture, region, pixels);
+        if (!written)
+            return err(texture_error{
+                texture_error_code::renderer_failed,
+                written.error().native_code,
+            });
+        texture.generation = next_generation(texture.generation);
+        return ok();
+    }
+
+    result<void, texture_error> TextureSystem::resize(
+        Texture& texture,
+        const u32 width,
+        const u32 height) {
+        if (!m_initialized)
+            return err(texture_error{texture_error_code::not_initialized, 0});
+        if (!texture.valid() || !texture.writable() || texture.external())
+            return err(texture_error{texture_error_code::invalid_operation, 0});
+        if (!valid_texture_extent(width, height, texture.channel_count))
+            return err(texture_error{texture_error_code::invalid_dimensions, 0});
+        if (texture.width == width && texture.height == height)
+            return ok();
+
+        auto resized = m_renderer->resize_texture(texture, width, height);
+        if (!resized)
+            return err(texture_error{
+                texture_error_code::renderer_failed,
+                resized.error().native_code,
+            });
+        texture.width = width;
+        texture.height = height;
+        texture.generation = next_generation(texture.generation);
+        return ok();
     }
 
     void TextureSystem::release(const strview name) {
@@ -319,8 +490,11 @@ namespace nk {
 
         Texture& texture = m_textures[reference->slot];
         m_renderer->destroy_texture(&texture);
+        if (reference->source == TextureSource::runtime)
+            --m_runtime_count;
+        else
+            --m_loaded_count;
         m_references.remove(name);
-        --m_loaded_count;
         TraceLog("Texture '{}' unloaded.", name);
     }
 

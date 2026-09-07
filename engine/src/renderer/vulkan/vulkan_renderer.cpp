@@ -13,6 +13,18 @@
 #include <glm/vertex_2d.h>
 
 namespace nk {
+    namespace {
+        VkFormat texture_format(const u8 channel_count) noexcept {
+            switch (channel_count) {
+                case 1: return VK_FORMAT_R8_UNORM;
+                case 2: return VK_FORMAT_R8G8_UNORM;
+                case 3: return VK_FORMAT_R8G8B8_UNORM;
+                case 4: return VK_FORMAT_R8G8B8A8_UNORM;
+                default: return VK_FORMAT_UNDEFINED;
+            }
+        }
+    }
+
     void VulkanRenderer::on_resized(u32 width, u32 height) {
         m_cached_framebuffer_width = width;
         m_cached_framebuffer_height = height;
@@ -899,9 +911,245 @@ namespace nk {
             return err(command_ended.error());
         }
         
-        texture.has_transparency = has_transparency;
+        texture.flags = has_transparency
+            ? TextureFlag::has_transparency
+            : TextureFlag::none;
         DebugLog("Texture '{}' uploaded with {} mip level(s).", name, mip_levels);
         *out_texture = texture;
+        return ok();
+    }
+
+    result<void, renderer_error> VulkanRenderer::create_writable_texture(
+        Texture* texture) {
+        if (texture == nullptr || texture->m_internal_data != nullptr ||
+            texture->width == 0 || texture->height == 0 ||
+            !texture->writable() || texture->external()) {
+            return err(renderer_error{
+                renderer_error_code::texture_state_invalid,
+                0,
+            });
+        }
+        const VkFormat format = texture_format(texture->channel_count);
+        if (format == VK_FORMAT_UNDEFINED)
+            return err(renderer_error{
+                renderer_error_code::texture_state_invalid,
+                0,
+            });
+        if (texture->width > m_device.max_texture_dimension() ||
+            texture->height > m_device.max_texture_dimension()) {
+            return err(renderer_error{
+                renderer_error_code::texture_limits_exceeded,
+                0,
+            });
+        }
+
+        TextureData* data = m_allocator->construct_t(TextureData);
+        if (data == nullptr)
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        auto initialized = data->image.init(
+            {
+                .image_type = VK_IMAGE_TYPE_2D,
+                .extent = {texture->width, texture->height},
+                .format = format,
+                .tiling = VK_IMAGE_TILING_OPTIMAL,
+                .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                    VK_IMAGE_USAGE_SAMPLED_BIT |
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                .memory_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .create_view = true,
+                .view_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mip_levels = 1,
+            },
+            &m_device,
+            m_vulkan_allocator);
+        if (!initialized) {
+            const renderer_error error = initialized.error();
+            m_allocator->deconstruct_t(TextureData, data);
+            return err(error);
+        }
+
+        CommandBuffer commands;
+        auto begun = commands.init(
+            m_device.get_graphics_command_pool(),
+            &m_device,
+            true,
+            true);
+        if (!begun) {
+            const renderer_error error = begun.error();
+            m_allocator->deconstruct_t(TextureData, data);
+            return err(error);
+        }
+        const vk::GraphicsCommands graphics{m_device, commands};
+        graphics.transition(
+            data->image.get(),
+            {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            vk::ImageUse::discard,
+            vk::ImageUse::sampled);
+        auto completed = commands.end_single_use(m_device.get_graphics_queue());
+        if (!completed) {
+            const renderer_error error = completed.error();
+            m_allocator->deconstruct_t(TextureData, data);
+            return err(error);
+        }
+
+        texture->m_internal_data = data;
+        return ok();
+    }
+
+    result<void, renderer_error> VulkanRenderer::write_texture(
+        Texture& texture,
+        const TextureRegion region,
+        const cl::slice<const u8> pixels) {
+        if (!texture.valid() || !texture.writable() || texture.external() ||
+            pixels.data() == nullptr || region.width == 0 ||
+            region.height == 0 || region.x >= texture.width ||
+            region.y >= texture.height ||
+            region.width > texture.width - region.x ||
+            region.height > texture.height - region.y) {
+            return err(renderer_error{
+                renderer_error_code::texture_region_invalid,
+                0,
+            });
+        }
+        const u64 size = static_cast<u64>(region.width) * region.height *
+            texture.channel_count;
+        if (pixels.length() != size)
+            return err(renderer_error{
+                renderer_error_code::texture_region_invalid,
+                0,
+            });
+
+        Buffer staging;
+        auto staging_initialized = staging.init(
+            &m_device,
+            m_vulkan_allocator,
+            size,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            true);
+        if (!staging_initialized)
+            return err(staging_initialized.error());
+        auto staged = staging.load_data(0, size, 0, pixels.data());
+        if (!staged)
+            return err(staged.error());
+
+        CommandBuffer commands;
+        auto begun = commands.init(
+            m_device.get_graphics_command_pool(),
+            &m_device,
+            true,
+            true);
+        if (!begun)
+            return err(begun.error());
+
+        TextureData* data = static_cast<TextureData*>(texture.m_internal_data);
+        const vk::GraphicsCommands graphics{m_device, commands};
+        const VkImageSubresourceRange whole{
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            0,
+            1,
+            0,
+            1,
+        };
+        graphics.transition(
+            data->image.get(),
+            whole,
+            vk::ImageUse::sampled,
+            vk::ImageUse::transfer_destination);
+        data->image.copy_from_buffer(
+            &commands,
+            staging,
+            region.x,
+            region.y,
+            region.width,
+            region.height);
+        graphics.transition(
+            data->image.get(),
+            whole,
+            vk::ImageUse::transfer_destination,
+            vk::ImageUse::sampled);
+        return commands.end_single_use(m_device.get_graphics_queue());
+    }
+
+    result<void, renderer_error> VulkanRenderer::resize_texture(
+        Texture& texture,
+        const u32 width,
+        const u32 height) {
+        if (!texture.valid() || !texture.writable() || texture.external() ||
+            width == 0 || height == 0) {
+            return err(renderer_error{
+                renderer_error_code::texture_state_invalid,
+                0,
+            });
+        }
+        if (width > m_device.max_texture_dimension() ||
+            height > m_device.max_texture_dimension()) {
+            return err(renderer_error{
+                renderer_error_code::texture_limits_exceeded,
+                0,
+            });
+        }
+        const VkFormat format = texture_format(texture.channel_count);
+        if (format == VK_FORMAT_UNDEFINED)
+            return err(renderer_error{
+                renderer_error_code::texture_state_invalid,
+                0,
+            });
+
+        TextureData* replacement = m_allocator->construct_t(TextureData);
+        if (replacement == nullptr)
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        auto initialized = replacement->image.init(
+            {
+                .image_type = VK_IMAGE_TYPE_2D,
+                .extent = {width, height},
+                .format = format,
+                .tiling = VK_IMAGE_TILING_OPTIMAL,
+                .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                    VK_IMAGE_USAGE_SAMPLED_BIT |
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                .memory_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .create_view = true,
+                .view_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mip_levels = 1,
+            },
+            &m_device,
+            m_vulkan_allocator);
+        if (!initialized) {
+            const renderer_error error = initialized.error();
+            m_allocator->deconstruct_t(TextureData, replacement);
+            return err(error);
+        }
+
+        CommandBuffer commands;
+        auto begun = commands.init(
+            m_device.get_graphics_command_pool(),
+            &m_device,
+            true,
+            true);
+        if (!begun) {
+            const renderer_error error = begun.error();
+            m_allocator->deconstruct_t(TextureData, replacement);
+            return err(error);
+        }
+        const vk::GraphicsCommands graphics{m_device, commands};
+        graphics.transition(
+            replacement->image.get(),
+            {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            vk::ImageUse::discard,
+            vk::ImageUse::sampled);
+        auto completed = commands.end_single_use(m_device.get_graphics_queue());
+        if (!completed) {
+            const renderer_error error = completed.error();
+            m_allocator->deconstruct_t(TextureData, replacement);
+            return err(error);
+        }
+
+        TextureData* previous =
+            static_cast<TextureData*>(texture.m_internal_data);
+        texture.m_internal_data = replacement;
+        m_allocator->deconstruct_t(TextureData, previous);
         return ok();
     }
 

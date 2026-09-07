@@ -79,6 +79,16 @@ namespace nk {
             const u8* pixels,
             bool has_transparency,
             Texture* out_texture) override;
+        [[nodiscard]] result<void, renderer_error>
+        create_writable_texture(Texture* texture) override;
+        [[nodiscard]] result<void, renderer_error> write_texture(
+            Texture& texture,
+            TextureRegion region,
+            cl::slice<const u8> pixels) override;
+        [[nodiscard]] result<void, renderer_error> resize_texture(
+            Texture& texture,
+            u32 width,
+            u32 height) override;
         virtual void destroy_texture(Texture* texture) override;
         virtual result<void, renderer_error> create_geometry(
             Geometry& geometry,

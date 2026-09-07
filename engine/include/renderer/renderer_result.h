@@ -40,6 +40,8 @@ namespace nk {
         texture_file_failed,
         texture_decode_failed,
         texture_limits_exceeded,
+        texture_state_invalid,
+        texture_region_invalid,
         material_failed,
         sampler_config_invalid,
         sampler_handle_invalid,

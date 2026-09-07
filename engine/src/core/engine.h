@@ -46,6 +46,7 @@ namespace nk {
         bool update(f64 delta_time);
         bool render(f64 delta_time);
         bool resize(u32 width, u32 height);
+        bool run_writable_texture_smoke();
         void cycle_debug_texture();
         bool set_debug_sampler(u8 preset);
         void cycle_debug_sampler();

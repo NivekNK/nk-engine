@@ -61,6 +61,8 @@ namespace {
         nk::u32 end_calls() const { return m_end_calls; }
         void fail_end(bool value) { m_fail_end = value; }
         void fail_texture_create(bool value) { m_fail_texture_create = value; }
+        void fail_texture_write(bool value) { m_fail_texture_write = value; }
+        void fail_texture_resize(bool value) { m_fail_texture_resize = value; }
         void fail_texture_create_on_call(nk::u32 call) {
             m_failed_texture_create_call = call;
         }
@@ -75,6 +77,8 @@ namespace {
         void fail_sampler_release(bool fail) { m_fail_sampler_release = fail; }
         nk::SamplerHandle last_sampler() const { return m_last_sampler; }
         nk::u32 created_textures() const { return m_created_textures; }
+        nk::u32 texture_writes() const { return m_texture_writes; }
+        nk::u32 texture_resizes() const { return m_texture_resizes; }
         bool default_specular_is_black() const {
             return m_default_specular_is_black;
         }
@@ -273,10 +277,53 @@ namespace {
                 .width = width,
                 .height = height,
                 .channel_count = static_cast<nk::u8>(channel_count),
-                .has_transparency = has_transparency,
+                .flags = has_transparency
+                    ? nk::TextureFlag::has_transparency
+                    : nk::TextureFlag::none,
                 .generation = 0,
                 .m_internal_data = reinterpret_cast<void*>(0x2),
             };
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> create_writable_texture(
+            nk::Texture* texture) override {
+            ++m_texture_create_attempts;
+            if (m_fail_texture_create ||
+                m_texture_create_attempts == m_failed_texture_create_call) {
+                return nk::err(nk::renderer_error{
+                    nk::renderer_error_code::image_creation_failed,
+                    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                });
+            }
+            ++m_created_textures;
+            texture->m_internal_data = reinterpret_cast<void*>(0x2);
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> write_texture(
+            nk::Texture&,
+            nk::TextureRegion,
+            nk::cl::slice<const nk::u8>) override {
+            if (m_fail_texture_write)
+                return nk::err(nk::renderer_error{
+                    nk::renderer_error_code::queue_submit_failed,
+                    VK_ERROR_DEVICE_LOST,
+                });
+            ++m_texture_writes;
+            return nk::ok();
+        }
+
+        nk::result<void, nk::renderer_error> resize_texture(
+            nk::Texture&,
+            nk::u32,
+            nk::u32) override {
+            if (m_fail_texture_resize)
+                return nk::err(nk::renderer_error{
+                    nk::renderer_error_code::image_creation_failed,
+                    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                });
+            ++m_texture_resizes;
             return nk::ok();
         }
 
@@ -433,6 +480,8 @@ namespace {
         BeginMode m_begin_mode;
         bool m_fail_end = false;
         bool m_fail_texture_create = false;
+        bool m_fail_texture_write = false;
+        bool m_fail_texture_resize = false;
         bool m_fail_shader_create = false;
         nk::u16 m_next_shader_index = 0;
         nk::ShaderHandle m_world_test_shader{};
@@ -450,6 +499,8 @@ namespace {
         nk::u32 m_destroyed_textures = 0;
         nk::u32 m_created_textures = 0;
         nk::u32 m_texture_create_attempts = 0;
+        nk::u32 m_texture_writes = 0;
+        nk::u32 m_texture_resizes = 0;
         nk::u32 m_failed_texture_create_call = 0;
         bool m_default_specular_is_black = false;
         bool m_default_normal_is_flat = false;
@@ -947,7 +998,7 @@ TEST(RendererResult, TextureAllocationFailureDoesNotPublishPartialState) {
         .width = 11,
         .height = 13,
         .channel_count = 4,
-        .has_transparency = true,
+        .flags = nk::TextureFlag::has_transparency,
         .generation = 17,
         .m_internal_data = reinterpret_cast<void*>(0x1),
     };
@@ -963,7 +1014,7 @@ TEST(RendererResult, TextureAllocationFailureDoesNotPublishPartialState) {
     EXPECT_EQ(output.width, before.width);
     EXPECT_EQ(output.height, before.height);
     EXPECT_EQ(output.channel_count, before.channel_count);
-    EXPECT_EQ(output.has_transparency, before.has_transparency);
+    EXPECT_EQ(output.flags, before.flags);
     EXPECT_EQ(output.generation, before.generation);
     EXPECT_EQ(output.m_internal_data, before.m_internal_data);
 }
@@ -1402,6 +1453,159 @@ TEST(TextureSystem, EnforcesCapacityAndReusesReleasedSlots) {
     EXPECT_EQ((*reused)->width, 480u);
     EXPECT_EQ(textures->loaded_count(), 1u);
 
+    nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
+}
+
+TEST(TextureSystem, ManagesWritableTexturesAndValidatesRegions) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 2);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
+
+    auto acquired = textures->acquire_writable(
+        "runtime_color", 4, 4, 4, true);
+    ASSERT_TRUE(acquired);
+    nk::Texture* texture = *acquired;
+    EXPECT_TRUE(texture->valid());
+    EXPECT_TRUE(texture->writable());
+    EXPECT_TRUE(texture->has_transparency());
+    EXPECT_FALSE(texture->external());
+    EXPECT_EQ(texture->generation, 0u);
+    EXPECT_EQ(textures->runtime_count(), 1u);
+    EXPECT_EQ(textures->loaded_count(), 0u);
+
+    auto shared = textures->acquire_writable(
+        "runtime_color", 4, 4, 4, true);
+    ASSERT_TRUE(shared);
+    EXPECT_EQ(*shared, texture);
+    EXPECT_EQ(textures->reference_count("runtime_color"), 2u);
+    auto incompatible = textures->acquire_writable(
+        "runtime_color", 8, 4, 4, true);
+    ASSERT_FALSE(incompatible);
+    EXPECT_EQ(
+        incompatible.error().code,
+        nk::texture_error_code::incompatible_texture);
+
+    const nk::u8 region_pixels[16]{};
+    auto written = textures->write(
+        *texture,
+        {1, 1, 2, 2},
+        nk::cl::slice<const nk::u8>{region_pixels});
+    ASSERT_TRUE(written);
+    EXPECT_EQ(renderer.texture_writes(), 1u);
+    EXPECT_EQ(texture->generation, 1u);
+
+    const nk::u8 short_pixels[15]{};
+    auto invalid_write = textures->write(
+        *texture,
+        {1, 1, 2, 2},
+        nk::cl::slice<const nk::u8>{short_pixels});
+    ASSERT_FALSE(invalid_write);
+    EXPECT_EQ(
+        invalid_write.error().code,
+        nk::texture_error_code::invalid_region);
+    EXPECT_EQ(renderer.texture_writes(), 1u);
+    EXPECT_EQ(texture->generation, 1u);
+
+    ASSERT_TRUE(textures->resize(*texture, 8, 2));
+    EXPECT_EQ(renderer.texture_resizes(), 1u);
+    EXPECT_EQ(texture->width, 8u);
+    EXPECT_EQ(texture->height, 2u);
+    EXPECT_EQ(texture->generation, 2u);
+
+    renderer.fail_texture_resize(true);
+    auto failed_resize = textures->resize(*texture, 16, 2);
+    ASSERT_FALSE(failed_resize);
+    EXPECT_EQ(texture->width, 8u);
+    EXPECT_EQ(texture->height, 2u);
+    EXPECT_EQ(texture->generation, 2u);
+
+    renderer.fail_texture_write(true);
+    auto failed_write = textures->write(
+        *texture,
+        {0, 0, 2, 2},
+        nk::cl::slice<const nk::u8>{region_pixels});
+    ASSERT_FALSE(failed_write);
+    EXPECT_EQ(texture->generation, 2u);
+
+    textures->release("runtime_color");
+    EXPECT_EQ(textures->runtime_count(), 1u);
+    textures->release("runtime_color");
+    EXPECT_EQ(textures->runtime_count(), 0u);
+    EXPECT_EQ(textures->reference_count("runtime_color"), 0u);
+
+    nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
+}
+
+TEST(TextureSystem, KeepsFileAndRuntimeNamespacesCompatible) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 2);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
+
+    ASSERT_TRUE(textures->acquire("cobblestone", true));
+    auto runtime_conflict = textures->acquire_writable(
+        "cobblestone", 4, 4, 4, false);
+    ASSERT_FALSE(runtime_conflict);
+    EXPECT_EQ(
+        runtime_conflict.error().code,
+        nk::texture_error_code::incompatible_texture);
+    EXPECT_EQ(textures->loaded_count(), 1u);
+    EXPECT_EQ(textures->runtime_count(), 0u);
+
+    auto reserved = textures->acquire_writable(
+        nk::default_texture_name, 4, 4, 4, false);
+    ASSERT_FALSE(reserved);
+    EXPECT_EQ(
+        reserved.error().code,
+        nk::texture_error_code::incompatible_texture);
+
+    textures->release("cobblestone");
+    nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
+}
+
+TEST(TextureSystem, DoesNotPublishFailedWritableTextures) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 1);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
+
+    renderer.fail_texture_create(true);
+    auto failed = textures->acquire_writable(
+        "failed_runtime", 4, 4, 4, false);
+    ASSERT_FALSE(failed);
+    EXPECT_EQ(failed.error().code, nk::texture_error_code::renderer_failed);
+    EXPECT_EQ(textures->runtime_count(), 0u);
+    EXPECT_EQ(textures->reference_count("failed_runtime"), 0u);
+
+    renderer.fail_texture_create(false);
+    auto retried = textures->acquire_writable(
+        "failed_runtime", 4, 4, 4, true);
+    ASSERT_TRUE(retried);
+    EXPECT_EQ(textures->runtime_count(), 1u);
+
+    textures->release("failed_runtime");
     nk::TextureSystem::destroy(allocator, textures);
     nk::ResourceSystem::destroy(allocator, resources);
 }

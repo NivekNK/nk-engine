@@ -44,6 +44,7 @@ namespace nk {
                 .code = renderer_error_code::image_creation_failed,
                 .native_code = static_cast<i32>(result),
             });
+        m_owns_image = true;
 
         // Query memory requirements.
         VkMemoryRequirements memory_requirements;
@@ -95,19 +96,59 @@ namespace nk {
         return ok();
     }
 
+    result<void, renderer_error> Image::init_external(
+        const VkImage image,
+        const VkExtent2D extent,
+        const VkFormat format,
+        const VkImageAspectFlags view_aspect_flags,
+        Device* device,
+        VkAllocationCallbacks* allocator) {
+        if (image == VK_NULL_HANDLE || extent.width == 0 ||
+            extent.height == 0 || format == VK_FORMAT_UNDEFINED ||
+            view_aspect_flags == 0 || device == nullptr ||
+            device->get() == VK_NULL_HANDLE || m_image != VK_NULL_HANDLE ||
+            m_view != VK_NULL_HANDLE || m_memory != VK_NULL_HANDLE) {
+            return err(renderer_error{
+                renderer_error_code::image_creation_failed,
+                0,
+            });
+        }
+
+        m_device = device;
+        m_vulkan_allocator = allocator;
+        m_image = image;
+        m_extent = extent;
+        m_format = format;
+        m_mip_levels = 1;
+        m_owns_image = false;
+        auto view_created = create_view(view_aspect_flags);
+        if (!view_created) {
+            const renderer_error error = view_created.error();
+            shutdown();
+            return err(error);
+        }
+        return ok();
+    }
+
     void Image::shutdown() {
         if (m_view != nullptr) {
             vkDestroyImageView(m_device->get(), m_view, m_vulkan_allocator);
             m_view = nullptr;
         }
-        if (m_image != nullptr) {
+        if (m_image != nullptr && m_owns_image) {
             vkDestroyImage(m_device->get(), m_image, m_vulkan_allocator);
-            m_image = nullptr;
         }
+        m_image = nullptr;
         if (m_memory != nullptr) {
             vkFreeMemory(m_device->get(), m_memory, m_vulkan_allocator);
             m_memory = nullptr;
         }
+        m_device = nullptr;
+        m_vulkan_allocator = nullptr;
+        m_extent = {};
+        m_format = VK_FORMAT_UNDEFINED;
+        m_mip_levels = 1;
+        m_owns_image = false;
     }
 
     result<void, renderer_error> Image::create_view(
@@ -158,9 +199,24 @@ namespace nk {
     }
 
     void Image::copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer) {
+        copy_from_buffer(
+            command_buffer,
+            buffer,
+            0,
+            0,
+            m_extent.width,
+            m_extent.height);
+    }
+
+    void Image::copy_from_buffer(
+        CommandBuffer* command_buffer,
+        const VkBuffer buffer,
+        const u32 x,
+        const u32 y,
+        const u32 width,
+        const u32 height) {
         // Region to copy
-        VkBufferImageCopy region;
-        memset(&region, 0, sizeof(VkBufferImageCopy));
+        VkBufferImageCopy region{};
         region.bufferOffset = 0;
         region.bufferRowLength = 0;
         region.bufferImageHeight = 0;
@@ -170,8 +226,13 @@ namespace nk {
         region.imageSubresource.baseArrayLayer = 0;
         region.imageSubresource.layerCount = 1;
 
-        region.imageExtent.width = m_extent.width;
-        region.imageExtent.height = m_extent.height;
+        region.imageOffset = {
+            static_cast<i32>(x),
+            static_cast<i32>(y),
+            0,
+        };
+        region.imageExtent.width = width;
+        region.imageExtent.height = height;
         region.imageExtent.depth = 1;
 
         vkCmdCopyBufferToImage(

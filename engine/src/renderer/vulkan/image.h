@@ -34,6 +34,13 @@ namespace nk {
             const VulkanImageCreateInfo& create_info,
             Device* device,
             VkAllocationCallbacks* allocator);
+        [[nodiscard]] result<void, renderer_error> init_external(
+            VkImage image,
+            VkExtent2D extent,
+            VkFormat format,
+            VkImageAspectFlags view_aspect_flags,
+            Device* device,
+            VkAllocationCallbacks* allocator);
         void shutdown();
 
         [[nodiscard]] result<void, renderer_error> renew(
@@ -48,6 +55,13 @@ namespace nk {
             VkImageAspectFlags aspect_flags);
 
         void copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer);
+        void copy_from_buffer(
+            CommandBuffer* command_buffer,
+            VkBuffer buffer,
+            u32 x,
+            u32 y,
+            u32 width,
+            u32 height);
         // All levels must be transfer destinations, with level zero uploaded.
         // Returns every level in sampled use; even the single-level fallback.
         void generate_mipmaps(CommandBuffer& command_buffer);
@@ -65,5 +79,6 @@ namespace nk {
         VkExtent2D m_extent{};
         VkFormat m_format = VK_FORMAT_UNDEFINED;
         u32 m_mip_levels = 1;
+        bool m_owns_image = false;
     };
 }

@@ -10,6 +10,7 @@
 #include "renderer/lighting.h"
 #include "renderer/renderer_result.h"
 #include "renderer/shader.h"
+#include "collections/slice.h"
 #include "core/result.h"
 #include "core/str.h"
 
@@ -123,6 +124,16 @@ namespace nk {
             const u8* pixels,
             bool has_transparency,
             Texture* out_texture) = 0;
+        [[nodiscard]] virtual result<void, renderer_error>
+        create_writable_texture(Texture* texture) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> write_texture(
+            Texture& texture,
+            TextureRegion region,
+            cl::slice<const u8> pixels) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> resize_texture(
+            Texture& texture,
+            u32 width,
+            u32 height) = 0;
         virtual void destroy_texture(Texture* texture) = 0;
         [[nodiscard]] virtual result<void, renderer_error> create_geometry(
             Geometry& geometry,

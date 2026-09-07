@@ -2,6 +2,7 @@
 
 #include "collections/arr.h"
 #include "collections/map.h"
+#include "collections/slice.h"
 #include "core/result.h"
 #include "core/str.h"
 #include "resources/texture.h"
@@ -32,6 +33,10 @@ namespace nk {
         decode_failed,
         resource_failed,
         renderer_failed,
+        invalid_operation,
+        invalid_dimensions,
+        invalid_region,
+        incompatible_texture,
     };
 
     struct texture_error {
@@ -61,6 +66,21 @@ namespace nk {
         [[nodiscard]] result<Texture*, texture_error> acquire(
             strview name,
             bool auto_release);
+        [[nodiscard]] result<Texture*, texture_error> acquire_writable(
+            strview name,
+            u32 width,
+            u32 height,
+            u8 channel_count,
+            bool has_transparency,
+            bool auto_release = true);
+        [[nodiscard]] result<void, texture_error> write(
+            Texture& texture,
+            TextureRegion region,
+            cl::slice<const u8> pixels);
+        [[nodiscard]] result<void, texture_error> resize(
+            Texture& texture,
+            u32 width,
+            u32 height);
         void release(strview name);
         [[nodiscard]] result<void, texture_error> acquire_map_resources(TextureMap& map);
         [[nodiscard]] result<void, texture_error> release_map_resources(TextureMap& map);
@@ -84,12 +104,19 @@ namespace nk {
 
         u32 reference_count(strview name) const noexcept;
         u32 loaded_count() const noexcept { return m_loaded_count; }
+        u32 runtime_count() const noexcept { return m_runtime_count; }
 
     private:
+        enum class TextureSource : u8 {
+            file,
+            runtime,
+        };
+
         struct TextureReference {
             u64 reference_count = 0;
             u32 slot = numeric::invalid_id;
             bool auto_release = false;
+            TextureSource source = TextureSource::file;
         };
 
         [[nodiscard]] result<void, texture_error> init(
@@ -113,6 +140,7 @@ namespace nk {
         Texture m_default_specular_texture{};
         Texture m_default_normal_texture{};
         u32 m_loaded_count = 0;
+        u32 m_runtime_count = 0;
         bool m_initialized = false;
     };
 }
