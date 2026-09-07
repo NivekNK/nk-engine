@@ -1078,25 +1078,45 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Añadir tipo/flags y ownership explícito de textura: cargada, writable y
+- [x] Añadir tipo/flags y ownership explícito de textura: cargada, writable y
   external/swapchain. Usar la grafía `writable` en la API NK.
-- [ ] Implementar create, resize y write region mediante frontend renderer y
+- [x] Implementar create, resize y write region mediante frontend renderer y
   backend Vulkan, con transiciones de layout y staging correctos.
-- [ ] Envolver imágenes del swapchain como texturas externas sin destruir su
+- [x] Envolver imágenes del swapchain como texturas externas sin destruir su
   `VkImage` ni memoria durante release.
-- [ ] Incrementar generation sólo tras completar una actualización válida para que
+- [x] Incrementar generation sólo tras completar una actualización válida para que
   descriptores puedan detectar cambios.
-- [ ] Hacer resize transaccional y sincronizar sólo los recursos en uso; documentar
+- [x] Hacer resize transaccional y sincronizar sólo los recursos en uso; documentar
   cuándo aún se requiere esperar al dispositivo.
-- [ ] Separar recursos de archivo de texturas runtime para que auto-release no
+- [x] Separar recursos de archivo de texturas runtime para que auto-release no
   intente recargar una imagen externa.
 
 ### Validación y commits
 
-- [ ] Tests con backend fake para ownership/generation/rollback y smoke Vulkan de
+- [x] Tests con backend fake para ownership/generation/rollback y smoke Vulkan de
   escritura + resize del swapchain bajo niri.
-- [ ] Commits sugeridos: `feat(textures): support writable runtime textures` y
+- [x] Commits sugeridos: `feat(textures): support writable runtime textures` y
   `refactor(renderer): expose swapchain images as external textures`.
+
+### Implementación cerrada
+
+- Commits funcionales: `223f0ce` (`feat(textures): support writable runtime
+  textures`) y `2fe8232` (`refactor(vulkan): expose swapchain images as external
+  textures`). El segundo conserva el scope sugerido con `vulkan` porque el
+  ownership external se resuelve dentro del backend.
+- Hardening: `0787575` (`fix(textures): reject unmanaged writable resources`)
+  impide mutar texturas forjadas/no registradas, metadata inválida y recursos
+  external mediante la ruta de ownership del renderer.
+- Contratos y reproducción: [Writable textures](writable-textures.md).
+- La escritura es una región 2D estricta, no el par offset/tamaño del tutorial que
+  termina copiando la imagen completa. Resize publica el reemplazo sólo después
+  de inicializarlo y sincronizar su submit; los fallos conservan el recurso viejo.
+- Las imágenes WSI se exponen como `Texture` external/writable. NK posee sus views,
+  mientras el swapchain sigue poseyendo los `VkImage` y su memoria.
+- Cierre local: 259 tests Debug, 250 Release y 259 con ASan/UBSan; smoke Vulkan
+  writable moderno y legacy de 120 frames, y smoke niri de 600 frames con cuatro
+  recreaciones del swapchain. Sin VUID, sin allocations en frames estables y sin
+  fugas. Windows conserva la ruta común pero no fue ejecutado en esta máquina.
 
 ## Capítulo 59 — Render Targets and Configurable Renderpasses
 
