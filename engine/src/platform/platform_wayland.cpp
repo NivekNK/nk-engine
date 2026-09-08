@@ -75,7 +75,7 @@ namespace {
             case XKB_KEY_KP_Separator: return nk::KeyCode::Separator;
             case XKB_KEY_KP_Subtract: return nk::KeyCode::Subtract;
             case XKB_KEY_KP_Decimal:
-            case XKB_KEY_KP_Delete: return nk::KeyCode::Secimal;
+            case XKB_KEY_KP_Delete: return nk::KeyCode::Decimal;
             case XKB_KEY_KP_Divide: return nk::KeyCode::Divide;
             case XKB_KEY_KP_Equal: return nk::KeyCode::NumpadEqual;
             case XKB_KEY_KP_Insert: return nk::KeyCode::Numpad0;

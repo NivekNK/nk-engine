@@ -4,6 +4,16 @@
 
 using namespace nk;
 
+TEST(InputCodes, KeepsPortableKeyNamesStable) {
+    EXPECT_EQ(KeyCode::PageUp, 0x21);
+    EXPECT_EQ(KeyCode::PageDown, 0x22);
+    EXPECT_EQ(KeyCode::PrintScreen, 0x2c);
+    EXPECT_EQ(KeyCode::LSuper, 0x5b);
+    EXPECT_EQ(KeyCode::RSuper, 0x5c);
+    EXPECT_EQ(KeyCode::Decimal, 0x6e);
+    EXPECT_EQ(KeyCode::Secimal, KeyCode::Decimal);
+}
+
 TEST(TextInput, IsExplicitFrameScopedAndUtf8Safe) {
     InputSystem::init();
     EXPECT_FALSE(Input::is_key_down(256));

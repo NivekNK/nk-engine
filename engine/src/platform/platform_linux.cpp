@@ -73,7 +73,7 @@ namespace {
             case XK_KP_Add: return nk::KeyCode::Add;
             case XK_KP_Separator: return nk::KeyCode::Separator;
             case XK_KP_Subtract: return nk::KeyCode::Subtract;
-            case XK_KP_Decimal: return nk::KeyCode::Secimal;
+            case XK_KP_Decimal: return nk::KeyCode::Decimal;
             case XK_KP_Divide: return nk::KeyCode::Divide;
             case XK_KP_Equal: return nk::KeyCode::NumpadEqual;
             case XK_semicolon: return nk::KeyCode::Semicolon;

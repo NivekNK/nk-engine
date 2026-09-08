@@ -188,7 +188,9 @@ namespace nk {
             /** @brief The numberpad subtract key. */
             Subtract = 0x6D,
             /** @brief The numberpad decimal key. */
-            Secimal = 0x6E,
+            Decimal = 0x6E,
+            /** @brief Backward-compatible alias for the former typo. */
+            Secimal = Decimal,
             /** @brief The numberpad divide key. */
             Divide = 0x6F,
 
