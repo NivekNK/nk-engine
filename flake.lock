@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "freetype-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1774192030,
+        "narHash": "sha256-qmgJK9D60Ol5prUpsLzS+zY8WTPV2bfCoHX3lajAJ4Y=",
+        "owner": "freetype",
+        "repo": "freetype",
+        "rev": "0a0221a1347e2f1e07c395263540026e9a0aa7c7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "freetype",
+        "repo": "freetype",
+        "rev": "0a0221a1347e2f1e07c395263540026e9a0aa7c7",
+        "type": "github"
+      }
+    },
     "glm-src": {
       "flake": false,
       "locked": {
@@ -31,6 +48,23 @@
         "owner": "google",
         "repo": "googletest",
         "rev": "b514bdc898e2951020cbdca1304b75f5950d1f59",
+        "type": "github"
+      }
+    },
+    "harfbuzz-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787772425,
+        "narHash": "sha256-n5deVuWDuFTgh4t+nmxqtAA7vJf30D5wYYijLBmhy50=",
+        "owner": "harfbuzz",
+        "repo": "harfbuzz",
+        "rev": "36cb489cb02ce4b92099669ba9f9bea348eff93f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "harfbuzz",
+        "repo": "harfbuzz",
+        "rev": "36cb489cb02ce4b92099669ba9f9bea348eff93f",
         "type": "github"
       }
     },
@@ -86,8 +120,10 @@
     },
     "root": {
       "inputs": {
+        "freetype-src": "freetype-src",
         "glm-src": "glm-src",
         "googletest-src": "googletest-src",
+        "harfbuzz-src": "harfbuzz-src",
         "libspng-src": "libspng-src",
         "nixpkgs": "nixpkgs",
         "rapidhash-src": "rapidhash-src",

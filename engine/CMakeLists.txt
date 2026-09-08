@@ -16,6 +16,31 @@ target_precompile_headers(${PROJECT_NAME} PUBLIC include/nkpch.h)
 
 add_subdirectory(vendor/glm)
 
+# Font files are shipped as uncompressed TTF/OTF/TTC assets. Do not discover
+# system font/rendering libraries or introduce a FreeType/HarfBuzz build cycle.
+set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+add_subdirectory(vendor/freetype EXCLUDE_FROM_ALL)
+
+# HarfBuzz ships this amalgamation for embedded builds. Only CPU shaping and
+# the FreeType metric bridge are needed, not its tools or GPU/raster backends.
+add_library(nk_harfbuzz STATIC vendor/harfbuzz/src/harfbuzz.cc)
+target_include_directories(nk_harfbuzz PUBLIC vendor/harfbuzz/src)
+target_link_libraries(nk_harfbuzz PRIVATE freetype)
+target_compile_definitions(nk_harfbuzz PRIVATE
+    HAVE_FREETYPE=1 HB_CUSTOM_MALLOC=1 HB_NO_DRAW=1 HB_NO_PAINT=1)
+if(MSVC)
+    target_compile_options(nk_harfbuzz PRIVATE /W0 /bigobj)
+    target_compile_options(freetype PRIVATE /W0)
+else()
+    target_compile_options(nk_harfbuzz PRIVATE -w)
+    target_compile_options(freetype PRIVATE -w)
+endif()
+
 # Keep image decoding self-contained and reproducible across platforms. Only
 # the static variants are needed because these libraries are implementation
 # details of the engine.
@@ -58,6 +83,7 @@ set(SOURCES
     src/core/thread.cpp
     src/core/hash.cpp
     src/core/str.cpp
+    src/text/library_memory.cpp
     src/core/transform.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
@@ -217,6 +243,8 @@ target_link_libraries(${PROJECT_NAME}
 PRIVATE
     glm
     nk_spng
+    freetype
+    nk_harfbuzz
     Vulkan::Vulkan
     ${PLATFORM_LIBRARIES}
 )

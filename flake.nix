@@ -34,6 +34,16 @@
       url = "github:madler/zlib/da607da739fa6047df13e66a2af6b8bec7c2a498";
       flake = false;
     };
+    freetype-src = {
+      # Tag: VER-2-14-3
+      url = "github:freetype/freetype/0a0221a1347e2f1e07c395263540026e9a0aa7c7";
+      flake = false;
+    };
+    harfbuzz-src = {
+      # Tag: 14.4.0
+      url = "github:harfbuzz/harfbuzz/36cb489cb02ce4b92099669ba9f9bea348eff93f";
+      flake = false;
+    };
   };
 
   outputs =
@@ -106,6 +116,8 @@
               rm -rf engine/vendor/rapidhash
               rm -rf engine/vendor/tinyobjloader
               rm -rf engine/vendor/zlib
+              rm -rf engine/vendor/freetype
+              rm -rf engine/vendor/harfbuzz
               rm -rf tests/vendor/googletest
 
               mkdir -p engine/vendor tests/vendor
@@ -114,6 +126,8 @@
               cp -R ${inputs."rapidhash-src"} engine/vendor/rapidhash
               cp -R ${inputs."tinyobjloader-src"} engine/vendor/tinyobjloader
               cp -R ${inputs."zlib-src"} engine/vendor/zlib
+              cp -R ${inputs."freetype-src"} engine/vendor/freetype
+              cp -R ${inputs."harfbuzz-src"} engine/vendor/harfbuzz
               cp -R ${inputs."googletest-src"} tests/vendor/googletest
               chmod -R u+w \
                 engine/vendor/glm \
@@ -121,6 +135,8 @@
                 engine/vendor/rapidhash \
                 engine/vendor/tinyobjloader \
                 engine/vendor/zlib \
+                engine/vendor/freetype \
+                engine/vendor/harfbuzz \
                 tests/vendor/googletest
             '';
 
