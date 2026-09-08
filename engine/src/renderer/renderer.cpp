@@ -76,28 +76,27 @@ namespace nk {
 
         renderer->m_frame_number = 0;
 
-        renderer->m_near_clip = 0.1f;
-        renderer->m_far_clip = 1000.0f;
-
-        f32 aspect = platform->width() / static_cast<f32>(platform->height());
-        renderer->m_projection = glm::perspective(
-            glm::radians(45.0f), aspect, renderer->m_near_clip, renderer->m_far_clip);
         renderer->m_view = glm::inverse(
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -30.0f)));
         renderer->m_view_position = glm::vec3(0.0f, 0.0f, -30.0f);
-        renderer->m_ui_projection = glm::ortho(
-            0.0f,
-            static_cast<f32>(platform->width()),
-            static_cast<f32>(platform->height()),
-            0.0f,
-            -100.0f,
-            100.0f);
-        renderer->m_ui_view = glm::mat4(1.0f);
+        auto views_initialized = renderer->m_render_views.init(
+            *renderer->m_allocator,
+            platform->width(),
+            platform->height());
+        if (!views_initialized) {
+            native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            allocator->deconstruct_t(VulkanRenderer, renderer);
+            return err(renderer_error{
+                .code = renderer_error_code::initialization_failed,
+                .native_code = static_cast<i32>(views_initialized.error()),
+            });
+        }
 
         auto initialized = renderer->init();
         if (!initialized) {
             const renderer_error error = initialized.error();
             renderer->shutdown();
+            renderer->m_render_views.shutdown();
             native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
             allocator->deconstruct_t(VulkanRenderer, renderer);
             return err(error);
@@ -110,6 +109,7 @@ namespace nk {
         if (allocator == nullptr || renderer == nullptr)
             return;
         renderer->shutdown();
+        renderer->m_render_views.shutdown();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
         allocator->deconstruct_t(VulkanRenderer, renderer);
     }
@@ -123,48 +123,38 @@ namespace nk {
         if (*begun == frame_outcome::skipped_swapchain_recreation)
             return ok(frame_outcome::skipped_swapchain_recreation);
 
-        auto world_drawn = draw_render_pass(
-            materials,
-            RenderPassKind::world,
-            m_projection,
-            m_view,
-            m_view_position,
-            packet.lighting,
-            packet.geometry_count,
-            packet.geometries,
-            packet.mesh_count,
-            packet.meshes);
-        if (!world_drawn)
-            return err(world_drawn.error());
-
-        auto ui_drawn = draw_render_pass(
-            materials,
-            RenderPassKind::ui,
-            m_ui_projection,
-            m_ui_view,
-            glm::vec3{0.0f},
-            packet.lighting,
-            packet.ui_geometry_count,
-            packet.ui_geometries,
-            0,
-            nullptr);
-        if (!ui_drawn)
-            return err(ui_drawn.error());
+        RenderViewPacket view_packets[
+            RenderViewSystem::maximum_render_view_count]{};
+        auto built = m_render_views.build_packets({
+            .world_view = &m_view,
+            .world_view_position = m_view_position,
+            .lighting = &packet.lighting,
+            .geometry_count = packet.geometry_count,
+            .geometries = packet.geometries,
+            .mesh_count = packet.mesh_count,
+            .meshes = packet.meshes,
+            .ui_geometry_count = packet.ui_geometry_count,
+            .ui_geometries = packet.ui_geometries,
+        }, {view_packets});
+        if (!built) {
+            return err(renderer_error{
+                renderer_error_code::initialization_failed,
+                static_cast<i32>(built.error()),
+            });
+        }
+        for (u32 index = 0; index < *built; ++index) {
+            auto drawn = draw_render_pass(materials, view_packets[index]);
+            if (!drawn)
+                return err(drawn.error());
+        }
 
         return end_frame_impl(packet.delta_time);
     }
 
     result<void, renderer_error> Renderer::draw_render_pass(
         MaterialSystem& materials,
-        const RenderPassKind pass,
-        const glm::mat4& projection,
-        const glm::mat4& view,
-        const glm::vec3& view_position,
-        const SceneLighting& lighting,
-        const u32 geometry_count,
-        const GeometryRenderData* geometries,
-        const u32 mesh_count,
-        const Mesh* meshes) {
+        const RenderViewPacket& packet) {
+        const RenderPassKind pass = packet.pass;
         begin_render_pass(pass);
         auto fail = [this, pass](const renderer_error error)
             -> result<void, renderer_error> {
@@ -173,16 +163,16 @@ namespace nk {
         };
 
         const MaterialType expected_material_type =
-            pass == RenderPassKind::world
+            packet.type == RenderViewType::world
                 ? MaterialType::world
                 : MaterialType::ui;
         auto globals_applied = materials.apply_global(
             expected_material_type,
-            projection,
-            view,
-            view_position,
-            lighting,
-            pass == RenderPassKind::world
+            packet.projection,
+            packet.view,
+            packet.view_position,
+            *packet.lighting,
+            packet.type == RenderViewType::world
                 ? m_render_view_mode
                 : RenderViewMode::default_lit);
         if (!globals_applied)
@@ -192,12 +182,12 @@ namespace nk {
             });
 
         Material* bound_material = nullptr;
-        for (u32 index = 0; index < geometry_count; ++index) {
+        for (u32 index = 0; index < packet.geometry_count; ++index) {
             auto drawn = draw_render_data(
                 materials,
                 pass,
                 expected_material_type,
-                geometries[index],
+                packet.geometries[index],
                 bound_material);
             if (!drawn)
                 return fail({
@@ -205,8 +195,8 @@ namespace nk {
                     drawn.error().native_code,
                 });
         }
-        for (u32 mesh_index = 0; mesh_index < mesh_count; ++mesh_index) {
-            const Mesh& mesh = meshes[mesh_index];
+        for (u32 mesh_index = 0; mesh_index < packet.mesh_count; ++mesh_index) {
+            const Mesh& mesh = packet.meshes[mesh_index];
             for (Geometry* geometry : mesh.geometries()) {
                 auto drawn = draw_render_data(
                     materials,
@@ -265,15 +255,9 @@ namespace nk {
     }
 
     void Renderer::resize(u32 width, u32 height) {
-        m_projection = glm::perspective(
-            glm::radians(45.0f), width / static_cast<f32>(height), m_near_clip, m_far_clip);
-        m_ui_projection = glm::ortho(
-            0.0f,
-            static_cast<f32>(width),
-            static_cast<f32>(height),
-            0.0f,
-            -100.0f,
-            100.0f);
+        auto resized = m_render_views.resize(width, height);
+        if (!resized)
+            return;
         on_resized(width, height);
     }
 

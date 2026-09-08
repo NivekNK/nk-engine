@@ -44,6 +44,16 @@ namespace {
         TestRenderer(nk::mem::Allocator& allocator, BeginMode begin_mode)
             : Renderer{allocator, nullptr, "test"}, m_begin_mode{begin_mode} {
             m_allocator = &allocator;
+            auto views_initialized = render_views().init(
+                m_view_allocator,
+                1280,
+                720);
+            if (!views_initialized)
+                std::abort();
+        }
+
+        ~TestRenderer() override {
+            render_views().shutdown();
         }
 
         nk::u64 frame_number() const { return m_frame_number; }
@@ -480,6 +490,7 @@ namespace {
         }
 
         BeginMode m_begin_mode;
+        nk::mem::MallocAllocator m_view_allocator{nk::mem::untracked};
         bool m_fail_end = false;
         bool m_fail_texture_create = false;
         bool m_fail_texture_write = false;

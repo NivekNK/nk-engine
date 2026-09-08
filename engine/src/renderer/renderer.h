@@ -9,6 +9,7 @@
 #include "renderer/geometry_render_data.h"
 #include "renderer/lighting.h"
 #include "renderer/renderer_result.h"
+#include "renderer/render_view.h"
 #include "renderer/shader.h"
 #include "collections/slice.h"
 #include "core/result.h"
@@ -159,6 +160,12 @@ namespace nk {
         [[nodiscard]] RenderViewMode render_view_mode() const noexcept {
             return m_render_view_mode;
         }
+        [[nodiscard]] RenderViewSystem& render_views() noexcept {
+            return m_render_views;
+        }
+        [[nodiscard]] const RenderViewSystem& render_views() const noexcept {
+            return m_render_views;
+        }
 
     protected:
         Renderer(
@@ -197,28 +204,16 @@ namespace nk {
 
         u64 m_frame_number = 0;
 
-        glm::mat4 m_projection;
         glm::mat4 m_view;
         glm::vec3 m_view_position{};
-        glm::mat4 m_ui_projection;
-        glm::mat4 m_ui_view{1.0f};
-        f32 m_near_clip = 0.0f;
-        f32 m_far_clip = 0.0f;
+        RenderViewSystem m_render_views;
 
         Texture* m_default_texture = nullptr;
         RenderViewMode m_render_view_mode = RenderViewMode::default_lit;
     private:
         [[nodiscard]] result<void, renderer_error> draw_render_pass(
             MaterialSystem& materials,
-            RenderPassKind pass,
-            const glm::mat4& projection,
-            const glm::mat4& view,
-            const glm::vec3& view_position,
-            const SceneLighting& lighting,
-            u32 geometry_count,
-            const GeometryRenderData* geometries,
-            u32 mesh_count,
-            const Mesh* meshes);
+            const RenderViewPacket& packet);
         [[nodiscard]] result<void, renderer_error> draw_render_data(
             MaterialSystem& materials,
             RenderPassKind pass,
