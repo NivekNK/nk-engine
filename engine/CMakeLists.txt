@@ -76,6 +76,7 @@ set(PLATFORM_INCLUDE_DIRS)
 set(SOURCES
     src/core/entry_point.cpp
     src/core/os.cpp
+    src/core/app.cpp
     src/core/engine.cpp
     src/core/input.cpp
     src/core/clock.cpp

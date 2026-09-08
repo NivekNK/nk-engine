@@ -257,6 +257,15 @@ namespace nk {
             .object = object,
             .retired_frame = retired_frame,
         });
+        if (retired_frame >= request.submitted_frame) {
+            m_pick_timing = {
+                .request_frame = request.submitted_frame,
+                .retired_frame = retired_frame,
+                .frames = static_cast<f64>(
+                    retired_frame - request.submitted_frame),
+            };
+            m_pick_timing_pending = true;
+        }
     }
 
     result<void, renderer_error> Renderer::prepare_world_draws(

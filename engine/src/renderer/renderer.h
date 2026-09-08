@@ -6,7 +6,7 @@
 
 #include "resources/texture.h"
 #include "renderer/sampler.h"
-#include "renderer/geometry_render_data.h"
+#include "renderer/render_packet.h"
 #include "renderer/lighting.h"
 #include "renderer/picking.h"
 #include "renderer/renderer_result.h"
@@ -29,19 +29,6 @@ namespace nk {
     struct EventContext;
 
     bool on_render_view_mode(SystemEventCode, void*, void*, EventContext);
-
-    struct RenderPacket {
-        f64 delta_time;
-        SceneLighting lighting{};
-        u32 geometry_count = 0;
-        const GeometryRenderData* geometries = nullptr;
-        GeometryRenderData skybox_geometry{};
-        u32 mesh_count = 0;
-        const Mesh* meshes = nullptr;
-        u32 ui_geometry_count = 0;
-        const GeometryRenderData* ui_geometries = nullptr;
-        const TextFrame* text = nullptr;
-    };
 
     class Renderer {
     public:
@@ -74,6 +61,15 @@ namespace nk {
             PickRequestKind kind = PickRequestKind::hover) noexcept;
         [[nodiscard]] bool poll_pick_result(PickResult& result) noexcept {
             return m_pick_queue.poll(result);
+        }
+        [[nodiscard]] bool take_pick_timing(
+            PickingFrameLatency& timing) noexcept {
+            if (!m_pick_timing_pending)
+                return false;
+            timing = m_pick_timing;
+            m_pick_timing = {};
+            m_pick_timing_pending = false;
+            return true;
         }
         void discard_pick_scene(const u64 scene_revision) noexcept {
             m_pick_queue.discard_scene(scene_revision);
@@ -287,6 +283,8 @@ namespace nk {
         cl::dyarr<GeometryRenderData> m_world_draw_scratch;
         PickRegistry m_pick_registry;
         PickQueue m_pick_queue;
+        PickingFrameLatency m_pick_timing{};
+        bool m_pick_timing_pending = false;
         FrameDrawCounters m_frame_draw_counters{};
 
         Texture* m_default_texture = nullptr;
