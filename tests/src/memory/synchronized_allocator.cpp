@@ -90,3 +90,47 @@ TEST(SynchronizedAllocator, SerializesSharedAllocationsAndPreservesAlignment) {
     EXPECT_EQ(backing.get_active_allocation_count(), 0u);
     EXPECT_GT(allocator.get_peak_used_bytes(), 0u);
 }
+
+#if NK_MEMORY_TRACKING_ENABLED
+TEST(SynchronizedAllocator, SerializesTrackedWorkerAllocationEvents) {
+    auto& tracker = nk::mem::MemorySystem::init();
+    ASSERT_EQ(tracker.state(), nk::mem::MemorySystemState::Ready);
+    const nk::u64 events_before = tracker.allocation_event_count();
+
+    {
+        nk::mem::MallocAllocator backing{nk::mem::untracked};
+        nk::mem::SynchronizedAllocator allocator;
+        ASSERT_NE(
+            allocator.allocator_init(
+                nk::mem::SynchronizedAllocator,
+                "Shared worker allocator",
+                nk::MemoryType::Test,
+                backing),
+            nullptr);
+
+        constexpr nk::u32 worker_count = 4;
+        constexpr nk::u32 repetitions = 500;
+        WorkerContext contexts[worker_count]{};
+        nk::Thread workers[worker_count];
+        for (nk::u32 index = 0; index < worker_count; ++index) {
+            contexts[index] = {&allocator, repetitions, true};
+            ASSERT_TRUE(workers[index].start(
+                allocate_repeatedly,
+                &contexts[index]));
+        }
+        for (nk::u32 index = 0; index < worker_count; ++index) {
+            auto joined = workers[index].join();
+            ASSERT_TRUE(joined);
+            EXPECT_EQ(*joined, 0u);
+            EXPECT_TRUE(contexts[index].succeeded);
+        }
+        EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+    }
+
+    EXPECT_EQ(
+        tracker.allocation_event_count(),
+        events_before + 4u * 500u);
+    EXPECT_EQ(tracker.metadata_failure_count(), 0u);
+    nk::mem::MemorySystem::shutdown();
+}
+#endif

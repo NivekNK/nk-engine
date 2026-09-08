@@ -167,6 +167,29 @@ TEST(FreeListAllocator, AlignsPointersFromAMisalignedBackingStore) {
     EXPECT_EQ(allocator.get_active_allocation_count(), 0);
 }
 
+TEST(FreeListAllocator, RoundTripsEveryPowerOfTwoAlignmentThrough4096) {
+    nk::mem::MallocAllocator metadata{nk::mem::untracked};
+    alignas(4096) nk::u8 storage[16385]{};
+    nk::mem::FreeListAllocator allocator{
+        nk::mem::untracked,
+        metadata,
+        storage + 1,
+        sizeof(storage) - 1,
+        4};
+    ASSERT_TRUE(allocator.is_initialized());
+
+    for (nk::u64 alignment = 1; alignment <= 4096; alignment <<= 1) {
+        void* data = allocator._allocate_raw(13, alignment);
+        ASSERT_NE(data, nullptr) << "alignment=" << alignment;
+        EXPECT_EQ(
+            reinterpret_cast<std::uintptr_t>(data) % alignment,
+            0u);
+        ASSERT_TRUE(allocator._free_raw(data, 13));
+        EXPECT_EQ(allocator.free_space(), sizeof(storage) - 1);
+    }
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
 TEST(FreeListAllocator, ReusesReleasedBlocks) {
     nk::mem::MallocAllocator metadata{nk::mem::untracked};
     alignas(64) nk::u8 storage[512]{};

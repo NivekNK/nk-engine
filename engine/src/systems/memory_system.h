@@ -6,6 +6,7 @@
 
     #include "core/format.h"
     #include "core/strview.h"
+    #include "core/thread.h"
     #include "memory/malloc_allocator.h"
     #include "memory/memory_type.h"
 
@@ -48,17 +49,15 @@ namespace nk::mem {
         static void log_report(bool detailed = false);
         static void log_report_intermediate();
 
-        MemorySystemState state() const noexcept { return m_state; }
-        u32 journal_count() const noexcept { return m_journal.count(); }
-        u64 dropped_event_count() const noexcept {
-            return m_dropped_event_count + m_journal.dropped_count();
-        }
-        u64 reentrant_event_count() const noexcept { return m_reentrant_event_count; }
-        u64 metadata_failure_count() const noexcept { return m_metadata_failure_count; }
-        u64 allocation_event_count() const noexcept { return m_allocation_event_count; }
+        MemorySystemState state() const noexcept;
+        u32 journal_count() const noexcept;
+        u64 dropped_event_count() const noexcept;
+        u64 reentrant_event_count() const noexcept;
+        u64 metadata_failure_count() const noexcept;
+        u64 allocation_event_count() const noexcept;
 
     private:
-        MemorySystem() noexcept = default;
+        MemorySystem() noexcept;
 
         bool journal(const EarlyAllocationRecord& record) noexcept;
         void replay_journal();
@@ -130,6 +129,7 @@ namespace nk::mem {
         u64 m_metadata_failure_count = 0;
         u64 m_allocation_event_count = 0;
         MemorySystemState m_state = MemorySystemState::Cold;
+        mutable Mutex m_mutex;
 
         friend struct MemorySystemStorageAccess;
     };

@@ -77,6 +77,38 @@ namespace nk::mem {
             AllocationInfo init{};
         };
 
+        struct AllocationReportRecord {
+            AllocationKey key{};
+            AllocationRecord allocation{};
+        };
+
+        struct MemoryReportSnapshot {
+            cl::dyarr<AllocatorRecord> allocators;
+            cl::dyarr<AllocationReportRecord> allocations;
+            AllocatorStatistics metadata{};
+            u64 dropped_events = 0;
+            u64 reentrant_events = 0;
+            u64 metadata_failures = 0;
+
+            bool init(
+                MallocAllocator& allocator,
+                const u64 allocator_count,
+                const u64 allocation_count) noexcept {
+                if (!allocators.dyarr_init(
+                        &allocator,
+                        allocator_count == 0 ? 1 : allocator_count)) {
+                    return false;
+                }
+                if (!allocations.dyarr_init(
+                        &allocator,
+                        allocation_count == 0 ? 1 : allocation_count)) {
+                    (void)allocators.dyarr_shutdown();
+                    return false;
+                }
+                return true;
+            }
+        };
+
         struct MemorySystemInfo {
             cl::dyarr<AllocatorRecord> allocators;
             cl::map<AllocationKey, AllocationRecord> allocations;
@@ -188,91 +220,154 @@ namespace nk::mem {
         return MemorySystem::get();
     }
 
+    MemorySystem::MemorySystem() noexcept {
+        if (!m_mutex.init())
+            m_state = MemorySystemState::Stopped;
+    }
+
+    MemorySystemState MemorySystem::state() const noexcept {
+        auto lock = LockGuard::acquire(m_mutex);
+        return lock ? m_state : MemorySystemState::Stopped;
+    }
+
+    u32 MemorySystem::journal_count() const noexcept {
+        auto lock = LockGuard::acquire(m_mutex);
+        return lock ? m_journal.count() : 0;
+    }
+
+    u64 MemorySystem::dropped_event_count() const noexcept {
+        auto lock = LockGuard::acquire(m_mutex);
+        return lock
+            ? m_dropped_event_count + m_journal.dropped_count()
+            : 0;
+    }
+
+    u64 MemorySystem::reentrant_event_count() const noexcept {
+        auto lock = LockGuard::acquire(m_mutex);
+        return lock ? m_reentrant_event_count : 0;
+    }
+
+    u64 MemorySystem::metadata_failure_count() const noexcept {
+        auto lock = LockGuard::acquire(m_mutex);
+        return lock ? m_metadata_failure_count : 0;
+    }
+
+    u64 MemorySystem::allocation_event_count() const noexcept {
+        auto lock = LockGuard::acquire(m_mutex);
+        return lock ? m_allocation_event_count : 0;
+    }
+
     MemorySystem& MemorySystem::init() {
         MemorySystem& instance = get();
-
-        if (instance.m_state == MemorySystemState::Ready)
-            return instance;
-        if (instance.m_state == MemorySystemState::Bootstrapping ||
-            instance.m_state == MemorySystemState::ShuttingDown) {
-            instance.log_error("nk::MemorySystem init rejected during a state transition.");
-            return instance;
-        }
-
-        if (instance.m_state == MemorySystemState::Stopped) {
-            instance.m_journal.clear();
-            instance.m_next_allocator_id = native_allocator_id + 1;
-            instance.m_dropped_event_count = 0;
-            instance.m_reentrant_event_count = 0;
-            instance.m_metadata_failure_count = 0;
-            instance.m_allocation_event_count = 0;
-            instance.m_state = MemorySystemState::Cold;
-        }
-
-        instance.m_state = MemorySystemState::Bootstrapping;
-        auto* info = instance.m_metadata_allocator._construct_t_args<MemorySystemInfo>(
-            __FILE__,
-            __LINE__);
-        if (info == nullptr || !info->init(instance.m_metadata_allocator)) {
-            if (info != nullptr) {
-                (void)instance.m_metadata_allocator._deconstruct_t<MemorySystemInfo>(
-                    __FILE__,
-                    __LINE__,
-                    info);
+        cstr diagnostic = nullptr;
+        bool initialized = false;
+        {
+            auto lock = LockGuard::acquire(instance.m_mutex);
+            if (!lock) {
+                instance.log_error("nk::MemorySystem synchronization unavailable.");
+                return instance;
             }
-            instance.m_state = MemorySystemState::Stopped;
-            instance.log_error("nk::MemorySystem could not initialize its metadata storage.");
-            return instance;
+
+            if (instance.m_state == MemorySystemState::Ready)
+                return instance;
+            if (instance.m_state == MemorySystemState::Bootstrapping ||
+                instance.m_state == MemorySystemState::ShuttingDown) {
+                diagnostic =
+                    "nk::MemorySystem init rejected during a state transition.";
+            } else {
+                if (instance.m_state == MemorySystemState::Stopped) {
+                    instance.m_journal.clear();
+                    instance.m_next_allocator_id = native_allocator_id + 1;
+                    instance.m_dropped_event_count = 0;
+                    instance.m_reentrant_event_count = 0;
+                    instance.m_metadata_failure_count = 0;
+                    instance.m_allocation_event_count = 0;
+                    instance.m_state = MemorySystemState::Cold;
+                }
+
+                instance.m_state = MemorySystemState::Bootstrapping;
+                auto* info = instance.m_metadata_allocator
+                    ._construct_t_args<MemorySystemInfo>(__FILE__, __LINE__);
+                if (info == nullptr ||
+                    !info->init(instance.m_metadata_allocator)) {
+                    if (info != nullptr) {
+                        (void)instance.m_metadata_allocator
+                            ._deconstruct_t<MemorySystemInfo>(
+                                __FILE__,
+                                __LINE__,
+                                info);
+                    }
+                    instance.m_state = MemorySystemState::Stopped;
+                    diagnostic =
+                        "nk::MemorySystem could not initialize its metadata storage.";
+                } else {
+                    instance.m_data = info;
+                    instance.apply_register(native_allocator_id, {
+                        .name = "Native Allocation",
+                        .implementation = "Native",
+                        .memory_type = MemoryType::Native,
+                        .source = {__FILE__, __LINE__},
+                        .statistics = {},
+                    });
+
+                    if (!instance.m_journal.complete()) {
+                        instance.m_dropped_event_count +=
+                            instance.m_journal.dropped_count();
+                        info->shutdown();
+                        (void)instance.m_metadata_allocator
+                            ._deconstruct_t<MemorySystemInfo>(
+                                __FILE__,
+                                __LINE__,
+                                info);
+                        instance.m_data = nullptr;
+                        instance.m_journal.clear();
+                        instance.m_state = MemorySystemState::Stopped;
+                        diagnostic =
+                            "nk::MemorySystem bootstrap failed: early allocation journal overflow.";
+                    } else {
+                        instance.replay_journal();
+                        instance.m_journal.clear();
+                        instance.m_state = MemorySystemState::Ready;
+                        initialized = true;
+                    }
+                }
+            }
         }
-
-        instance.m_data = info;
-        instance.apply_register(native_allocator_id, {
-            .name = "Native Allocation",
-            .implementation = "Native",
-            .memory_type = MemoryType::Native,
-            .source = {__FILE__, __LINE__},
-            .statistics = {},
-        });
-
-        if (!instance.m_journal.complete()) {
-            instance.m_dropped_event_count += instance.m_journal.dropped_count();
-            info->shutdown();
-            (void)instance.m_metadata_allocator._deconstruct_t<MemorySystemInfo>(
-                __FILE__,
-                __LINE__,
-                info);
-            instance.m_data = nullptr;
-            instance.m_journal.clear();
-            instance.m_state = MemorySystemState::Stopped;
-            instance.log_error("nk::MemorySystem bootstrap failed: early allocation journal overflow.");
-            return instance;
-        }
-
-        instance.replay_journal();
-        instance.m_journal.clear();
-        instance.m_state = MemorySystemState::Ready;
-        instance.log_title("nk::MemorySystem initialized.");
+        if (diagnostic != nullptr)
+            instance.log_error(diagnostic);
+        else if (initialized)
+            instance.log_title("nk::MemorySystem initialized.");
         return instance;
     }
 
     void MemorySystem::shutdown() {
         MemorySystem& instance = get();
-        if (instance.m_state != MemorySystemState::Ready &&
-            instance.m_state != MemorySystemState::ShuttingDown)
-            return;
+        bool stopped = false;
+        {
+            auto lock = LockGuard::acquire(instance.m_mutex);
+            if (!lock)
+                return;
+            if (instance.m_state != MemorySystemState::Ready &&
+                instance.m_state != MemorySystemState::ShuttingDown) {
+                return;
+            }
 
-        instance.m_state = MemorySystemState::ShuttingDown;
-        MemorySystemInfo* info = system_info(instance);
-        if (info != nullptr) {
-            info->shutdown();
-            (void)instance.m_metadata_allocator._deconstruct_t<MemorySystemInfo>(
-                __FILE__,
-                __LINE__,
-                info);
+            instance.m_state = MemorySystemState::ShuttingDown;
+            MemorySystemInfo* info = system_info(instance);
+            if (info != nullptr) {
+                info->shutdown();
+                (void)instance.m_metadata_allocator
+                    ._deconstruct_t<MemorySystemInfo>(
+                        __FILE__,
+                        __LINE__,
+                        info);
+            }
+            instance.m_data = nullptr;
+            instance.m_state = MemorySystemState::Stopped;
+            stopped = true;
         }
-        instance.m_data = nullptr;
-        instance.m_state = MemorySystemState::Stopped;
-        instance.log_title("nk::MemorySystem shutdown.");
+        if (stopped)
+            instance.log_title("nk::MemorySystem shutdown.");
     }
 
     AllocatorId MemorySystem::register_allocator(
@@ -283,6 +378,9 @@ namespace nk::mem {
             return invalid_allocator_id;
         }
         TrackerCallbackScope callback_scope;
+        auto lock = LockGuard::acquire(m_mutex);
+        if (!lock)
+            return invalid_allocator_id;
 
         if (m_state == MemorySystemState::Stopped ||
             m_state == MemorySystemState::ShuttingDown ||
@@ -312,6 +410,9 @@ namespace nk::mem {
             return;
         }
         TrackerCallbackScope callback_scope;
+        auto lock = LockGuard::acquire(m_mutex);
+        if (!lock)
+            return;
 
         if (m_state == MemorySystemState::Cold ||
             m_state == MemorySystemState::Bootstrapping) {
@@ -333,6 +434,9 @@ namespace nk::mem {
             return;
         }
         TrackerCallbackScope callback_scope;
+        auto lock = LockGuard::acquire(m_mutex);
+        if (!lock)
+            return;
 
         if (m_state == MemorySystemState::Cold ||
             m_state == MemorySystemState::Bootstrapping) {
@@ -359,6 +463,9 @@ namespace nk::mem {
             return FreeValidation::TrackerUnavailable;
         }
         TrackerCallbackScope callback_scope;
+        auto lock = LockGuard::acquire(m_mutex);
+        if (!lock)
+            return FreeValidation::TrackerUnavailable;
 
         if (address == nullptr)
             return FreeValidation::UnknownAddress;
@@ -442,6 +549,9 @@ namespace nk::mem {
             return;
         }
         TrackerCallbackScope callback_scope;
+        auto lock = LockGuard::acquire(m_mutex);
+        if (!lock)
+            return;
 
         if (m_state == MemorySystemState::Cold ||
             m_state == MemorySystemState::Bootstrapping) {
@@ -463,6 +573,9 @@ namespace nk::mem {
             return;
         }
         TrackerCallbackScope callback_scope;
+        auto lock = LockGuard::acquire(m_mutex);
+        if (!lock)
+            return;
 
         if (m_state == MemorySystemState::Cold ||
             m_state == MemorySystemState::Bootstrapping) {
@@ -480,12 +593,6 @@ namespace nk::mem {
 
     bool MemorySystem::journal(const EarlyAllocationRecord& record) noexcept {
         const bool stored = m_journal.push(record);
-        if (!stored && m_journal.dropped_count() == 1) {
-            constexpr char message[] =
-                "nk::MemorySystem early allocation journal overflow; report will be incomplete.\n";
-            os::write(message, sizeof(message) - 1);
-            os::flush();
-        }
         return stored;
     }
 
@@ -617,6 +724,9 @@ namespace nk::mem {
     }
 
     cstr MemorySystem::allocator_name(const AllocatorId allocator_id) const noexcept {
+        auto lock = LockGuard::acquire(m_mutex);
+        if (!lock)
+            return "Invalid";
         if (m_state == MemorySystemState::Cold ||
             m_state == MemorySystemState::Bootstrapping) {
             for (u32 index = m_journal.count(); index > 0; --index) {
@@ -640,14 +750,57 @@ namespace nk::mem {
 
     void MemorySystem::log_report(const bool detailed) {
         MemorySystem& instance = get();
-        if (detailed && instance.m_state == MemorySystemState::Ready)
-            instance.m_state = MemorySystemState::ShuttingDown;
-        MemorySystemInfo* info = system_info(instance);
-        if (info == nullptr)
+        MallocAllocator snapshot_allocator{untracked};
+        MemoryReportSnapshot snapshot;
+        bool captured = false;
+        {
+            auto lock = LockGuard::acquire(instance.m_mutex);
+            if (!lock)
+                return;
+            MemorySystemInfo* info = system_info(instance);
+            if (info == nullptr)
+                return;
+            if (detailed && instance.m_state == MemorySystemState::Ready)
+                instance.m_state = MemorySystemState::ShuttingDown;
+            if (!snapshot.init(
+                    snapshot_allocator,
+                    info->allocators.length(),
+                    info->allocations.length())) {
+                return;
+            }
+            captured = true;
+            for (const AllocatorRecord& stats : info->allocators) {
+                if (!snapshot.allocators.dyarr_push_copy(stats)) {
+                    captured = false;
+                    break;
+                }
+            }
+            if (captured) {
+                for (const auto entry : info->allocations) {
+                    const AllocationReportRecord record{
+                        .key = entry.key,
+                        .allocation = entry.value,
+                    };
+                    if (!snapshot.allocations.dyarr_push_copy(record)) {
+                        captured = false;
+                        break;
+                    }
+                }
+            }
+            snapshot.metadata = instance.m_metadata_allocator.statistics();
+            snapshot.dropped_events = instance.m_dropped_event_count +
+                instance.m_journal.dropped_count();
+            snapshot.reentrant_events = instance.m_reentrant_event_count;
+            snapshot.metadata_failures = instance.m_metadata_failure_count;
+        }
+        if (!captured) {
+            instance.log_error(
+                "nk::MemorySystem could not snapshot its report metadata.");
             return;
+        }
 
         instance.log_title("nk::MemorySystem Report");
-        for (AllocatorRecord& stats : info->allocators) {
+        for (AllocatorRecord& stats : snapshot.allocators) {
             if (stats.name == nullptr)
                 continue;
 
@@ -682,14 +835,14 @@ namespace nk::mem {
                 stats.active_allocations);
 
             const AllocatorId allocator_id = static_cast<AllocatorId>(
-                &stats - info->allocators.data());
+                &stats - snapshot.allocators.data());
             u64 leak_count = 0;
             u64 leaked_bytes = 0;
-            for (const auto entry : info->allocations) {
+            for (const AllocationReportRecord& entry : snapshot.allocations) {
                 if (entry.key.allocator_id != allocator_id)
                     continue;
 
-                const AllocationRecord& allocation = entry.value;
+                const AllocationRecord& allocation = entry.allocation;
                 if (allocation.freed.size_bytes == 0) {
                     ++leak_count;
                     leaked_bytes += allocation.allocated.size_bytes;
@@ -735,7 +888,7 @@ namespace nk::mem {
             }
         }
 
-        const AllocatorStatistics metadata = instance.m_metadata_allocator.statistics();
+        const AllocatorStatistics metadata = snapshot.metadata;
         strbuf<96> metadata_usage;
         memory_in_bytes(metadata_usage, metadata.reserved_bytes, metadata.used_bytes);
         strbuf<64> metadata_peak;
@@ -746,26 +899,51 @@ namespace nk::mem {
             metadata_peak,
             metadata.active_allocations);
 
-        if (instance.m_dropped_event_count != 0 ||
-            instance.m_reentrant_event_count != 0 ||
-            instance.m_metadata_failure_count != 0) {
+        if (snapshot.dropped_events != 0 ||
+            snapshot.reentrant_events != 0 ||
+            snapshot.metadata_failures != 0) {
             instance.log_warn(
                 "Tracking incomplete: {} dropped journal event(s), {} reentrant event(s), {} metadata failure(s).",
-                instance.m_dropped_event_count,
-                instance.m_reentrant_event_count,
-                instance.m_metadata_failure_count);
+                snapshot.dropped_events,
+                snapshot.reentrant_events,
+                snapshot.metadata_failures);
         }
         instance.log_title("End of nk::MemorySystem Report");
     }
 
     void MemorySystem::log_report_intermediate() {
         MemorySystem& instance = get();
-        MemorySystemInfo* info = system_info(instance);
-        if (info == nullptr)
+        MallocAllocator snapshot_allocator{untracked};
+        cl::dyarr<AllocatorRecord> snapshot;
+        bool captured = false;
+        {
+            auto lock = LockGuard::acquire(instance.m_mutex);
+            if (!lock)
+                return;
+            const MemorySystemInfo* info = system_info(instance);
+            if (info == nullptr || !snapshot.dyarr_init(
+                    &snapshot_allocator,
+                    info->allocators.empty()
+                        ? 1
+                        : info->allocators.length())) {
+                return;
+            }
+            captured = true;
+            for (const AllocatorRecord& stats : info->allocators) {
+                if (!snapshot.dyarr_push_copy(stats)) {
+                    captured = false;
+                    break;
+                }
+            }
+        }
+        if (!captured) {
+            instance.log_error(
+                "nk::MemorySystem could not snapshot its usage metadata.");
             return;
+        }
 
         instance.log_title("nk::MemorySystem Usage Report");
-        for (const AllocatorRecord& stats : info->allocators) {
+        for (const AllocatorRecord& stats : snapshot) {
             if (stats.name == nullptr)
                 continue;
 
