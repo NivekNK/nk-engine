@@ -35,6 +35,16 @@ namespace nk {
             strview name,
             strview custom_type);
         [[nodiscard]] result<void, resource_error> unload(Resource& resource);
+        // Loads through the immutable built-in loader registry without
+        // publishing into ResourceSystem accounting. The caller owns both the
+        // allocator lifetime and the matching detached unload.
+        [[nodiscard]] result<Resource, resource_error> load_detached(
+            mem::Allocator& allocator,
+            strview name,
+            ResourceType type) const;
+        [[nodiscard]] result<void, resource_error> unload_detached(
+            mem::Allocator& allocator,
+            Resource& resource) const noexcept;
 
         [[nodiscard]] strview asset_base_path() const noexcept {
             return m_asset_base_path.view();

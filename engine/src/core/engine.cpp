@@ -2,6 +2,7 @@
 
 #include "core/engine.h"
 #include "core/render_view_controls.h"
+#include "core/thread.h"
 
 #include "memory/malloc_allocator.h"
 #include "systems/memory_system.h"
@@ -15,6 +16,7 @@
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
 #include "systems/camera_system.h"
+#include "systems/job_system.h"
 #include "resources/static_mesh_resource.h"
 
 #include <glm/gtc/quaternion.hpp>
@@ -23,6 +25,16 @@
 #include "core/camera.h"
 
 namespace nk {
+    struct Engine::StaticMeshLoad {
+        mem::MallocAllocator allocator{mem::untracked};
+        Resource resource{};
+        Engine* engine = nullptr;
+        strbuf<255> name;
+        glm::vec3 position{0.0f};
+        glm::vec3 scale{1.0f};
+        resource_error failure{resource_error_code::invalid_data, 0};
+    };
+
     bool on_event(SystemEventCode code, void* sender, void* listener, EventContext context) {
         switch (code) {
             case SystemEventCode::ApplicationQuit: {
@@ -153,6 +165,26 @@ namespace nk {
             return false;
         }
 
+        const u32 logical_processors = Thread::logical_processor_count();
+        const u32 available_workers = logical_processors > 1
+            ? logical_processors - 1
+            : 1;
+        const u32 worker_count = available_workers > 4
+            ? 4
+            : available_workers;
+        auto job_system = JobSystem::create(
+            *m_allocator,
+            {.worker_count = worker_count, .max_jobs = 1024});
+        if (!job_system) {
+            ErrorLog(
+                "Job system initialization failed: job_error={}, native_code={}",
+                static_cast<u32>(job_system.error().code),
+                job_system.error().native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_job_system = *job_system;
+
         auto camera_system = CameraSystem::create(*m_allocator);
         if (!camera_system) {
             ErrorLog(
@@ -200,7 +232,9 @@ namespace nk {
         auto texture_system = TextureSystem::create(
             *m_allocator,
             *m_renderer,
-            *m_resource_system);
+            *m_resource_system,
+            TextureSystem::default_max_texture_count,
+            m_job_system);
         if (!texture_system) {
             const texture_error error = texture_system.error();
             ErrorLog(
@@ -457,62 +491,14 @@ namespace nk {
             return false;
         }
 
-        const auto load_static_mesh = [this](const strview name) {
-            auto resource = m_resource_system->load(
-                name,
-                ResourceType::static_mesh);
-            if (!resource) {
-                const resource_error error = resource.error();
-                ErrorLog(
-                    "Static mesh '{}' failed to load: resource_error={}, "
-                    "native_code={}",
-                    name,
-                    static_cast<u32>(error.code),
-                    error.native_code);
-                return false;
-            }
-
-            auto mesh = Mesh::create(
-                *m_allocator,
-                *m_geometry_system,
-                *resource->as<StaticMeshResource>());
-            auto unloaded = m_resource_system->unload(*resource);
-            if (!mesh) {
-                const mesh_error error = mesh.error();
-                ErrorLog(
-                    "Static mesh '{}' failed to create: mesh_error={}, "
-                    "geometry_index={}, geometry_error={}, native_code={}",
-                    name,
-                    static_cast<u32>(error.code),
-                    error.geometry_index,
-                    error.geometry_error,
-                    error.native_code);
-                return false;
-            }
-            if (!unloaded) {
-                ErrorLog(
-                    "Static mesh resource '{}' failed to unload: "
-                    "resource_error={}, native_code={}",
-                    name,
-                    static_cast<u32>(unloaded.error().code),
-                    unloaded.error().native_code);
-                return false;
-            }
-
-            auto added = m_test_meshes.dyarr_emplace_back(std::move(*mesh));
-            if (!added) {
-                ErrorLog("Unable to store static mesh '{}'.", name);
-                mesh->reset();
-                return false;
-            }
-            InfoLog(
-                "Static mesh '{}' created with {} material group(s).",
-                name,
-                m_test_meshes.dyarr_last().geometry_count());
-            return true;
-        };
-
-        if (!load_static_mesh("falcon") || !load_static_mesh("sponza")) {
+        m_accept_mesh_publication = true;
+        if (!queue_static_mesh(
+                "falcon",
+                {15.0f, 0.0f, 1.0f}) ||
+            !queue_static_mesh(
+                "sponza",
+                {15.0f, 0.0f, 1.0f},
+                glm::vec3{0.05f})) {
             shutdown_impl();
             return false;
         }
@@ -533,9 +519,6 @@ namespace nk {
             shutdown_impl();
             return false;
         }
-        m_test_meshes[3].transform().set_position({15.0f, 0.0f, 1.0f});
-        m_test_meshes[4].transform().set_position({15.0f, 0.0f, 1.0f});
-        m_test_meshes[4].transform().set_scale(glm::vec3{0.05f});
         m_test_material = m_test_meshes[0].geometry(0)->material;
 
         Geometry2DConfig ui_config{};
@@ -611,6 +594,9 @@ namespace nk {
     }
 
     void Engine::shutdown_impl() {
+        m_accept_mesh_publication = false;
+        if (m_job_system != nullptr)
+            m_job_system->shutdown();
         if (m_initialized) {
             EventSystem::unregister_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
             EventSystem::unregister_event(SystemEventCode::KeyPressed, nullptr, on_key);
@@ -658,6 +644,10 @@ namespace nk {
             CameraSystem::destroy(*m_allocator, m_camera_system);
             m_camera_system = nullptr;
         }
+        if (m_job_system != nullptr) {
+            JobSystem::destroy(*m_allocator, m_job_system);
+            m_job_system = nullptr;
+        }
         if (m_platform != nullptr) {
             Platform::destroy(m_allocator, m_platform);
             m_platform = nullptr;
@@ -671,6 +661,120 @@ namespace nk {
             m_allocator = nullptr;
         }
         m_initialized = false;
+        m_pending_mesh_loads = 0;
+    }
+
+    bool Engine::queue_static_mesh(
+        const strview name,
+        const glm::vec3 position,
+        const glm::vec3 scale) {
+        if (m_job_system == nullptr || m_resource_system == nullptr ||
+            name.empty()) {
+            return false;
+        }
+        StaticMeshLoad load{};
+        load.engine = this;
+        load.position = position;
+        load.scale = scale;
+        if (!load.name.assign(name))
+            return false;
+        auto submitted = m_job_system->submit(
+            JobPriority::high,
+            std::move(load),
+            &Engine::load_static_mesh_cpu,
+            &Engine::complete_static_mesh_load);
+        if (!submitted) {
+            ErrorLog(
+                "Static mesh '{}' could not be queued: job_error={}, native_code={}",
+                name,
+                static_cast<u32>(submitted.error().code),
+                submitted.error().native_code);
+            return false;
+        }
+        ++m_pending_mesh_loads;
+        InfoLog("Static mesh '{}' queued for asynchronous loading.", name);
+        return true;
+    }
+
+    result<void, job_error> Engine::load_static_mesh_cpu(
+        StaticMeshLoad& load) noexcept {
+        auto loaded = load.engine->m_resource_system->load_detached(
+            load.allocator,
+            load.name.view(),
+            ResourceType::static_mesh);
+        if (!loaded) {
+            load.failure = loaded.error();
+            return err(job_error{
+                job_error_code::execution_failed,
+                load.failure.native_code,
+            });
+        }
+        std::destroy_at(std::addressof(load.resource));
+        std::construct_at(
+            std::addressof(load.resource),
+            std::move(*loaded));
+        return ok();
+    }
+
+    void Engine::complete_static_mesh_load(
+        StaticMeshLoad& load,
+        const result<void, job_error>& outcome) noexcept {
+        Engine* engine = load.engine;
+        if (engine == nullptr)
+            return;
+        if (engine->m_pending_mesh_loads != 0)
+            --engine->m_pending_mesh_loads;
+
+        if (outcome && engine->m_accept_mesh_publication &&
+            load.resource.data != nullptr) {
+            auto mesh = Mesh::create(
+                *engine->m_allocator,
+                *engine->m_geometry_system,
+                *load.resource.as<StaticMeshResource>());
+            if (mesh) {
+                mesh->transform().set_position(load.position);
+                mesh->transform().set_scale(load.scale);
+                auto added = engine->m_test_meshes.dyarr_emplace_back(
+                    std::move(*mesh));
+                if (added) {
+                    InfoLog(
+                        "Static mesh '{}' published with {} material group(s).",
+                        load.name.view(),
+                        engine->m_test_meshes.dyarr_last().geometry_count());
+                } else {
+                    mesh->reset();
+                    ErrorLog("Unable to publish static mesh '{}'.", load.name.view());
+                }
+            } else {
+                const mesh_error error = mesh.error();
+                ErrorLog(
+                    "Static mesh '{}' publication failed: mesh_error={}, geometry_index={}, geometry_error={}, native_code={}",
+                    load.name.view(),
+                    static_cast<u32>(error.code),
+                    error.geometry_index,
+                    error.geometry_error,
+                    error.native_code);
+            }
+        } else if (!outcome &&
+                   outcome.error().code != job_error_code::cancelled) {
+            ErrorLog(
+                "Static mesh '{}' asynchronous load failed: resource_error={}, native_code={}",
+                load.name.view(),
+                static_cast<u32>(load.failure.code),
+                load.failure.native_code);
+        }
+
+        if (load.resource.data != nullptr) {
+            auto unloaded = engine->m_resource_system->unload_detached(
+                load.allocator,
+                load.resource);
+            if (!unloaded) {
+                ErrorLog(
+                    "Static mesh '{}' detached payload cleanup failed: resource_error={}",
+                    load.name.view(),
+                    static_cast<u32>(unloaded.error().code));
+            }
+        }
     }
 
     void Engine::cycle_debug_texture() {
@@ -1060,6 +1164,16 @@ namespace nk {
     }
 
     bool Engine::update(f64 delta_time) {
+        if (m_job_system != nullptr) {
+            auto jobs_updated = m_job_system->update();
+            if (!jobs_updated) {
+                ErrorLog(
+                    "Job completion update failed: job_error={}, native_code={}",
+                    static_cast<u32>(jobs_updated.error().code),
+                    jobs_updated.error().native_code);
+                return false;
+            }
+        }
         if (!m_app->update(delta_time))
             return false;
         Camera* camera = m_camera_system == nullptr

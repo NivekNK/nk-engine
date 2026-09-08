@@ -863,8 +863,11 @@ namespace nk {
             uniform->type == ShaderUniformType::sampler_cube
                 ? TextureDimension::cube
                 : TextureDimension::texture_2d;
-        if (binding.texture == nullptr || !binding.texture->valid() ||
-            binding.texture->dimension != expected) {
+        if (binding.texture == nullptr ||
+            binding.texture->dimension != expected ||
+            (!binding.texture->valid() &&
+             binding.texture->state != TextureState::queued &&
+             binding.texture->state != TextureState::loading)) {
             return err(invalid_uniform());
         }
 

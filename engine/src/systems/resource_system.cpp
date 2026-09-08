@@ -200,6 +200,58 @@ namespace nk {
         return ok();
     }
 
+    result<Resource, resource_error> ResourceSystem::load_detached(
+        mem::Allocator& allocator,
+        const strview name,
+        const ResourceType type) const {
+        if (!m_initialized)
+            return err(resource_error{resource_error_code::not_initialized, 0});
+        if (name.empty())
+            return err(resource_error{resource_error_code::invalid_name, 0});
+        const u32 loader_id = find_loader(type);
+        if (loader_id == numeric::invalid_id)
+            return err(resource_error{resource_error_code::no_loader, 0});
+
+        Resource resource;
+        ResourceLoader* loader = m_loaders[loader_id];
+        auto loaded = loader->load(
+            allocator,
+            m_asset_base_path.view(),
+            name,
+            resource);
+        if (!loaded) {
+            if (resource.data != nullptr)
+                loader->unload(allocator, resource);
+            return err(loaded.error());
+        }
+        if (resource.data == nullptr) {
+            return err(resource_error{
+                resource_error_code::invalid_data,
+                0,
+            });
+        }
+        resource.loader_id = loader_id;
+        resource.type = loader->type();
+        return ok(std::move(resource));
+    }
+
+    result<void, resource_error> ResourceSystem::unload_detached(
+        mem::Allocator& allocator,
+        Resource& resource) const noexcept {
+        if (resource.data == nullptr)
+            return ok();
+        if (!m_initialized || resource.loader_id >= m_loaders.length() ||
+            m_loaders[resource.loader_id] == nullptr) {
+            return err(resource_error{
+                resource_error_code::foreign_resource,
+                0,
+            });
+        }
+        m_loaders[resource.loader_id]->unload(allocator, resource);
+        resource.reset();
+        return ok();
+    }
+
     u32 ResourceSystem::find_loader(const ResourceType type) const noexcept {
         if (type == ResourceType::unknown || type == ResourceType::custom)
             return numeric::invalid_id;

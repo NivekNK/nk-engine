@@ -299,6 +299,41 @@ TEST(ResourceSystem, LoadsTriangulatesAndGroupsObjMeshesTransactionally) {
     EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
 }
 
+TEST(ResourceSystem, LoadsDetachedMeshesWithoutPublishingSharedAccounting) {
+    nk::mem::MallocAllocator system_allocator{nk::mem::untracked};
+    nk::mem::MallocAllocator worker_allocator{nk::mem::untracked};
+    auto created = nk::ResourceSystem::create(
+        system_allocator,
+        NK_TEST_FIXTURE_ROOT);
+    ASSERT_TRUE(created);
+    nk::ResourceSystem* resources = *created;
+
+    const nk::u64 worker_baseline =
+        worker_allocator.get_active_allocation_count();
+    auto loaded = resources->load_detached(
+        worker_allocator,
+        "mesh_features",
+        nk::ResourceType::static_mesh);
+    ASSERT_TRUE(loaded);
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+    EXPECT_FALSE(loaded->loaded());
+    ASSERT_NE(loaded->data, nullptr);
+    const auto* mesh = loaded->as<nk::StaticMeshResource>();
+    ASSERT_NE(mesh, nullptr);
+    EXPECT_EQ(mesh->geometries.length(), 2u);
+    EXPECT_EQ(mesh->materials.length(), 2u);
+
+    EXPECT_TRUE(resources->unload_detached(worker_allocator, *loaded));
+    EXPECT_EQ(loaded->data, nullptr);
+    EXPECT_EQ(
+        worker_allocator.get_active_allocation_count(),
+        worker_baseline);
+    EXPECT_EQ(resources->active_resource_count(), 0u);
+
+    nk::ResourceSystem::destroy(system_allocator, resources);
+    EXPECT_EQ(system_allocator.get_active_allocation_count(), 0u);
+}
+
 TEST(ResourceSystem, GeneratesMissingObjNormalsAndRejectsMalformedInput) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     auto created = nk::ResourceSystem::create(

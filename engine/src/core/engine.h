@@ -4,6 +4,7 @@
 #include "core/clock.h"
 #include "collections/dyarr.h"
 #include "resources/mesh.h"
+#include "systems/job_system.h"
 
 namespace nk {
     namespace mem { class Allocator; }
@@ -16,6 +17,7 @@ namespace nk {
     class MaterialSystem;
     class GeometrySystem;
     class CameraSystem;
+    class JobSystem;
     struct Material;
     struct Geometry;
 
@@ -48,6 +50,16 @@ namespace nk {
         bool render(f64 delta_time);
         bool resize(u32 width, u32 height);
         bool run_writable_texture_smoke();
+        struct StaticMeshLoad;
+        [[nodiscard]] bool queue_static_mesh(
+            strview name,
+            glm::vec3 position,
+            glm::vec3 scale = glm::vec3{1.0f});
+        static result<void, job_error> load_static_mesh_cpu(
+            StaticMeshLoad& load) noexcept;
+        static void complete_static_mesh_load(
+            StaticMeshLoad& load,
+            const result<void, job_error>& outcome) noexcept;
         void cycle_debug_texture();
         bool set_debug_sampler(u8 preset);
         void cycle_debug_sampler();
@@ -62,6 +74,7 @@ namespace nk {
         MaterialSystem* m_material_system = nullptr;
         GeometrySystem* m_geometry_system = nullptr;
         CameraSystem* m_camera_system = nullptr;
+        JobSystem* m_job_system = nullptr;
         cl::dyarr<Mesh> m_test_meshes;
         Geometry* m_test_ui_geometry = nullptr;
         Geometry* m_skybox_geometry = nullptr;
@@ -69,6 +82,8 @@ namespace nk {
         u8 m_debug_texture_index = 0;
         u8 m_debug_sampler_index = 0;
         bool m_sampler_demo = false;
+        bool m_accept_mesh_publication = false;
+        u32 m_pending_mesh_loads = 0;
         bool m_initialized = false;
 
         Clock m_clock;

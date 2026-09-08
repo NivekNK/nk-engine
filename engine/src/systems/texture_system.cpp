@@ -204,7 +204,8 @@ namespace nk {
 
     void TextureSystem::shutdown() {
         m_shutting_down = true;
-        if (m_jobs != nullptr && m_references.allocator() != nullptr) {
+        if (m_jobs != nullptr && m_jobs->accepting() &&
+            m_references.allocator() != nullptr) {
             for (const auto entry : m_references) {
                 if (entry.value.job.valid())
                     (void)m_jobs->cancel(entry.value.job);
