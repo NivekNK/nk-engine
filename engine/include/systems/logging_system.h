@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/format.h"
+#include "core/thread.h"
 #include "vendor/glm/color.h"
 
 namespace nk {
@@ -78,7 +79,7 @@ namespace nk {
             strview message) noexcept;
 
     private:
-        LoggingSystem() = default;
+        LoggingSystem() noexcept;
 
         static constexpr LoggingColor default_style[static_cast<u8>(LoggingLevel::Off)] = {
             {.fg = rgb(170, 129, 246)},                          // Trace
@@ -109,6 +110,7 @@ namespace nk {
         bool m_show_file = true;
         bool m_show_time = true;
         bool m_file_output = false;
+        Mutex m_mutex;
     };
 }
 

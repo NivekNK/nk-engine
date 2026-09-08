@@ -3,43 +3,55 @@
 #include "systems/logging_system.h"
 
 namespace nk {
+    LoggingSystem::LoggingSystem() noexcept {
+        (void)m_mutex.init();
+    }
+
     LoggingSystem& LoggingSystem::init(const LoggingSystemConfig& config) {
         LoggingSystem& instance = get();
+        if (!instance.m_mutex.initialized())
+            return instance;
+        {
+            auto lock = LockGuard::acquire(instance.m_mutex);
+            if (!lock)
+                return instance;
 
-        for (u8 i = 0; i < static_cast<u8>(LoggingLevel::Off); i++) {
-            const LoggingColor color = config.style[i];
-            if (color.bg) {
-                format_to(
-                    instance.m_style[i],
-                    "\033[38;2;{};{};{};48;2;{};{};{}m",
-                    color.fg.r,
-                    color.fg.g,
-                    color.fg.b,
-                    color.bg->r,
-                    color.bg->g,
-                    color.bg->b);
-            } else {
-                format_to(
-                    instance.m_style[i],
-                    "\033[38;2;{};{};{}m",
-                    color.fg.r,
-                    color.fg.g,
-                    color.fg.b);
+            for (u8 i = 0; i < static_cast<u8>(LoggingLevel::Off); i++) {
+                const LoggingColor color = config.style[i];
+                if (color.bg) {
+                    format_to(
+                        instance.m_style[i],
+                        "\033[38;2;{};{};{};48;2;{};{};{}m",
+                        color.fg.r,
+                        color.fg.g,
+                        color.fg.b,
+                        color.bg->r,
+                        color.bg->g,
+                        color.bg->b);
+                } else {
+                    format_to(
+                        instance.m_style[i],
+                        "\033[38;2;{};{};{}m",
+                        color.fg.r,
+                        color.fg.g,
+                        color.fg.b);
+                }
             }
+
+            instance.m_priority = config.priority;
+            instance.m_show_file = config.show_file;
+            instance.m_show_time = config.show_time;
+            instance.m_file_output = config.file_output;
         }
-
-        instance.m_priority = config.priority;
-        instance.m_show_file = config.show_file;
-        instance.m_show_time = config.show_time;
-        instance.m_file_output = config.file_output;
-
-        TraceLog("nk::LoggingSystem Inititalized.");
+        TraceLog("nk::LoggingSystem Initialized.");
 
         return instance;
     }
 
     void LoggingSystem::shutdown() {
         TraceLog("nk::LoggingSystem Shutdown.");
+        LoggingSystem& instance = get();
+        auto lock = LockGuard::acquire(instance.m_mutex);
     }
 
     strview get_project_path() noexcept {
@@ -55,11 +67,14 @@ namespace nk {
         const strview file,
         const u32 line,
         const strview message) noexcept {
-        if (level == LoggingLevel::Off || level < get().m_priority)
+        auto& instance = get();
+        auto lock = LockGuard::acquire(instance.m_mutex);
+        if (!lock)
+            return;
+        if (level == LoggingLevel::Off || level < instance.m_priority)
             return;
 
         const u8 index = static_cast<u8>(level);
-        auto& instance = get();
 
         // Add color
         const strbuf<64>& color = instance.m_style[index];
