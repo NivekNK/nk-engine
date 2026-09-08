@@ -1,0 +1,114 @@
+#pragma once
+
+#include <glm/ext/vector_float4.hpp>
+
+#include "collections/slice.h"
+#include "core/result.h"
+#include "core/strview.h"
+#include "renderer/shader_config.h"
+#include "resources/texture.h"
+
+namespace nk {
+    inline constexpr u8 max_render_target_attachments = 2;
+
+    enum class RenderAttachmentRole : u8 {
+        color,
+        depth,
+    };
+
+    enum class RenderAttachmentSource : u8 {
+        window_color,
+        window_depth,
+        texture,
+    };
+
+    enum class RenderLoadOperation : u8 {
+        discard,
+        load,
+        clear,
+    };
+
+    enum class RenderStoreOperation : u8 {
+        discard,
+        store,
+    };
+
+    enum class render_target_error : u8 {
+        invalid_name,
+        invalid_area,
+        invalid_attachment_count,
+        invalid_attachment,
+        duplicate_attachment_role,
+        incompatible_source,
+        incompatible_format,
+        incompatible_dimensions,
+        incompatible_sample_count,
+        stale_attachment,
+    };
+
+    struct RenderArea {
+        i32 x = 0;
+        i32 y = 0;
+        u32 width = 0;
+        u32 height = 0;
+    };
+
+    struct RenderAttachmentConfig {
+        RenderAttachmentRole role = RenderAttachmentRole::color;
+        RenderAttachmentSource source = RenderAttachmentSource::texture;
+        TextureFormat format = TextureFormat::unknown;
+        TextureSampleCount sample_count = TextureSampleCount::one;
+        RenderLoadOperation load = RenderLoadOperation::discard;
+        RenderStoreOperation store = RenderStoreOperation::store;
+    };
+
+    struct RenderPassConfig {
+        strview name;
+        RenderPassKind kind = RenderPassKind::world;
+        RenderArea area;
+        glm::vec4 clear_color{};
+        f32 clear_depth = 1.0f;
+        u32 clear_stencil = 0;
+        cl::slice<const RenderAttachmentConfig> attachments;
+        bool has_previous_pass = false;
+        bool has_next_pass = false;
+    };
+
+    struct RenderTargetConfig {
+        u32 width = 0;
+        u32 height = 0;
+        cl::slice<Texture* const> attachments;
+    };
+
+    [[nodiscard]] result<void, render_target_error>
+    validate_render_pass_config(const RenderPassConfig& config) noexcept;
+
+    class RenderTarget final {
+    public:
+        [[nodiscard]] result<void, render_target_error> init(
+            const RenderPassConfig& pass,
+            const RenderTargetConfig& target) noexcept;
+        void reset() noexcept;
+
+        [[nodiscard]] bool valid() const noexcept { return m_valid; }
+        [[nodiscard]] bool current() const noexcept;
+        [[nodiscard]] u32 width() const noexcept { return m_width; }
+        [[nodiscard]] u32 height() const noexcept { return m_height; }
+        [[nodiscard]] u8 attachment_count() const noexcept {
+            return m_attachment_count;
+        }
+        [[nodiscard]] Texture* attachment(const u8 index) const noexcept {
+            return index < m_attachment_count ? m_attachments[index] : nullptr;
+        }
+        [[nodiscard]] Texture* attachment(
+            RenderAttachmentRole role) const noexcept;
+
+    private:
+        Texture* m_attachments[max_render_target_attachments]{};
+        u32 m_generations[max_render_target_attachments]{};
+        u32 m_width = 0;
+        u32 m_height = 0;
+        u8 m_attachment_count = 0;
+        bool m_valid = false;
+    };
+}

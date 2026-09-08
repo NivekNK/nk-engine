@@ -3,6 +3,42 @@
 #include "core/defines.h"
 
 namespace nk {
+    enum class TextureFormat : u8 {
+        unknown,
+        r8_unorm,
+        rg8_unorm,
+        rgb8_unorm,
+        rgba8_unorm,
+        rgba8_srgb,
+        bgra8_unorm,
+        bgra8_srgb,
+        depth32_float,
+        depth32_float_stencil8,
+        depth24_unorm_stencil8,
+    };
+
+    enum class TextureSampleCount : u8 {
+        one = 1,
+        two = 2,
+        four = 4,
+        eight = 8,
+        sixteen = 16,
+        thirty_two = 32,
+        sixty_four = 64,
+    };
+
+    [[nodiscard]] constexpr bool is_color_format(
+        const TextureFormat format) noexcept {
+        return format >= TextureFormat::r8_unorm &&
+               format <= TextureFormat::bgra8_srgb;
+    }
+
+    [[nodiscard]] constexpr bool is_depth_format(
+        const TextureFormat format) noexcept {
+        return format >= TextureFormat::depth32_float &&
+               format <= TextureFormat::depth24_unorm_stencil8;
+    }
+
     enum class TextureFlag : u8 {
         none = 0,
         has_transparency = 1 << 0,
@@ -35,6 +71,8 @@ namespace nk {
         u32 width = 0;
         u32 height = 0;
         u8 channel_count = 0;
+        TextureFormat format = TextureFormat::unknown;
+        TextureSampleCount sample_count = TextureSampleCount::one;
         TextureFlag flags = TextureFlag::none;
         u32 generation = numeric::invalid_id;
         void* m_internal_data = nullptr;

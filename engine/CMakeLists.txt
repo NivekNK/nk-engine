@@ -82,6 +82,7 @@ set(SOURCES
     src/resources/mesh.cpp
     src/resources/shader_loader.cpp
     src/renderer/renderer.cpp
+    src/renderer/render_target.cpp
     src/renderer/buffer_suballocator.cpp
     src/renderer/shader.cpp
     src/renderer/shader_config.cpp

@@ -27,6 +27,7 @@ namespace nk {
         image_view_creation_failed,
         render_pass_creation_failed,
         framebuffer_creation_failed,
+        render_target_config_invalid,
         object_resource_failed,
         device_wait_failed,
         fence_wait_failed,
