@@ -372,7 +372,6 @@ namespace nk {
             return err(buffer_error(renderer_error_code::buffer_copy_failed));
         return copy_native({
             .pool = m_device->get_graphics_command_pool(),
-            .fence = VK_NULL_HANDLE,
             .queue = m_device->get_graphics_queue(),
             .source = m_buffer,
             .source_offset = source_offset,
@@ -444,7 +443,6 @@ namespace nk {
 
         auto copied = copy_native({
             .pool = m_device->get_graphics_command_pool(),
-            .fence = VK_NULL_HANDLE,
             .queue = m_device->get_graphics_queue(),
             .source = m_buffer,
             .source_offset = 0,

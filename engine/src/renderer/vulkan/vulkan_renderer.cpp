@@ -545,8 +545,19 @@ namespace nk {
         }
         m_timestamp_pending.arr_shutdown();
 
+        m_geometry_upload_buffer.shutdown();
         m_object_vertex_buffer.shutdown();
         m_object_index_buffer.shutdown();
+        if (m_geometry_upload_batches != 0) {
+            InfoLog(
+                "Geometry uploads: {} batch(es), {} copy command(s), {} byte(s).",
+                m_geometry_upload_batches,
+                m_geometry_upload_copies,
+                m_geometry_upload_bytes);
+        }
+        m_geometry_upload_batches = 0;
+        m_geometry_upload_copies = 0;
+        m_geometry_upload_bytes = 0;
         InfoLog("Vulkan Object Buffers shutdown.");
 
         destroy_all_shaders();
@@ -1657,24 +1668,31 @@ namespace nk {
             });
         }
         const u64 staging_size = index_source_offset + indices.size;
-        Buffer staging;
-        auto initialized = staging.init(
-            &m_device,
-            m_vulkan_allocator,
-            {
-                .size = staging_size,
-                .usage = BufferUsage::transfer_source,
-                .memory = MemoryUsage::upload,
-                .persistent_map = true,
+        if (!m_geometry_upload_buffer.initialized()) {
+            return err(renderer_error{
+                renderer_error_code::initialization_failed,
+                0,
             });
-        if (!initialized)
-            return err(initialized.error());
-        auto vertices_staged = staging.upload(
+        }
+        if (staging_size > m_geometry_upload_buffer.size()) {
+            u64 capacity = m_geometry_upload_buffer.size();
+            while (capacity < staging_size) {
+                if (capacity > numeric::u64_max / 2) {
+                    capacity = staging_size;
+                    break;
+                }
+                capacity *= 2;
+            }
+            auto resized = m_geometry_upload_buffer.resize(capacity);
+            if (!resized)
+                return err(resized.error());
+        }
+        auto vertices_staged = m_geometry_upload_buffer.upload(
             0, vertices.size, vertex_data);
         if (!vertices_staged)
             return err(vertices_staged.error());
         if (indices.size != 0) {
-            auto indices_staged = staging.upload(
+            auto indices_staged = m_geometry_upload_buffer.upload(
                 index_source_offset, indices.size, index_data);
             if (!indices_staged)
                 return err(indices_staged.error());
@@ -1694,7 +1712,7 @@ namespace nk {
             .dstOffset = vertices.offset,
             .size = vertices.size,
         };
-        vkCmdCopyBuffer(commands, staging.get(),
+        vkCmdCopyBuffer(commands, m_geometry_upload_buffer.get(),
             m_object_vertex_buffer.get(), 1, &vertex_copy);
 
         const vk::GraphicsCommands graphics{m_device, commands};
@@ -1708,7 +1726,7 @@ namespace nk {
                 .dstOffset = indices.offset,
                 .size = indices.size,
             };
-            vkCmdCopyBuffer(commands, staging.get(),
+            vkCmdCopyBuffer(commands, m_geometry_upload_buffer.get(),
                 m_object_index_buffer.get(), 1, &index_copy);
             graphics.buffer_barrier(
                 {m_object_index_buffer.get(), indices.offset, indices.size},
@@ -1721,7 +1739,14 @@ namespace nk {
             transferred,
             {VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
                 VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT});
-        return commands.end_single_use(m_device.get_graphics_queue());
+        auto completed = commands.end_single_use(
+            m_device.get_graphics_queue());
+        if (!completed)
+            return err(completed.error());
+        ++m_geometry_upload_batches;
+        m_geometry_upload_copies += indices.size == 0 ? 1 : 2;
+        m_geometry_upload_bytes += vertices.size + indices.size;
+        return ok();
     }
 
     void VulkanRenderer::destroy_geometry(Geometry& geometry) {
@@ -2046,6 +2071,20 @@ namespace nk {
     }
 
     result<void, renderer_error> VulkanRenderer::create_buffers() {
+        constexpr u64 upload_buffer_size = 8 * 1024 * 1024;
+        auto upload_buffer_initialized = m_geometry_upload_buffer.init(
+            &m_device,
+            m_vulkan_allocator,
+            {
+                .size = upload_buffer_size,
+                .usage = BufferUsage::transfer_source |
+                    BufferUsage::transfer_destination,
+                .memory = MemoryUsage::upload,
+                .persistent_map = true,
+            });
+        if (!upload_buffer_initialized)
+            return err(upload_buffer_initialized.error());
+
         constexpr u64 vertex_buffer_size = sizeof(glm::Vertex3D) * 1024 * 1024;
         auto vertex_buffer_initialized = m_object_vertex_buffer.init(
             &m_device,

@@ -221,8 +221,12 @@ namespace nk {
         bool m_render_pass_active = false;
 
         // Buffers
+        Buffer m_geometry_upload_buffer;
         Buffer m_object_vertex_buffer;
         Buffer m_object_index_buffer;
+        u64 m_geometry_upload_batches = 0;
+        u64 m_geometry_upload_copies = 0;
+        u64 m_geometry_upload_bytes = 0;
 
         VulkanGeometryData m_geometries[max_geometry_count]{};
 

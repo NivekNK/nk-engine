@@ -10,7 +10,6 @@ namespace nk {
 
     struct BufferCopyInfo {
         VkCommandPool pool;
-        VkFence fence;
         VkQueue queue;
         VkBuffer source;
         u64 source_offset;
