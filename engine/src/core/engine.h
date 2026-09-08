@@ -15,6 +15,7 @@ namespace nk {
     class ShaderSystem;
     class MaterialSystem;
     class GeometrySystem;
+    class CameraSystem;
     struct Material;
     struct Geometry;
 
@@ -60,6 +61,7 @@ namespace nk {
         ShaderSystem* m_shader_system = nullptr;
         MaterialSystem* m_material_system = nullptr;
         GeometrySystem* m_geometry_system = nullptr;
+        CameraSystem* m_camera_system = nullptr;
         cl::dyarr<Mesh> m_test_meshes;
         Geometry* m_test_ui_geometry = nullptr;
         Material* m_test_material = nullptr;

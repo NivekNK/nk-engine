@@ -71,6 +71,7 @@ set(SOURCES
     src/systems/material_system.cpp
     src/systems/geometry_system.cpp
     src/systems/resource_system.cpp
+    src/systems/camera_system.cpp
     src/platform/platform.cpp
     src/platform/file.cpp
     src/resources/image_loader.cpp
@@ -104,7 +105,6 @@ set(SOURCES
     src/renderer/vulkan/shaders/utils.cpp
     src/renderer/vulkan/shaders/vulkan_shader.cpp
 
-    # Temporal
     src/core/camera.cpp
 
 )

@@ -14,12 +14,12 @@
 #include "systems/material_system.h"
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
+#include "systems/camera_system.h"
 #include "resources/static_mesh_resource.h"
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-// TODO: Temporal include
 #include "core/camera.h"
 
 namespace nk {
@@ -152,6 +152,16 @@ namespace nk {
             shutdown_impl();
             return false;
         }
+
+        auto camera_system = CameraSystem::create(*m_allocator);
+        if (!camera_system) {
+            ErrorLog(
+                "Camera system initialization failed: camera_error={}.",
+                static_cast<u32>(camera_system.error().code));
+            shutdown_impl();
+            return false;
+        }
+        m_camera_system = *camera_system;
 
         auto resource_system = ResourceSystem::create(*m_allocator);
         if (!resource_system) {
@@ -537,8 +547,6 @@ namespace nk {
             return false;
         }
 
-        Camera::init(m_renderer);
-
         m_clock.init(m_platform);
 
         EventSystem::register_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
@@ -593,6 +601,10 @@ namespace nk {
         if (m_resource_system != nullptr) {
             ResourceSystem::destroy(*m_allocator, m_resource_system);
             m_resource_system = nullptr;
+        }
+        if (m_camera_system != nullptr) {
+            CameraSystem::destroy(*m_allocator, m_camera_system);
+            m_camera_system = nullptr;
         }
         if (m_platform != nullptr) {
             Platform::destroy(m_allocator, m_platform);
@@ -992,7 +1004,15 @@ namespace nk {
     }
 
     bool Engine::update(f64 delta_time) {
-        return m_app->update(delta_time);
+        if (!m_app->update(delta_time))
+            return false;
+        Camera* camera = m_camera_system == nullptr
+            ? nullptr
+            : m_camera_system->active();
+        if (camera == nullptr)
+            return false;
+        m_renderer->set_view(camera->view(), camera->position());
+        return true;
     }
 
     bool Engine::render(f64 delta_time) {
