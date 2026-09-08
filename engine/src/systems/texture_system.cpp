@@ -3,6 +3,7 @@
 #include "systems/texture_system.h"
 
 #include "collections/dyarr.h"
+#include "core/format.h"
 #include "memory/allocator.h"
 #include "renderer/renderer.h"
 #include "resources/image_loader.h"
@@ -88,6 +89,28 @@ namespace nk {
                 default:
                     return {texture_error_code::resource_failed, error.native_code};
             }
+        }
+
+        texture_error translate_image_error(const image_error& error) noexcept {
+            switch (error.code) {
+                case image_error_code::file_failed:
+                    return {
+                        texture_error_code::file_failed,
+                        static_cast<i32>(error.file),
+                    };
+                case image_error_code::out_of_memory:
+                    return {
+                        texture_error_code::out_of_memory,
+                        error.native_code,
+                    };
+                case image_error_code::decode_failed:
+                case image_error_code::limits_exceeded:
+                    return {
+                        texture_error_code::decode_failed,
+                        error.native_code,
+                    };
+            }
+            return {texture_error_code::decode_failed, error.native_code};
         }
     }
 
@@ -290,7 +313,9 @@ namespace nk {
 
         if (TextureReference* reference = m_references.find(name);
             reference != nullptr) {
-            if (reference->source != TextureSource::file)
+            if (reference->source != TextureSource::file ||
+                m_textures[reference->slot].dimension !=
+                    TextureDimension::texture_2d)
                 return err(texture_error{
                     texture_error_code::incompatible_texture,
                     0,
@@ -340,6 +365,79 @@ namespace nk {
         return ok(&m_textures[slot]);
     }
 
+    result<Texture*, texture_error> TextureSystem::acquire_cube(
+        const strview name,
+        const bool auto_release) {
+        if (!m_initialized)
+            return err(texture_error{texture_error_code::not_initialized, 0});
+        if (name.empty())
+            return err(texture_error{texture_error_code::invalid_name, 0});
+        if (name == default_texture_name ||
+            name == default_specular_texture_name ||
+            name == default_normal_texture_name) {
+            return err(texture_error{
+                texture_error_code::incompatible_texture,
+                0,
+            });
+        }
+
+        if (TextureReference* reference = m_references.find(name);
+            reference != nullptr) {
+            Texture& existing = m_textures[reference->slot];
+            if (reference->source != TextureSource::file ||
+                existing.dimension != TextureDimension::cube ||
+                existing.layer_count != 6) {
+                return err(texture_error{
+                    texture_error_code::incompatible_texture,
+                    0,
+                });
+            }
+            ++reference->reference_count;
+            return ok(&existing);
+        }
+
+        const u32 slot = find_free_slot();
+        if (slot == numeric::invalid_id) {
+            return err(texture_error{
+                texture_error_code::capacity_exceeded,
+                0,
+            });
+        }
+
+        Texture texture{};
+        auto loaded = load_cube_texture(name, texture);
+        if (!loaded)
+            return err(loaded.error());
+        texture.id = slot;
+
+        str owned_name{*m_allocator};
+        if (!owned_name.assign(name)) {
+            m_renderer->destroy_texture(&texture);
+            return err(texture_error{texture_error_code::out_of_memory, 0});
+        }
+        auto inserted = m_references.try_emplace(
+            std::move(owned_name),
+            TextureReference{
+                .reference_count = 1,
+                .slot = slot,
+                .auto_release = auto_release,
+                .source = TextureSource::file,
+            });
+        if (!inserted) {
+            m_renderer->destroy_texture(&texture);
+            return err(texture_error{texture_error_code::out_of_memory, 0});
+        }
+
+        m_textures[slot] = texture;
+        ++m_loaded_count;
+        InfoLog(
+            "Cube texture '{}' loaded ({}x{}, six faces).",
+            name,
+            texture.width,
+            texture.height);
+        return ok(&m_textures[slot]);
+    }
+
     result<Texture*, texture_error> TextureSystem::acquire_writable(
         const strview name,
         const u32 width,
@@ -368,6 +466,8 @@ namespace nk {
             if (reference->source != TextureSource::runtime ||
                 existing.width != width || existing.height != height ||
                 existing.channel_count != channel_count ||
+                existing.dimension != TextureDimension::texture_2d ||
+                existing.layer_count != 1 ||
                 existing.has_transparency() != has_transparency) {
                 return err(texture_error{
                     texture_error_code::incompatible_texture,
@@ -435,7 +535,8 @@ namespace nk {
             return err(texture_error{texture_error_code::not_initialized, 0});
         if (texture.id >= m_textures.length() ||
             &m_textures[texture.id] != &texture || !texture.valid() ||
-            !texture.writable() || texture.external()) {
+            !texture.writable() || texture.external() ||
+            texture.dimension != TextureDimension::texture_2d) {
             return err(texture_error{texture_error_code::invalid_operation, 0});
         }
         if (!valid_region(texture, region, pixels))
@@ -459,7 +560,8 @@ namespace nk {
             return err(texture_error{texture_error_code::not_initialized, 0});
         if (texture.id >= m_textures.length() ||
             &m_textures[texture.id] != &texture || !texture.valid() ||
-            !texture.writable() || texture.external()) {
+            !texture.writable() || texture.external() ||
+            texture.dimension != TextureDimension::texture_2d) {
             return err(texture_error{texture_error_code::invalid_operation, 0});
         }
         if (!valid_texture_extent(width, height, texture.channel_count))
@@ -558,6 +660,102 @@ namespace nk {
             texture.height,
             texture.channel_count,
             texture.generation);
+        return ok();
+    }
+
+    result<void, texture_error> TextureSystem::load_cube_texture(
+        const strview name,
+        Texture& texture) {
+        constexpr strview suffixes[]{
+            {"r", 1}, // +X
+            {"l", 1}, // -X
+            {"u", 1}, // +Y
+            {"d", 1}, // -Y
+            {"f", 1}, // +Z
+            {"b", 1}, // -Z
+        };
+        constexpr u64 face_count = sizeof(suffixes) / sizeof(suffixes[0]);
+
+        cl::dyarr<u8> pixels;
+        u32 width = 0;
+        u32 height = 0;
+        u8 channels = 0;
+        u64 face_bytes = 0;
+        for (u64 index = 0; index < face_count; ++index) {
+            strbuf<1023> path;
+            if (!format_to(
+                    path,
+                    "{}/textures/{}_{}.png",
+                    m_resources->asset_base_path(),
+                    name,
+                    suffixes[index])) {
+                return err(texture_error{
+                    texture_error_code::invalid_name,
+                    0,
+                });
+            }
+            auto decoded = ImageLoader::load_png(
+                *m_allocator,
+                path.view(),
+                false);
+            if (!decoded)
+                return err(translate_image_error(decoded.error()));
+
+            const DecodedImage& face = *decoded;
+            if (index == 0) {
+                width = face.width;
+                height = face.height;
+                channels = face.channel_count;
+                if (!valid_texture_extent(width, height, channels)) {
+                    return err(texture_error{
+                        texture_error_code::invalid_dimensions,
+                        0,
+                    });
+                }
+                face_bytes = static_cast<u64>(width) * height * channels;
+                if (face_bytes > numeric::u64_max / face_count ||
+                    !pixels.dyarr_init_len(
+                        m_allocator,
+                        face_bytes * face_count,
+                        face_bytes * face_count)) {
+                    return err(texture_error{
+                        texture_error_code::out_of_memory,
+                        0,
+                    });
+                }
+            } else if (face.width != width || face.height != height ||
+                       face.channel_count != channels) {
+                return err(texture_error{
+                    texture_error_code::incompatible_texture,
+                    0,
+                });
+            }
+            if (face.pixels.length() != face_bytes) {
+                return err(texture_error{
+                    texture_error_code::decode_failed,
+                    0,
+                });
+            }
+            std::memcpy(
+                pixels.data() + index * face_bytes,
+                face.pixels.data(),
+                face_bytes);
+        }
+
+        auto created = m_renderer->create_texture_cube(
+            name,
+            width,
+            height,
+            channels,
+            pixels.data(),
+            &texture);
+        if (!created) {
+            return err(texture_error{
+                texture_error_code::renderer_failed,
+                created.error().native_code,
+            });
+        }
+        texture.generation = 0;
         return ok();
     }
 

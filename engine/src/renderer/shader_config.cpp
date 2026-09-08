@@ -175,7 +175,7 @@ namespace nk {
             }
 
             const u32 uniform_size = shader_uniform_size(uniform);
-            if (uniform.type != ShaderUniformType::sampler_2d &&
+            if (!is_sampler_uniform(uniform.type) &&
                 uniform_size == 0) {
                 return err(shader_config_error::invalid_uniform);
             }
@@ -185,7 +185,7 @@ namespace nk {
             }
 
             if (uniform.scope == ShaderScope::local) {
-                if (uniform.type == ShaderUniformType::sampler_2d ||
+                if (is_sampler_uniform(uniform.type) ||
                     uniform_size == 0) {
                     return err(shader_config_error::invalid_uniform);
                 }
@@ -214,7 +214,7 @@ namespace nk {
             if (binding == nullptr)
                 return err(shader_config_error::invalid_uniform);
 
-            if (uniform.type == ShaderUniformType::sampler_2d) {
+            if (is_sampler_uniform(uniform.type)) {
                 if (binding->type != ShaderDescriptorType::sampler ||
                     uniform.offset >= binding->count ||
                     uniform.array_length >

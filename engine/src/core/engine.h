@@ -64,6 +64,7 @@ namespace nk {
         CameraSystem* m_camera_system = nullptr;
         cl::dyarr<Mesh> m_test_meshes;
         Geometry* m_test_ui_geometry = nullptr;
+        Geometry* m_skybox_geometry = nullptr;
         Material* m_test_material = nullptr;
         u8 m_debug_texture_index = 0;
         u8 m_debug_sampler_index = 0;

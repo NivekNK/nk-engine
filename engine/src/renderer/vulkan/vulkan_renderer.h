@@ -80,6 +80,13 @@ namespace nk {
             const u8* pixels,
             bool has_transparency,
             Texture* out_texture) override;
+        [[nodiscard]] result<void, renderer_error> create_texture_cube(
+            strview name,
+            u32 width,
+            u32 height,
+            u32 channel_count,
+            const u8* face_pixels,
+            Texture* out_texture) override;
         [[nodiscard]] result<void, renderer_error>
         create_writable_texture(Texture* texture) override;
         [[nodiscard]] result<void, renderer_error> write_texture(

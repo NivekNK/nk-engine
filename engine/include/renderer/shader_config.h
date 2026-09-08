@@ -75,7 +75,25 @@ namespace nk {
         u32,
         mat4,
         sampler_2d,
+        sampler_cube,
         custom,
+    };
+
+    [[nodiscard]] constexpr bool is_sampler_uniform(
+        const ShaderUniformType type) noexcept {
+        return type == ShaderUniformType::sampler_2d ||
+               type == ShaderUniformType::sampler_cube;
+    }
+
+    enum class ShaderCullMode : u8 {
+        none,
+        back,
+        front,
+    };
+
+    enum class ShaderDepthCompare : u8 {
+        less,
+        less_equal,
     };
 
     enum class ShaderScope : u8 {
@@ -142,6 +160,9 @@ namespace nk {
         u32 max_instances = 0;
         bool wireframe = false;
         bool depth_test_enabled = true;
+        bool depth_write_enabled = true;
+        ShaderCullMode cull_mode = ShaderCullMode::back;
+        ShaderDepthCompare depth_compare = ShaderDepthCompare::less;
     };
 
     enum class shader_config_error : u8 {
@@ -247,6 +268,7 @@ constexpr nk::u32 nk::shader_uniform_size(
             element_size = 64;
             break;
         case ShaderUniformType::sampler_2d:
+        case ShaderUniformType::sampler_cube:
             return 0;
         case ShaderUniformType::custom:
             element_size = uniform.custom_size;

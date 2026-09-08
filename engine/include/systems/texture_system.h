@@ -66,6 +66,10 @@ namespace nk {
         [[nodiscard]] result<Texture*, texture_error> acquire(
             strview name,
             bool auto_release);
+        // Loads {name}_{r,l,u,d,f,b}.png as +X,-X,+Y,-Y,+Z,-Z.
+        [[nodiscard]] result<Texture*, texture_error> acquire_cube(
+            strview name,
+            bool auto_release);
         [[nodiscard]] result<Texture*, texture_error> acquire_writable(
             strview name,
             u32 width,
@@ -127,6 +131,9 @@ namespace nk {
         void shutdown();
         [[nodiscard]] result<void, texture_error> create_default_textures();
         [[nodiscard]] result<void, texture_error> load_texture(
+            strview name,
+            Texture& texture);
+        [[nodiscard]] result<void, texture_error> load_cube_texture(
             strview name,
             Texture& texture);
         u32 find_free_slot() const noexcept;

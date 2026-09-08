@@ -3,6 +3,11 @@
 #include "core/defines.h"
 
 namespace nk {
+    enum class TextureDimension : u8 {
+        texture_2d,
+        cube,
+    };
+
     enum class TextureFormat : u8 {
         unknown,
         r8_unorm,
@@ -82,6 +87,8 @@ namespace nk {
         u32 width = 0;
         u32 height = 0;
         u8 channel_count = 0;
+        TextureDimension dimension = TextureDimension::texture_2d;
+        u8 layer_count = 1;
         TextureFormat format = TextureFormat::unknown;
         TextureSampleCount sample_count = TextureSampleCount::one;
         TextureFlag flags = TextureFlag::none;

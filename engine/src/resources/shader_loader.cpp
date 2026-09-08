@@ -179,6 +179,7 @@ namespace nk {
             NK_SHADER_UNIFORM_CASE(u32)
             NK_SHADER_UNIFORM_CASE(mat4)
             NK_SHADER_UNIFORM_CASE(sampler_2d)
+            NK_SHADER_UNIFORM_CASE(sampler_cube)
             NK_SHADER_UNIFORM_CASE(custom)
 #undef NK_SHADER_UNIFORM_CASE
             return false;
@@ -204,6 +205,7 @@ namespace nk {
                 case ShaderUniformType::mat4:
                     return 16;
                 case ShaderUniformType::sampler_2d:
+                case ShaderUniformType::sampler_cube:
                     return 1;
             }
             return 1;
@@ -254,6 +256,9 @@ namespace nk {
         bool max_instances_seen = false;
         bool wireframe_seen = false;
         bool depth_test_seen = false;
+        bool depth_write_seen = false;
+        bool cull_mode_seen = false;
+        bool depth_compare_seen = false;
         u32 version = 0;
 
         auto fail = [](const shader_resource_parse_error error)
@@ -321,6 +326,34 @@ namespace nk {
                 depth_test_seen = true;
                 if (!parse_bool(value, parsed->m_depth_test_enabled))
                     return fail(shader_resource_parse_error::invalid_boolean);
+            } else if (key == strview{"depth_write"}) {
+                if (depth_write_seen)
+                    return fail(shader_resource_parse_error::duplicate_property);
+                depth_write_seen = true;
+                if (!parse_bool(value, parsed->m_depth_write_enabled))
+                    return fail(shader_resource_parse_error::invalid_boolean);
+            } else if (key == strview{"cull_mode"}) {
+                if (cull_mode_seen)
+                    return fail(shader_resource_parse_error::duplicate_property);
+                cull_mode_seen = true;
+                if (value == strview{"none"})
+                    parsed->m_cull_mode = ShaderCullMode::none;
+                else if (value == strview{"back"})
+                    parsed->m_cull_mode = ShaderCullMode::back;
+                else if (value == strview{"front"})
+                    parsed->m_cull_mode = ShaderCullMode::front;
+                else
+                    return fail(shader_resource_parse_error::invalid_syntax);
+            } else if (key == strview{"depth_compare"}) {
+                if (depth_compare_seen)
+                    return fail(shader_resource_parse_error::duplicate_property);
+                depth_compare_seen = true;
+                if (value == strview{"less"})
+                    parsed->m_depth_compare = ShaderDepthCompare::less;
+                else if (value == strview{"less_equal"})
+                    parsed->m_depth_compare = ShaderDepthCompare::less_equal;
+                else
+                    return fail(shader_resource_parse_error::invalid_syntax);
             } else if (key == strview{"stage"}) {
                 if (parsed->m_stage_count ==
                     ShaderResourceConfig::max_stage_count) {
@@ -414,7 +447,7 @@ namespace nk {
                 } else if (field_count == 5) {
                     return fail(shader_resource_parse_error::invalid_uniform);
                 }
-                if (type == ShaderUniformType::sampler_2d &&
+                if (is_sampler_uniform(type) &&
                     scope == ShaderScope::local) {
                     return fail(shader_resource_parse_error::invalid_uniform);
                 }
@@ -454,7 +487,7 @@ namespace nk {
         for (u32 index = 0; index < parsed->m_uniform_count; ++index) {
             ShaderUniformConfig& uniform = parsed->m_uniforms[index];
             const u32 scope_index = static_cast<u32>(uniform.scope);
-            if (uniform.type == ShaderUniformType::sampler_2d) {
+            if (is_sampler_uniform(uniform.type)) {
                 if (scope_index >= 2 ||
                     sampler_counts[scope_index] >
                         numeric::u32_max - uniform.array_length) {

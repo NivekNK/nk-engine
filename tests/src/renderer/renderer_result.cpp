@@ -145,7 +145,7 @@ namespace {
         }
         nk::f32 shininess() const { return m_shininess; }
         nk::result<nk::ShaderHandle, nk::renderer_error> create_shader(
-            const nk::ShaderConfig&,
+            const nk::ShaderConfig& config,
             const nk::RenderPassKind pass) override {
             ++m_created_shaders;
             if (m_fail_shader_create) {
@@ -158,7 +158,8 @@ namespace {
                 static_cast<nk::u16>(m_next_shader_index++),
                 0,
             };
-            if (pass == nk::RenderPassKind::world)
+            if (pass == nk::RenderPassKind::world &&
+                config.name == nk::builtin_material_shader_name)
                 m_world_test_shader = handle;
             else
                 m_ui_test_shader = handle;
@@ -305,6 +306,33 @@ namespace {
                     : nk::TextureFlag::none,
                 .generation = 0,
                 .m_internal_data = reinterpret_cast<void*>(0x2),
+            };
+            return nk::ok();
+        }
+        nk::result<void, nk::renderer_error> create_texture_cube(
+            const nk::strview,
+            const nk::u32 width,
+            const nk::u32 height,
+            const nk::u32 channel_count,
+            const nk::u8* pixels,
+            nk::Texture* texture) override {
+            ++m_texture_create_attempts;
+            if (m_fail_texture_create || pixels == nullptr) {
+                return nk::err(nk::renderer_error{
+                    nk::renderer_error_code::texture_sampler_creation_failed,
+                    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                });
+            }
+            ++m_created_textures;
+            *texture = {
+                .width = width,
+                .height = height,
+                .channel_count = static_cast<nk::u8>(channel_count),
+                .dimension = nk::TextureDimension::cube,
+                .layer_count = 6,
+                .format = nk::TextureFormat::rgba8_unorm,
+                .generation = 0,
+                .m_internal_data = reinterpret_cast<void*>(1),
             };
             return nk::ok();
         }
@@ -633,7 +661,8 @@ namespace {
                 return false;
             shaders = *shaders_created;
             if (!shaders->load(nk::builtin_material_shader_name) ||
-                !shaders->load(nk::builtin_ui_shader_name)) {
+                !shaders->load(nk::builtin_ui_shader_name) ||
+                !shaders->load(nk::builtin_skybox_shader_name)) {
                 return false;
             }
 
@@ -1705,6 +1734,45 @@ TEST(TextureSystem, KeepsFileAndRuntimeNamespacesCompatible) {
     nk::ResourceSystem::destroy(allocator, resources);
 }
 
+TEST(TextureSystem, LoadsSixFaceCubemapsWithoutAliasingTwoDimensionalNames) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 2);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
+
+    auto cube = textures->acquire_cube("skybox", true);
+    ASSERT_TRUE(cube);
+    EXPECT_EQ((*cube)->width, 2048u);
+    EXPECT_EQ((*cube)->height, 2048u);
+    EXPECT_EQ((*cube)->channel_count, 4u);
+    EXPECT_EQ((*cube)->dimension, nk::TextureDimension::cube);
+    EXPECT_EQ((*cube)->layer_count, 6u);
+    EXPECT_EQ(textures->loaded_count(), 1u);
+
+    auto shared = textures->acquire_cube("skybox", true);
+    ASSERT_TRUE(shared);
+    EXPECT_EQ(*shared, *cube);
+    EXPECT_EQ(textures->reference_count("skybox"), 2u);
+    auto incompatible = textures->acquire("skybox", true);
+    ASSERT_FALSE(incompatible);
+    EXPECT_EQ(
+        incompatible.error().code,
+        nk::texture_error_code::incompatible_texture);
+
+    textures->release("skybox");
+    textures->release("skybox");
+    EXPECT_EQ(textures->loaded_count(), 0u);
+    nk::TextureSystem::destroy(allocator, textures);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
 TEST(TextureSystem, DoesNotPublishFailedWritableTextures) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
@@ -2182,6 +2250,7 @@ TEST(MaterialSystem, RollsBackDefaultInstancesWhenInitializationFails) {
     nk::ShaderSystem* shaders = *shaders_created;
     ASSERT_TRUE(shaders->load(nk::builtin_material_shader_name));
     ASSERT_TRUE(shaders->load(nk::builtin_ui_shader_name));
+    ASSERT_TRUE(shaders->load(nk::builtin_skybox_shader_name));
 
     const nk::u64 allocations_before =
         allocator.get_active_allocation_count();

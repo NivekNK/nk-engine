@@ -58,6 +58,7 @@ namespace nk {
         const SceneLighting* lighting = nullptr;
         u32 geometry_count = 0;
         const GeometryRenderData* geometries = nullptr;
+        GeometryRenderData skybox_geometry{};
         u32 mesh_count = 0;
         const Mesh* meshes = nullptr;
         u32 ui_geometry_count = 0;
@@ -74,6 +75,7 @@ namespace nk {
         const SceneLighting* lighting = nullptr;
         u32 geometry_count = 0;
         const GeometryRenderData* geometries = nullptr;
+        GeometryRenderData skybox_geometry{};
         u32 mesh_count = 0;
         const Mesh* meshes = nullptr;
     };

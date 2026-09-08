@@ -55,6 +55,9 @@ namespace nk {
                 .max_instances = m_max_instances,
                 .wireframe = m_wireframe,
                 .depth_test_enabled = m_depth_test_enabled,
+                .depth_write_enabled = m_depth_write_enabled,
+                .cull_mode = m_cull_mode,
+                .depth_compare = m_depth_compare,
             };
         }
 
@@ -87,6 +90,9 @@ namespace nk {
         u32 m_max_instances = 0;
         bool m_wireframe = false;
         bool m_depth_test_enabled = true;
+        bool m_depth_write_enabled = true;
+        ShaderCullMode m_cull_mode = ShaderCullMode::back;
+        ShaderDepthCompare m_depth_compare = ShaderDepthCompare::less;
 
         friend class ShaderResourceLoader;
     };

@@ -243,7 +243,7 @@ namespace nk {
             cl::slice<const u32>{config.indices},
             config.name.view(),
             config.material_name.view(),
-            MaterialType::world,
+            material.type,
             &material,
             config.center,
             config.min_extents,
@@ -351,9 +351,9 @@ namespace nk {
         const MaterialConfig* material_config,
         Geometry& geometry) {
         const strview fallback_geometry_name =
-            material_type == MaterialType::world
-                ? default_geometry_name
-                : default_ui_geometry_name;
+            material_type == MaterialType::ui
+                ? default_ui_geometry_name
+                : default_geometry_name;
         geometry.name.assign(name.empty() ? fallback_geometry_name : name);
 
         auto uploaded = m_renderer->create_geometry(
@@ -370,7 +370,9 @@ namespace nk {
 
         Material* default_material = material_type == MaterialType::world
             ? &m_materials->default_material()
-            : &m_materials->default_ui_material();
+            : material_type == MaterialType::ui
+                ? &m_materials->default_ui_material()
+                : nullptr;
         if (material_config != nullptr) {
             if (material_config->type != material_type ||
                 material_config->name.view() != material_name) {
@@ -391,10 +393,17 @@ namespace nk {
                 });
             }
             geometry.material = *material;
-        } else if (material_name.empty() ||
+        } else if (default_material != nullptr && (material_name.empty() ||
             material_name == default_material_name ||
-            material_name == default_material->name.view()) {
+            material_name == default_material->name.view())) {
             geometry.material = default_material;
+        } else if (default_material == nullptr) {
+            m_renderer->destroy_geometry(geometry);
+            geometry = {};
+            return err(geometry_error{
+                geometry_error_code::invalid_config,
+                0,
+            });
         } else {
             auto material = m_materials->acquire(material_name);
             if (!material) {

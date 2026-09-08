@@ -18,6 +18,10 @@ namespace nk {
         "Builtin.UIShader",
         16,
     };
+    inline constexpr strview builtin_skybox_shader_name{
+        "Builtin.SkyboxShader",
+        20,
+    };
 
     struct ShaderSystemConfig {
         u16 max_shader_count = 16;

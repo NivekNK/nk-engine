@@ -17,11 +17,13 @@ namespace nk {
         diffuse = 1,
         specular = 2,
         normal = 3,
+        cubemap = 4,
     };
 
     enum class MaterialType : u8 {
         world,
         ui,
+        skybox,
     };
 
     enum class MaterialBlendMode : u8 {

@@ -26,3 +26,20 @@ presence here does not relicense them under the NK Engine license.
   repository.
 - NK conversion: the three 4096-pixel PNG maps were capped at 1024 pixels on
   their largest axis.
+
+## Humus skybox
+
+- Files: `textures/skybox_{r,l,u,d,f,b}.png`, ordered as
+  +X, -X, +Y, -Y, +Z and -Z.
+- Author: Emil Persson (Humus), <http://www.humus.name>.
+- License: [Creative Commons Attribution 3.0](https://creativecommons.org/licenses/by/3.0/).
+- Tutorial source: [Kohi commit ab99e89](https://github.com/travisvroman/kohi/commit/ab99e894b24a18598412c42c1545c892042e3dfa).
+- NK conversion: the six upstream 2048x2048 JPEG files were decoded and
+  stored losslessly as PNG because NK's image loader intentionally supports
+  PNG only. The upstream JPEG SHA-256 hashes for `b,d,f,l,r,u` are
+  `5c7f2787518affc762f800b7e27c63b227d4d958c3daa83ceb24c7d756d43500`,
+  `a6b88055cf99db774349a9eb382c3ca8dccc219a1ce6ffb7e849459155fae14a`,
+  `1df219023d436849e68d89c4524cc9e4d92ca8fd6eb35255a34dec73def7c731`,
+  `fa3564a2aa6bca9deafbc64b21066988b922228bb58c5095552a5093bdcb1805`,
+  `f2b50801d963a78ec4f31595ac2e4cdfeb3ab4c7226f58f8383ae6f0b7e2faca`
+  and `e7f76126f5f57a8a289e4cb13fae12d26c34bcd96a24bdd47c234de5ae9fa19e`.

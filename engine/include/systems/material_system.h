@@ -124,6 +124,7 @@ namespace nk {
             ShaderUniformHandle view{};
             ShaderUniformHandle diffuse_color{};
             ShaderUniformHandle diffuse_texture{};
+            ShaderUniformHandle cube_texture{};
             ShaderUniformHandle model{};
             ShaderUniformHandle ambient_color{};
             ShaderUniformHandle directional_light_direction{};
@@ -140,13 +141,15 @@ namespace nk {
             ShaderUniformHandle render_view_mode{};
 
             [[nodiscard]] bool valid(MaterialType type) const noexcept {
-                const bool common_valid =
-                    shader.valid() && projection.valid() && view.valid() &&
-                    diffuse_color.valid() && diffuse_texture.valid() &&
-                    model.valid();
-                return common_valid &&
+                const bool transforms_valid = shader.valid() &&
+                    projection.valid() && view.valid() && model.valid();
+                if (type == MaterialType::skybox)
+                    return transforms_valid && cube_texture.valid();
+                const bool surface_valid = transforms_valid &&
+                    diffuse_color.valid() && diffuse_texture.valid();
+                return surface_valid &&
                     (type == MaterialType::ui ||
-                     (ambient_color.valid() &&
+                     (type == MaterialType::world && ambient_color.valid() &&
                       directional_light_direction.valid() &&
                       directional_light_color.valid() &&
                       normal_matrix.valid() && specular_texture.valid() &&
@@ -187,6 +190,7 @@ namespace nk {
         Material m_default_ui_material{};
         UniformBindings m_world_bindings{};
         UniformBindings m_ui_bindings{};
+        UniformBindings m_skybox_bindings{};
         u32 m_loaded_count = 0;
         bool m_initialized = false;
     };

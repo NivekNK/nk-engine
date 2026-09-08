@@ -229,6 +229,7 @@ namespace nk {
                 packet.view_position = input.world_view_position;
                 packet.geometry_count = input.geometry_count;
                 packet.geometries = input.geometries;
+                packet.skybox_geometry = input.skybox_geometry;
                 packet.mesh_count = input.mesh_count;
                 packet.meshes = input.meshes;
             } else {

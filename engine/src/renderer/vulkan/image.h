@@ -18,6 +18,9 @@ namespace nk {
         bool create_view = false;
         VkImageAspectFlags view_aspect_flags = 0;
         u32 mip_levels = 1;
+        u32 layer_count = 1;
+        VkImageCreateFlags flags = 0;
+        VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
     };
 
     class Image {
@@ -55,6 +58,11 @@ namespace nk {
             VkImageAspectFlags aspect_flags);
 
         void copy_from_buffer(CommandBuffer* command_buffer, VkBuffer buffer);
+        void copy_layers_from_buffer(
+            CommandBuffer* command_buffer,
+            VkBuffer buffer,
+            u32 layer_count,
+            u64 layer_size);
         void copy_from_buffer(
             CommandBuffer* command_buffer,
             VkBuffer buffer,
@@ -79,6 +87,8 @@ namespace nk {
         VkExtent2D m_extent{};
         VkFormat m_format = VK_FORMAT_UNDEFINED;
         u32 m_mip_levels = 1;
+        u32 m_layer_count = 1;
+        VkImageViewType m_view_type = VK_IMAGE_VIEW_TYPE_2D;
         bool m_owns_image = false;
     };
 }

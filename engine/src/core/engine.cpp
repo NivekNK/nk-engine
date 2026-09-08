@@ -257,6 +257,17 @@ namespace nk {
             shutdown_impl();
             return false;
         }
+        auto skybox_shader =
+            m_shader_system->load(builtin_skybox_shader_name);
+        if (!skybox_shader) {
+            const shader_system_error error = skybox_shader.error();
+            ErrorLog(
+                "Built-in skybox shader failed: shader_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
 
         auto material_system = MaterialSystem::create(
             *m_allocator,
@@ -288,6 +299,43 @@ namespace nk {
             return false;
         }
         m_geometry_system = *geometry_system;
+
+        MaterialConfig skybox_material{};
+        skybox_material.name.assign("skybox_material");
+        skybox_material.shader_name.assign(builtin_skybox_shader_name);
+        skybox_material.type = MaterialType::skybox;
+        skybox_material.diffuse_map_name.assign("skybox");
+        skybox_material.diffuse_sampler.wrap_u = TextureWrap::clamp_to_edge;
+        skybox_material.diffuse_sampler.wrap_v = TextureWrap::clamp_to_edge;
+        skybox_material.diffuse_sampler.wrap_w = TextureWrap::clamp_to_edge;
+        auto skybox = GeometrySystem::generate_cube(
+            *m_allocator,
+            1.0f,
+            1.0f,
+            1.0f,
+            1.0f,
+            1.0f,
+            "skybox_geometry",
+            skybox_material.name.view());
+        if (!skybox) {
+            ErrorLog("Skybox geometry generation failed.");
+            shutdown_impl();
+            return false;
+        }
+        auto skybox_geometry = m_geometry_system->acquire(
+            *skybox,
+            skybox_material,
+            true);
+        if (!skybox_geometry) {
+            const geometry_error error = skybox_geometry.error();
+            ErrorLog(
+                "Skybox creation failed: geometry_error={}, native_code={}",
+                static_cast<u32>(error.code),
+                error.native_code);
+            shutdown_impl();
+            return false;
+        }
+        m_skybox_geometry = *skybox_geometry;
 
         if (!m_test_meshes.dyarr_init(m_allocator, 5)) {
             ErrorLog("Test mesh collection allocation failed.");
@@ -578,6 +626,10 @@ namespace nk {
             (void)m_test_meshes.dyarr_shutdown();
         m_test_material = nullptr;
         if (m_geometry_system != nullptr) {
+            if (m_skybox_geometry != nullptr) {
+                m_geometry_system->release(m_skybox_geometry);
+                m_skybox_geometry = nullptr;
+            }
             GeometrySystem::destroy(*m_allocator, m_geometry_system);
             m_geometry_system = nullptr;
             m_test_ui_geometry = nullptr;
@@ -909,6 +961,10 @@ namespace nk {
                 auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
                     .lighting = scene_lighting,
+                    .skybox_geometry = {
+                        .model = glm::mat4{1.0f},
+                        .geometry = m_skybox_geometry,
+                    },
                     .mesh_count = static_cast<u32>(m_test_meshes.length()),
                     .meshes = m_test_meshes.data(),
                     .ui_geometry_count =

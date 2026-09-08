@@ -29,6 +29,7 @@ namespace nk {
         bool depth_write_enabled;
         bool blend_enabled;
         VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
+        VkCompareOp depth_compare_op = VK_COMPARE_OP_LESS;
     };
 
     class Pipeline {

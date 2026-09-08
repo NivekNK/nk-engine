@@ -885,7 +885,9 @@ namespace nk {
             pass == RenderPassKind::world
                 ? MaterialType::world
                 : MaterialType::ui;
-        if (data.geometry->material->type != expected_material_type) {
+        if (data.geometry->material->type != expected_material_type &&
+            !(pass == RenderPassKind::world &&
+              data.geometry->material->type == MaterialType::skybox)) {
             ErrorLog("Geometry material type does not match the active render pass.");
             return;
         }
@@ -1033,12 +1035,151 @@ namespace nk {
         return ok();
     }
 
+    result<void, renderer_error> VulkanRenderer::create_texture_cube(
+        const strview name,
+        const u32 width,
+        const u32 height,
+        const u32 channel_count,
+        const u8* face_pixels,
+        Texture* out_texture) {
+        constexpr u32 face_count = 6;
+        if (out_texture == nullptr || face_pixels == nullptr || width == 0 ||
+            height == 0 || channel_count != 4) {
+            return err(renderer_error{
+                renderer_error_code::texture_state_invalid,
+                0,
+            });
+        }
+        if (width > m_device.max_texture_dimension() ||
+            height > m_device.max_texture_dimension()) {
+            return err(renderer_error{
+                renderer_error_code::texture_limits_exceeded,
+                0,
+            });
+        }
+
+        const VkDeviceSize face_size =
+            static_cast<VkDeviceSize>(width) * height * channel_count;
+        if (face_size > numeric::u64_max / face_count) {
+            return err(renderer_error{
+                renderer_error_code::texture_limits_exceeded,
+                0,
+            });
+        }
+        const VkDeviceSize image_size = face_size * face_count;
+        constexpr VkFormat image_format = VK_FORMAT_R8G8B8A8_UNORM;
+        const cstr mip_option = std::getenv("NK_VULKAN_MIPMAPS");
+        const bool mipmaps =
+            (mip_option == nullptr || std::strcmp(mip_option, "0") != 0) &&
+            m_device.supports_linear_blit(image_format);
+        const u32 mip_levels = mipmaps
+            ? vk::mip_level_count({width, height})
+            : 1;
+
+        TextureData* texture_data = m_allocator->construct_t(TextureData);
+        if (texture_data == nullptr)
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+
+        Buffer staging;
+        auto staging_initialized = staging.init(
+            &m_device,
+            m_vulkan_allocator,
+            image_size,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            true);
+        if (!staging_initialized) {
+            m_allocator->deconstruct_t(TextureData, texture_data);
+            return err(staging_initialized.error());
+        }
+        auto staged = staging.load_data(0, image_size, 0, face_pixels);
+        if (!staged) {
+            m_allocator->deconstruct_t(TextureData, texture_data);
+            return err(staged.error());
+        }
+
+        auto image_initialized = texture_data->image.init(
+            {
+                .image_type = VK_IMAGE_TYPE_2D,
+                .extent = {width, height},
+                .format = image_format,
+                .tiling = VK_IMAGE_TILING_OPTIMAL,
+                .usage = static_cast<VkImageUsageFlags>(
+                    VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                    VK_IMAGE_USAGE_SAMPLED_BIT |
+                    (mip_levels > 1 ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0)),
+                .memory_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .create_view = true,
+                .view_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mip_levels = mip_levels,
+                .layer_count = face_count,
+                .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+                .view_type = VK_IMAGE_VIEW_TYPE_CUBE,
+            },
+            &m_device,
+            m_vulkan_allocator);
+        if (!image_initialized) {
+            m_allocator->deconstruct_t(TextureData, texture_data);
+            return err(image_initialized.error());
+        }
+
+        CommandBuffer commands;
+        auto begun = commands.init(
+            m_device.get_graphics_command_pool(),
+            &m_device,
+            true,
+            true);
+        if (!begun) {
+            const renderer_error error = begun.error();
+            m_allocator->deconstruct_t(TextureData, texture_data);
+            return err(error);
+        }
+        const vk::GraphicsCommands graphics{m_device, commands};
+        graphics.transition(
+            texture_data->image.get(),
+            {VK_IMAGE_ASPECT_COLOR_BIT, 0, mip_levels, 0, face_count},
+            vk::ImageUse::discard,
+            vk::ImageUse::transfer_destination);
+        texture_data->image.copy_layers_from_buffer(
+            &commands,
+            staging,
+            face_count,
+            face_size);
+        texture_data->image.generate_mipmaps(commands);
+        auto completed = commands.end_single_use(
+            m_device.get_graphics_queue());
+        if (!completed) {
+            const renderer_error error = completed.error();
+            m_allocator->deconstruct_t(TextureData, texture_data);
+            return err(error);
+        }
+
+        *out_texture = {
+            .width = width,
+            .height = height,
+            .channel_count = static_cast<u8>(channel_count),
+            .dimension = TextureDimension::cube,
+            .layer_count = face_count,
+            .format = TextureFormat::rgba8_unorm,
+            .generation = 0,
+            .m_internal_data = texture_data,
+        };
+        DebugLog(
+            "Cube texture '{}' uploaded with {} mip level(s).",
+            name,
+            mip_levels);
+        return ok();
+    }
+
     result<void, renderer_error> VulkanRenderer::create_writable_texture(
         Texture* texture) {
         if (!m_device_initialized || m_allocator == nullptr ||
             texture == nullptr || texture->m_internal_data != nullptr ||
             texture->width == 0 || texture->height == 0 ||
-            !texture->writable() || texture->external()) {
+            !texture->writable() || texture->external() ||
+            texture->dimension != TextureDimension::texture_2d ||
+            texture->layer_count != 1) {
             return err(renderer_error{
                 renderer_error_code::texture_state_invalid,
                 0,

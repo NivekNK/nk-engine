@@ -69,7 +69,7 @@ namespace nk {
         depth_stencil_create_info.depthTestEnable = create_info.depth_test_enabled;
         depth_stencil_create_info.depthWriteEnable =
             create_info.depth_write_enabled;
-        depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
+        depth_stencil_create_info.depthCompareOp = create_info.depth_compare_op;
         depth_stencil_create_info.depthBoundsTestEnable = VK_FALSE;
         depth_stencil_create_info.stencilTestEnable = VK_FALSE;
 

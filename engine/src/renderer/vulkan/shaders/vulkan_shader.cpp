@@ -642,8 +642,18 @@ namespace nk {
             .vertex_stride = config.vertex_stride,
             .is_wireframe = config.wireframe,
             .depth_test_enabled = config.depth_test_enabled,
-            .depth_write_enabled = config.depth_test_enabled,
+            .depth_write_enabled =
+                config.depth_test_enabled && config.depth_write_enabled,
             .blend_enabled = false,
+            .cull_mode = config.cull_mode == ShaderCullMode::none
+                ? VK_CULL_MODE_NONE
+                : config.cull_mode == ShaderCullMode::front
+                    ? VK_CULL_MODE_FRONT_BIT
+                    : VK_CULL_MODE_BACK_BIT,
+            .depth_compare_op =
+                config.depth_compare == ShaderDepthCompare::less_equal
+                    ? VK_COMPARE_OP_LESS_OR_EQUAL
+                    : VK_COMPARE_OP_LESS,
         };
         auto pipeline_initialized = m_opaque_pipeline.init(
             pipeline_create_info);
@@ -778,7 +788,7 @@ namespace nk {
             m_metadata.uniform(uniform_handle);
         if (uniform == nullptr || data == nullptr || size == 0 ||
             uniform->type != type || uniform->size != size ||
-            type == ShaderUniformType::sampler_2d) {
+            is_sampler_uniform(type)) {
             return err(invalid_uniform());
         }
 
@@ -833,7 +843,7 @@ namespace nk {
         const ShaderUniformMetadata* uniform =
             m_metadata.uniform(uniform_handle);
         if (uniform == nullptr ||
-            uniform->type != ShaderUniformType::sampler_2d ||
+            !is_sampler_uniform(uniform->type) ||
             uniform->scope == ShaderScope::local ||
             array_index >= uniform->array_length) {
             return err(invalid_uniform());
@@ -849,6 +859,14 @@ namespace nk {
         if (binding.sampler == SamplerHandle{}) binding.sampler = m_default_sampler;
         if (m_samplers->resolve(binding.sampler) == VK_NULL_HANDLE)
             return err(renderer_error{renderer_error_code::sampler_handle_invalid, 0});
+        const TextureDimension expected =
+            uniform->type == ShaderUniformType::sampler_cube
+                ? TextureDimension::cube
+                : TextureDimension::texture_2d;
+        if (binding.texture == nullptr || !binding.texture->valid() ||
+            binding.texture->dimension != expected) {
+            return err(invalid_uniform());
+        }
 
         if (uniform->scope == ShaderScope::global) {
             m_global_textures[slot] = binding;

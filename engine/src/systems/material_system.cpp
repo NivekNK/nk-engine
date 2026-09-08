@@ -138,6 +138,16 @@ namespace nk {
         }
         m_ui_bindings = *ui_bindings;
 
+        auto skybox_bindings = resolve_bindings(
+            builtin_skybox_shader_name,
+            MaterialType::skybox);
+        if (!skybox_bindings) {
+            const material_error error = skybox_bindings.error();
+            shutdown();
+            return err(error);
+        }
+        m_skybox_bindings = *skybox_bindings;
+
         auto default_created = create_default_materials();
         if (!default_created) {
             const material_error error = default_created.error();
@@ -173,6 +183,7 @@ namespace nk {
         m_default_ui_material = {};
         m_world_bindings = {};
         m_ui_bindings = {};
+        m_skybox_bindings = {};
         m_loaded_count = 0;
         m_initialized = false;
         m_textures = nullptr;
@@ -199,6 +210,19 @@ namespace nk {
         if (!view)
             return err(translate_shader_error(view.error()));
         resolved.view = *view;
+        auto model = m_shaders->uniform(*shader, "model");
+        if (!model)
+            return err(translate_shader_error(model.error()));
+        resolved.model = *model;
+
+        if (type == MaterialType::skybox) {
+            auto cube_texture = m_shaders->uniform(*shader, "cube_texture");
+            if (!cube_texture)
+                return err(translate_shader_error(cube_texture.error()));
+            resolved.cube_texture = *cube_texture;
+            return ok(resolved);
+        }
+
         auto diffuse_color = m_shaders->uniform(*shader, "diffuse_color");
         if (!diffuse_color)
             return err(translate_shader_error(diffuse_color.error()));
@@ -208,10 +232,6 @@ namespace nk {
         if (!diffuse_texture)
             return err(translate_shader_error(diffuse_texture.error()));
         resolved.diffuse_texture = *diffuse_texture;
-        auto model = m_shaders->uniform(*shader, "model");
-        if (!model)
-            return err(translate_shader_error(model.error()));
-        resolved.model = *model;
 
         if (type == MaterialType::world) {
             auto ambient_color = m_shaders->uniform(*shader, "ambient_color");
@@ -282,7 +302,9 @@ namespace nk {
         const MaterialType type) const noexcept {
         const UniformBindings* resolved = type == MaterialType::world
             ? &m_world_bindings
-            : &m_ui_bindings;
+            : type == MaterialType::ui
+                ? &m_ui_bindings
+                : &m_skybox_bindings;
         return resolved->valid(type) ? resolved : nullptr;
     }
 
@@ -436,7 +458,9 @@ namespace nk {
         if (texture_name == default_texture_name) {
             replacement = &m_textures->default_texture();
         } else {
-            auto acquired = m_textures->acquire(texture_name, true);
+            auto acquired = material.type == MaterialType::skybox
+                ? m_textures->acquire_cube(texture_name, true)
+                : m_textures->acquire(texture_name, true);
             if (!acquired) {
                 return err(material_error{
                     material_error_code::texture_failed,
@@ -709,9 +733,12 @@ namespace nk {
         Material& material, TextureUse use, const SamplerConfig& sampling) {
         if (!m_initialized) return err(material_error{material_error_code::not_initialized, 0});
         if (!material.valid() || !sampling.valid() ||
-            (material.type == MaterialType::ui && use != TextureUse::diffuse))
+            ((material.type == MaterialType::ui && use != TextureUse::diffuse) ||
+             (material.type == MaterialType::skybox &&
+              use != TextureUse::cubemap)))
             return err(material_error{material_error_code::invalid_config, 0});
-        TextureMap* map = use == TextureUse::diffuse ? &material.diffuse_map :
+        TextureMap* map = (use == TextureUse::diffuse ||
+                           use == TextureUse::cubemap) ? &material.diffuse_map :
             use == TextureUse::specular ? &material.specular_map : use == TextureUse::normal ? &material.normal_map : nullptr;
         if (map == nullptr) return err(material_error{material_error_code::invalid_config, 0});
         if (map->sampling == sampling) return ok();
@@ -903,13 +930,17 @@ namespace nk {
         if (!instance_bound)
             return err(translate_shader_error(instance_bound.error()));
         if (needs_update) {
-            auto color_set = m_shaders->set_uniform(
-                uniform->diffuse_color,
-                material.diffuse_color);
-            if (!color_set)
-                return err(translate_shader_error(color_set.error()));
+            if (material.type != MaterialType::skybox) {
+                auto color_set = m_shaders->set_uniform(
+                    uniform->diffuse_color,
+                    material.diffuse_color);
+                if (!color_set)
+                    return err(translate_shader_error(color_set.error()));
+            }
             auto texture_set = m_shaders->set_sampler(
-                uniform->diffuse_texture,
+                material.type == MaterialType::skybox
+                    ? uniform->cube_texture
+                    : uniform->diffuse_texture,
                 material.diffuse_map.binding());
             if (!texture_set)
                 return err(translate_shader_error(texture_set.error()));
@@ -1007,7 +1038,9 @@ namespace nk {
             return err(material_error{material_error_code::invalid_config, 0});
         }
         material.diffuse_color = config.diffuse_color;
-        material.diffuse_map.use = TextureUse::diffuse;
+        material.diffuse_map.use = config.type == MaterialType::skybox
+            ? TextureUse::cubemap
+            : TextureUse::diffuse;
         material.diffuse_map_name.assign(config.diffuse_map_name.view());
         material.shininess = config.shininess;
         if (!std::isfinite(material.shininess) || material.shininess <= 0.0f)
@@ -1022,7 +1055,9 @@ namespace nk {
         const strview shader_name = config.shader_name.empty()
             ? (config.type == MaterialType::world
                 ? builtin_material_shader_name
-                : builtin_ui_shader_name)
+                : config.type == MaterialType::ui
+                    ? builtin_ui_shader_name
+                    : builtin_skybox_shader_name)
             : config.shader_name.view();
         auto shader = m_shaders->handle(shader_name);
         if (!shader)
@@ -1034,14 +1069,27 @@ namespace nk {
 
         bool diffuse_acquired = false;
         bool specular_acquired = false;
-        if (config.diffuse_map_name.empty() ||
-            config.diffuse_map_name.view() == default_texture_name) {
+        if (config.type == MaterialType::skybox &&
+            config.diffuse_map_name.empty()) {
+            material = {};
+            return err(material_error{
+                material_error_code::invalid_config,
+                0,
+            });
+        }
+        if (config.type != MaterialType::skybox &&
+            (config.diffuse_map_name.empty() ||
+             config.diffuse_map_name.view() == default_texture_name)) {
             material.diffuse_map.texture = &m_textures->default_texture();
             material.diffuse_map_name.assign(default_texture_name);
         } else {
-            auto texture = m_textures->acquire(
-                config.diffuse_map_name.view(),
-                true);
+            auto texture = config.type == MaterialType::skybox
+                ? m_textures->acquire_cube(
+                    config.diffuse_map_name.view(),
+                    true)
+                : m_textures->acquire(
+                    config.diffuse_map_name.view(),
+                    true);
             if (!texture) {
                 material = {};
                 return err(material_error{

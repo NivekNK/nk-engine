@@ -157,6 +157,7 @@ namespace nk {
             .geometry_count = static_cast<u32>(
                 m_world_draw_scratch.length()),
             .geometries = m_world_draw_scratch.data(),
+            .skybox_geometry = packet.skybox_geometry,
             .mesh_count = 0,
             .meshes = nullptr,
             .ui_geometry_count = packet.ui_geometry_count,
@@ -287,6 +288,32 @@ namespace nk {
             packet.type == RenderViewType::world
                 ? MaterialType::world
                 : MaterialType::ui;
+        Material* bound_material = nullptr;
+        if (packet.type == RenderViewType::world &&
+            packet.skybox_geometry.geometry != nullptr) {
+            auto skybox_globals = materials.apply_global(
+                MaterialType::skybox,
+                packet.projection,
+                packet.view,
+                packet.view_position,
+                *packet.lighting,
+                RenderViewMode::default_lit);
+            if (!skybox_globals) {
+                return fail({
+                    renderer_error_code::material_failed,
+                    skybox_globals.error().native_code,
+                });
+            }
+            auto skybox_drawn = draw_render_data(
+                materials,
+                pass,
+                MaterialType::skybox,
+                packet.skybox_geometry,
+                bound_material);
+            if (!skybox_drawn)
+                return fail(skybox_drawn.error());
+            bound_material = nullptr;
+        }
         auto globals_applied = materials.apply_global(
             expected_material_type,
             packet.projection,
@@ -302,7 +329,6 @@ namespace nk {
                 globals_applied.error().native_code,
             });
 
-        Material* bound_material = nullptr;
         for (u32 index = 0; index < packet.geometry_count; ++index) {
             auto drawn = draw_render_data(
                 materials,
@@ -347,6 +373,12 @@ namespace nk {
             : data.geometry->material;
         if (material == nullptr || !material->valid() ||
             material->type != expected_material_type) {
+            if (expected_material_type == MaterialType::skybox) {
+                return err(renderer_error{
+                    renderer_error_code::material_failed,
+                    0,
+                });
+            }
             material = expected_material_type == MaterialType::world
                 ? &materials.default_material()
                 : &materials.default_ui_material();

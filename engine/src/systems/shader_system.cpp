@@ -220,7 +220,7 @@ namespace nk {
         u32 global_samplers = 0;
         u32 instance_samplers = 0;
         for (const ShaderUniformConfig& uniform : config.uniforms) {
-            if (uniform.type != ShaderUniformType::sampler_2d)
+            if (!is_sampler_uniform(uniform.type))
                 continue;
             u32* count = uniform.scope == ShaderScope::global
                 ? &global_samplers
@@ -668,7 +668,7 @@ namespace nk {
         const ShaderUniformMetadata* metadata = current_uniform(uniform);
         if (metadata == nullptr)
             return err(current_uniform_error(uniform));
-        if (metadata->type != ShaderUniformType::sampler_2d ||
+        if (!is_sampler_uniform(metadata->type) ||
             array_index >= metadata->array_length) {
             return err(shader_system_error{
                 shader_system_error_code::invalid_uniform,

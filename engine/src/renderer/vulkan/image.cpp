@@ -12,7 +12,10 @@ namespace nk {
         const VulkanImageCreateInfo& create_info,
         Device* device,
         VkAllocationCallbacks* vulkan_allocator) {
-        if (create_info.mip_levels == 0 ||
+        if (create_info.mip_levels == 0 || create_info.layer_count == 0 ||
+            (create_info.view_type == VK_IMAGE_VIEW_TYPE_CUBE &&
+             (create_info.layer_count != 6 ||
+              (create_info.flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) == 0)) ||
             create_info.mip_levels > vk::mip_level_count(create_info.extent))
             return err(renderer_error{renderer_error_code::image_creation_failed, 0});
         m_device = device;
@@ -20,16 +23,19 @@ namespace nk {
         m_extent = create_info.extent;
         m_format = create_info.format;
         m_mip_levels = create_info.mip_levels;
+        m_layer_count = create_info.layer_count;
+        m_view_type = create_info.view_type;
 
         // Creation info.
         VkImageCreateInfo image_create_info = {};
         image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        image_create_info.imageType = VK_IMAGE_TYPE_2D;
+        image_create_info.flags = create_info.flags;
+        image_create_info.imageType = create_info.image_type;
         image_create_info.extent.width = m_extent.width;
         image_create_info.extent.height = m_extent.height;
         image_create_info.extent.depth = 1; // TODO: Support configurable depth.
         image_create_info.mipLevels = m_mip_levels;
-        image_create_info.arrayLayers = 1;  // TODO: Support number of layers in the image.
+        image_create_info.arrayLayers = m_layer_count;
         image_create_info.format = m_format;
         image_create_info.tiling = create_info.tiling;
         image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -120,6 +126,8 @@ namespace nk {
         m_extent = extent;
         m_format = format;
         m_mip_levels = 1;
+        m_layer_count = 1;
+        m_view_type = VK_IMAGE_VIEW_TYPE_2D;
         m_owns_image = false;
         auto view_created = create_view(view_aspect_flags);
         if (!view_created) {
@@ -148,6 +156,8 @@ namespace nk {
         m_extent = {};
         m_format = VK_FORMAT_UNDEFINED;
         m_mip_levels = 1;
+        m_layer_count = 1;
+        m_view_type = VK_IMAGE_VIEW_TYPE_2D;
         m_owns_image = false;
     }
 
@@ -156,7 +166,7 @@ namespace nk {
         VkImageViewCreateInfo view_create_info = {};
         view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view_create_info.image = m_image;
-        view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D; // TODO: Make configurable.
+        view_create_info.viewType = m_view_type;
         view_create_info.format = m_format;
         view_create_info.subresourceRange.aspectMask = aspect_flags;
 
@@ -164,7 +174,7 @@ namespace nk {
         view_create_info.subresourceRange.baseMipLevel = 0;
         view_create_info.subresourceRange.levelCount = m_mip_levels;
         view_create_info.subresourceRange.baseArrayLayer = 0;
-        view_create_info.subresourceRange.layerCount = 1;
+        view_create_info.subresourceRange.layerCount = m_layer_count;
 
         const VkResult result = vkCreateImageView(
             m_device->get(), &view_create_info, m_vulkan_allocator, &m_view);
@@ -179,22 +189,30 @@ namespace nk {
     void Image::generate_mipmaps(CommandBuffer& command_buffer) {
         const vk::GraphicsCommands commands{*m_device, command_buffer};
         for (u32 level = 1; level < m_mip_levels; ++level) {
-            const VkImageSubresourceRange previous{VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, 1};
+            const VkImageSubresourceRange previous{
+                VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, m_layer_count};
             commands.transition(m_image, previous,
                 vk::ImageUse::transfer_destination, vk::ImageUse::transfer_source);
             const VkExtent2D source = vk::mip_extent(m_extent, level - 1);
             const VkExtent2D destination = vk::mip_extent(m_extent, level);
             VkImageBlit region{};
-            region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, 1};
+            region.srcSubresource = {
+                VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, m_layer_count};
             region.srcOffsets[1] = {static_cast<i32>(source.width), static_cast<i32>(source.height), 1};
-            region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1};
+            region.dstSubresource = {
+                VK_IMAGE_ASPECT_COLOR_BIT, level, 0, m_layer_count};
             region.dstOffsets[1] = {static_cast<i32>(destination.width), static_cast<i32>(destination.height), 1};
             vkCmdBlitImage(command_buffer, m_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
             commands.transition(m_image, previous,
                 vk::ImageUse::transfer_source, vk::ImageUse::sampled);
         }
-        commands.transition(m_image, {VK_IMAGE_ASPECT_COLOR_BIT, m_mip_levels - 1, 1, 0, 1},
+        commands.transition(m_image, {
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                m_mip_levels - 1,
+                1,
+                0,
+                m_layer_count},
             vk::ImageUse::transfer_destination, vk::ImageUse::sampled);
     }
 
@@ -206,6 +224,37 @@ namespace nk {
             0,
             m_extent.width,
             m_extent.height);
+    }
+
+    void Image::copy_layers_from_buffer(
+        CommandBuffer* command_buffer,
+        const VkBuffer buffer,
+        const u32 layer_count,
+        const u64 layer_size) {
+        Assert(layer_count == m_layer_count && layer_count <= 6,
+            "Layer upload must cover the entire image.");
+        VkBufferImageCopy regions[6]{};
+        for (u32 layer = 0; layer < layer_count; ++layer) {
+            regions[layer].bufferOffset = layer_size * layer;
+            regions[layer].imageSubresource = {
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                0,
+                layer,
+                1,
+            };
+            regions[layer].imageExtent = {
+                m_extent.width,
+                m_extent.height,
+                1,
+            };
+        }
+        vkCmdCopyBufferToImage(
+            command_buffer->get(),
+            buffer,
+            m_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            layer_count,
+            regions);
     }
 
     void Image::copy_from_buffer(

@@ -32,6 +32,7 @@ namespace nk {
         SceneLighting lighting{};
         u32 geometry_count = 0;
         const GeometryRenderData* geometries = nullptr;
+        GeometryRenderData skybox_geometry{};
         u32 mesh_count = 0;
         const Mesh* meshes = nullptr;
         u32 ui_geometry_count = 0;
@@ -125,6 +126,13 @@ namespace nk {
             u32 channel_count,
             const u8* pixels,
             bool has_transparency,
+            Texture* out_texture) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> create_texture_cube(
+            strview name,
+            u32 width,
+            u32 height,
+            u32 channel_count,
+            const u8* face_pixels,
             Texture* out_texture) = 0;
         [[nodiscard]] virtual result<void, renderer_error>
         create_writable_texture(Texture* texture) = 0;
