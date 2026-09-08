@@ -141,6 +141,13 @@ Vulkan 1.2-compatible fallback. `NK_VULKAN_LEGACY=1` forces that fallback and
 [Sponza performance and NoGraphicsAPI evaluation](docs/vulkan-performance-and-nographicsapi.md)
 for measurements, hardware requirements, design decisions and regression checks.
 
+The current demo renders shaped UTF-8 through FreeType, HarfBuzz, an R8 atlas
+and Slang shaders. Disable its diagnostic overlay with `NK_TEXT_OVERLAY=0`.
+Wayland/Niri uses native fractional scaling, compose/repeat and text-input-v3;
+Win32 uses per-monitor-v2 DPI and IMM32. The renderer, ownership contracts,
+input lifetime and the future Clay adapter boundary are described in
+[`docs/text-rendering-implementation.md`](docs/text-rendering-implementation.md).
+
 The PowerShell library-management scripts also have Bash equivalents:
 
 ```bash

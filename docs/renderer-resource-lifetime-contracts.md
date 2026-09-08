@@ -415,9 +415,11 @@ never delete or separately release them.
   `frame_outcome` instead of treating every non-rendered frame as failure.
 - Resize changes projection state and delegates backend resource recreation. A
   zero-sized/minimized surface may defer rendering until valid dimensions return.
-- The stable-frame allocation smoke check measures rendered frames individually.
-  Frames skipped for swapchain recreation are intentionally excluded because
-  rebuilding swapchain-sized resources is not steady-state frame work.
+- The stable-frame allocation smoke check measures rendered frames individually
+  only after asynchronous jobs and mesh publication are idle. The publication
+  frame is a warmup frame. Frames skipped for swapchain recreation are also
+  excluded because rebuilding swapchain-sized resources is not steady-state
+  frame work.
 
 ## Error and rollback contract
 
