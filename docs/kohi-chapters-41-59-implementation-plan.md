@@ -1128,26 +1128,49 @@ Estos commits son anteriores al 42. No deben mezclarse artificialmente con el
 
 ### Plan
 
-- [ ] Definir `RenderPassConfig`, `RenderTargetConfig` y attachment configs fuera
+- [x] Definir `RenderPassConfig`, `RenderTargetConfig` y attachment configs fuera
   del backend Vulkan: formato/tipo, load/store, clear y fuente del attachment.
-- [ ] Mantener `VkRenderPass`, `VkFramebuffer` y detalles de layouts dentro de
+- [x] Mantener `VkRenderPass`, `VkFramebuffer` y detalles de layouts dentro de
   Vulkan; el frontend sólo conserva handles/recursos renderer-neutral.
-- [ ] Construir targets desde texturas writable o externas del capítulo 58.
-- [ ] Regenerar attachments/targets al cambiar generación, tamaño o image count del
+- [x] Construir targets desde texturas writable o externas del capítulo 58.
+- [x] Regenerar attachments/targets al cambiar generación, tamaño o image count del
   swapchain, incluyendo world y UI.
-- [ ] Validar compatibilidad de dimensiones, formato, sample count y roles
+- [x] Validar compatibilidad de dimensiones, formato, sample count y roles
   color/depth antes de crear objetos Vulkan.
-- [ ] Hacer init/rebuild transaccional y destruir framebuffers antes que sus views,
+- [x] Hacer init/rebuild transaccional y destruir framebuffers antes que sus views,
   images y render pass.
-- [ ] Mantener inicialmente el flujo world → UI. Un render graph queda fuera de
+- [x] Mantener inicialmente el flujo world → UI. Un render graph queda fuera de
   alcance hasta que exista una necesidad distinta a estos dos passes.
 
 ### Validación y commits
 
-- [ ] Unit tests de config inválida y backend fake; Validation Layers en inicio,
-  varios resize, minimizar/restaurar y cierre bajo niri.
-- [ ] Commits sugeridos: `feat(renderer): add configurable render targets` y
+- [x] Unit tests de config inválida en la frontera renderer-neutral sin Vulkan;
+  Validation Layers en inicio, varios resize/restore y cierre bajo niri.
+- [x] Commits sugeridos: `feat(renderer): add configurable render targets` y
   `refactor(vulkan): build render passes from renderer configs`.
+
+### Implementación cerrada
+
+- Commits funcionales: `5c70d70` (`feat(renderer): add configurable render
+  target contracts`) y `0e90775` (`refactor(vulkan): build render passes from
+  target configs`). Hardening transaccional: `7ff93c5` (`fix(renderer): preserve
+  targets on failed rebuilds`).
+- Contratos, ownership y reproducción: [Render targets and configurable render
+  passes](render-targets.md).
+- `RenderPassConfig`, `RenderTargetConfig`, formatos, sample counts y operaciones
+  load/store son renderer-neutral. `VkRenderPass`, `VkFramebuffer`, views,
+  layouts y dependencias permanecen en Vulkan.
+- World usa color clear/store y depth clear/discard; UI carga y conserva el mismo
+  color antes de presentarlo. Cada imagen del swapchain posee depth independiente.
+- Dynamic rendering consume la misma config que el fallback clásico. Esto adopta
+  el límite explícito de comandos/recursos de NoGraphicsAPI sin elevar el mínimo
+  de GPU ni eliminar `NK_VULKAN_LEGACY=1`.
+- El fix `5f910b6` de Kohi no se copió: la FreeList propia ya usa capacidad de
+  metadata explícita y errores transaccionales, cubiertos por sus regresiones.
+- Cierre local: 265 tests Debug, 265 con ASan/UBSan y 256 Release; smokes de 120
+  frames en rutas dynamic y legacy, seis configure/resize/restore bajo niri y
+  cierre limpio. Sin VUID, sin allocations en frames estables y sin fugas.
+  niri no expone una acción universal de minimización; Windows no fue ejecutado.
 
 ## Matriz de verificación por entrega
 

@@ -18,6 +18,12 @@ public configuration types.
 public resource can carry an opaque backend handle, but only its creating
 renderer may interpret or destroy it.
 
+Render-pass and target descriptions follow the same boundary. `RenderPassConfig`
+and `RenderTarget` contain only neutral formats, operations and borrowed
+`Texture*` attachments. Dynamic rendering and the legacy `VkRenderPass`/
+`VkFramebuffer` path consume the same config inside Vulkan. The full current
+contract is documented in [render-targets.md](render-targets.md).
+
 The Vulkan command boundary follows the scoped, explicit-resource design of
 [NoGraphicsAPI](https://github.com/sebbbi/NoGraphicsAPI): `vk::GraphicsCommands`
 borrows command buffers, buffer ranges, attachments and push-constant bytes;
@@ -130,6 +136,8 @@ These orderings are invariants:
 | `ShaderResourceConfig` payload | Built-in `ShaderResourceLoader` as a loaded `Resource` | Inline strings and configuration slices contained in the same payload | `ResourceSystem::unload`; no view may survive it |
 | `Renderer` | `Engine` through the root allocator | `Platform`, `ResourceSystem`, default texture | `Renderer::destroy` |
 | Vulkan backend objects | Active `Renderer` | Platform surface and renderer resources | The Vulkan renderer during resource destruction or shutdown |
+| `RenderTarget` snapshot | Vulkan renderer target arrays | Writable/external textures owned by the current swapchain generation | Vulkan renderer before replacing attachment views/images |
+| Legacy `VkFramebuffer` | Vulkan renderer framebuffer arrays | Current target views and compatible `VkRenderPass` | Vulkan renderer before targets, views/images and render pass |
 | `ShaderHandle` slot | Vulkan renderer shader registry | Compatible render pass, device, resources and live textures bound by descriptors | `ShaderSystem::destroy(shader)` through `Renderer::destroy_shader`, or renderer shutdown as a defensive fallback |
 | `ShaderSystem` registry | `Engine` through the root allocator | `Renderer`, `ResourceSystem` and indirect texture lifetime | `ShaderSystem::destroy` after materials and before textures/renderer/resources |
 | `ShaderSystem::ShaderRecord` | Its `ShaderSystem` fixed-capacity registry | Backend `ShaderHandle`; copied immutable metadata and owned lookup names | `ShaderSystem::destroy(shader)` or system shutdown |
