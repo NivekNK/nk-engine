@@ -100,3 +100,15 @@ matemáticas y de layout.
   luz ni mapas specular/normal.
 - La iluminación forma parte de `RenderPacket` mediante `SceneLighting`. El
   pase UI ignora estos datos y conserva su shader y layout anteriores.
+## Frustum y clip space
+
+Las matrices de proyección actuales de las vistas se crean con GLM sin
+`GLM_FORCE_DEPTH_ZERO_TO_ONE`. Por ello el culling extrae el volumen homogéneo
+`-w <= x,y,z <= w` de la misma matriz `projection * view` que consume Vulkan.
+La inversión vertical se resuelve en el viewport y no cambia estos planos.
+
+Las AABB locales se llevan a mundo mediante centro y extents conservadores:
+`worldCenter = model * localCenter` y
+`worldExtents = abs(mat3(model)) * localExtents`. Esto preserva rotación, escala
+no uniforme y escala negativa. La tangencia cuenta como visible; matrices o
+bounds no finitos también se conservan visibles para fallar sin ocultar objetos.

@@ -84,6 +84,7 @@ set(SOURCES
     src/core/thread.cpp
     src/core/hash.cpp
     src/core/str.cpp
+    src/math/frustum.cpp
     src/text/library_memory.cpp
     src/text/text_overlay.cpp
     src/systems/font_system.cpp
