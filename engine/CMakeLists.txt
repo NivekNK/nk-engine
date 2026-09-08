@@ -183,6 +183,10 @@ elseif (UNIX AND NOT APPLE)
     )
 endif()
 
+if (WIN32)
+    list(APPEND SOURCES src/core/thread_win32.cpp)
+endif()
+
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCES})
 
 set_source_files_properties(
