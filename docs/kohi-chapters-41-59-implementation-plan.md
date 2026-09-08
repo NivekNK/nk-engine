@@ -1,6 +1,6 @@
 # Plan de implementación de Kohi 41–59 en NK Engine
 
-- Estado: en progreso; capítulos 41–57 adaptados
+- Estado: completado; capítulos 41–59 adaptados
 - Fecha de análisis: 2026-09-02
 - Punto de partida de NK Engine: capítulos 34–40 adaptados; rama `feature/textures`
 
