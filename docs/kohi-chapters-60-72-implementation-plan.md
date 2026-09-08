@@ -1,9 +1,51 @@
 # Plan de implementación de Kohi 60–72 en NK Engine
 
-- Estado: planificado
+- Estado: alcance histórico implementado; validación Linux completada
 - Fecha de análisis: 2026-09-08
 - Punto de partida: capítulos 41–59 adaptados en `feature/textures`
 - Baseline del repositorio al preparar el plan: `2421da5`
+
+## Registro de implementación
+
+La adaptación se cerró el 2026-09-08 sin incorporar dependencias nuevas. Se
+conservó NoGraphicsAPI como referencia arquitectónica y se implementaron rutas
+Vulkan propias con selección de capacidades en runtime, incluido un fallback
+sin dynamic rendering ni synchronization2.
+
+| Capítulo | Resultado en NK Engine | Commits NK |
+|---|---|---|
+| 60 | Cámara como valor, cache lazy y sistema de handles generacionales. | `c17a7a9` |
+| 61 | Vistas administradas y paquetes de frame construidos fuera del backend. | `a2e0e43` |
+| 62 | Clasificación, orden back-to-front y pipeline transparente correcto. | `3221b1e` |
+| 63 | Cubemaps, skybox y assets con shader Slang. | `d12c31d` |
+| 64 | Compilación Slang unificada para Bash y PowerShell. | `84715e0` |
+| 65 | Thread, mutex y condition variable cooperativos en Linux. | `a6fb0d6` |
+| 66 | La misma interfaz y semántica para Win32. | `973f9f8` |
+| 67 | Ring de capacidad fija y JobSystem con prioridades y parada cooperativa. | `dbebda6`, `b9773a0` |
+| 68 | Decodificación de texturas y carga de payloads mesh mediante jobs; publicación GPU en el hilo dueño. | `3c6f63d`, `f17255e` |
+| 69 | Identidad de callbacks, input signed y backoff al suspender render. | `72d8800`, `c252fc9` |
+| 70 | Sincronización explícita de allocators y salida de log multihilo. | `ef82618`, `ad06f8f` |
+| 70.1 | Tracking de asignaciones concurrente y determinista. | `faf6393` |
+| 71 | Callbacks host Vulkan opcionales y contabilidad separada de memoria de dispositivo. | `ef68fac`, `063beff` |
+| 72 | RenderBuffer neutral, rangos con owner/generation, uploads agrupados, fences por envío y staging persistente. | `7b4d17d`, `c12ace1`, `36cb84d` |
+
+### Evidencia de cierre
+
+- Build Debug completa mediante el flake.
+- Suite Debug: 309/309 tests aprobados.
+- Smoke Wayland/xdg-shell bajo niri: 20 frames en la ruta moderna con callbacks
+  host habilitados, Validation Layers y cero fugas.
+- Smoke Wayland/xdg-shell bajo niri: fallback Vulkan legado forzado mediante
+  `NK_VULKAN_LEGACY=1`, cierre limpio y cero fugas.
+- La ruta Win32 queda implementada y aislada por plataforma; su smoke runtime
+  requiere ejecutarse en el equipo Windows/NVIDIA objetivo.
+- No se instaló ninguna librería, por lo que `.scripts/libraries.csv` no requirió
+  cambios.
+
+Las casillas que siguen se preservan como especificación y trazabilidad del plan
+original. Este registro y los commits anteriores son la fuente del estado
+ejecutado; los puntos de benchmark comparativo entre GPUs o validación runtime
+en Windows son validaciones posteriores, no código histórico pendiente.
 
 ## Objetivo
 
