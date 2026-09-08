@@ -65,6 +65,7 @@ set(SOURCES
     src/memory/free_list.cpp
     src/memory/free_list_allocator.cpp
     src/systems/logging_system.cpp
+    src/systems/job_system.cpp
     src/systems/event_system.cpp
     src/systems/input_system.cpp
     src/systems/shader_system.cpp
