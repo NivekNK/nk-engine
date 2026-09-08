@@ -32,7 +32,7 @@ add_library(nk_harfbuzz STATIC vendor/harfbuzz/src/harfbuzz.cc)
 target_include_directories(nk_harfbuzz PUBLIC vendor/harfbuzz/src)
 target_link_libraries(nk_harfbuzz PRIVATE freetype)
 target_compile_definitions(nk_harfbuzz PRIVATE
-    HAVE_FREETYPE=1 HB_CUSTOM_MALLOC=1 HB_NO_DRAW=1 HB_NO_PAINT=1)
+    HAVE_FREETYPE=1 HAVE_ATEXIT=1 HB_CUSTOM_MALLOC=1 HB_NO_DRAW=1 HB_NO_PAINT=1)
 if(MSVC)
     target_compile_options(nk_harfbuzz PRIVATE /W0 /bigobj)
     target_compile_options(freetype PRIVATE /W0)
@@ -84,6 +84,7 @@ set(SOURCES
     src/core/hash.cpp
     src/core/str.cpp
     src/text/library_memory.cpp
+    src/systems/font_system.cpp
     src/core/transform.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp

@@ -6,8 +6,8 @@ dependencia de este tramo. Sus futuros widgets serán responsabilidad de NK.
 ## Alcance y seguimiento
 
 - [x] FreeType y HarfBuzz como submódulos a tags, CSV y Nix sincronizados.
-- [ ] UTF-8 validado sin cambiar la semántica en bytes de str/strview.
-- [ ] Fuentes, métricas, shaping y medición con la misma información que el dibujo.
+- [x] UTF-8 validado sin cambiar la semántica en bytes de str/strview.
+- [x] Fuentes, métricas, shaping y medición con la misma información que el dibujo.
 - [ ] Atlas R8 paginado, posiciones estables y uploads agrupados.
 - [ ] Geometría de texto agrupada y buffers por frame; shaders Slang.
 - [ ] Texto dinámico, colores, tamaños, saltos de línea y clipping sobre Sponza.
@@ -29,6 +29,18 @@ del MemorySystem del motor. Sus contadores separados se exponen mediante
 `harfbuzz_memory_statistics()`; no se atribuyen esas cachés a un FontSystem
 ni se conserva un puntero a un allocator destruido. Las cachés y los recursos
 de NK usan los contenedores y allocators del motor.
+
+La compilación embebida habilita explícitamente `HAVE_ATEXIT` para que HarfBuzz
+libere sus cachés globales. FreeType utiliza hinting nativo, sin auto-hinter:
+las pruebas de OOM detectaron un acceso nulo del auto-hinter con módulos
+parcialmente inicializados. NK rechaza esa inicialización parcial y propaga
+fallos de asignación incluso cuando la consulta de métricas atraviesa HarfBuzz.
+Los layouts son transaccionales y sus arrays toman prestado el allocator del
+FontSystem; ese allocator debe sobrevivirlos. Descargar una fuente invalida sus
+handles, pero no mueve celdas de atlas de las demás fuentes.
+
+Validación inicial: Debug compila; 12 pruebas de UTF-8, memoria, shaping,
+dirección explícita, atlas, handles y rollback pasan.
 
 ## Referencias
 
