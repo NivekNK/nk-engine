@@ -1134,6 +1134,11 @@ namespace nk {
 
                 // Update last time
                 m_last_time = current_time;
+            } else {
+                // Event pumps are deliberately non-blocking on XCB and
+                // Wayland. Back off only while rendering is suspended so a
+                // minimized/zero-extent window cannot consume a full CPU core.
+                m_platform->sleep(16);
             }
         }
 
