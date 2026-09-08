@@ -89,6 +89,7 @@ set(SOURCES
     src/renderer/render_target.cpp
     src/renderer/render_view.cpp
     src/renderer/buffer_suballocator.cpp
+    src/renderer/render_buffer.cpp
     src/renderer/shader.cpp
     src/renderer/shader_config.cpp
     src/renderer/vulkan/vulkan_renderer.cpp

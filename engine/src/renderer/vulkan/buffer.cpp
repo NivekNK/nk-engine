@@ -7,13 +7,51 @@
 
 namespace nk {
     namespace {
-        renderer_error buffer_error(
+        [[nodiscard]] renderer_error buffer_error(
             const renderer_error_code code,
             const VkResult native_code = VK_SUCCESS) noexcept {
             return {
                 .code = code,
                 .native_code = static_cast<i32>(native_code),
             };
+        }
+
+        [[nodiscard]] VkBufferUsageFlags vulkan_usage(
+            const BufferUsage usage) noexcept {
+            VkBufferUsageFlags flags = 0;
+            if (has_usage(usage, BufferUsage::vertex))
+                flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            if (has_usage(usage, BufferUsage::index))
+                flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            if (has_usage(usage, BufferUsage::uniform))
+                flags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+            if (has_usage(usage, BufferUsage::storage))
+                flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            if (has_usage(usage, BufferUsage::transfer_source))
+                flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            if (has_usage(usage, BufferUsage::transfer_destination))
+                flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            return flags;
+        }
+
+        [[nodiscard]] VkMemoryPropertyFlags vulkan_memory(
+            const MemoryUsage usage,
+            const Device& device) noexcept {
+            switch (usage) {
+                case MemoryUsage::device_local:
+                    return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+                case MemoryUsage::upload:
+                    return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                        (device.supports_device_local_host_visible()
+                            ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+                            : 0);
+                case MemoryUsage::readback:
+                    return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                        VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+            }
+            return 0;
         }
 
         void destroy_buffer_storage(
@@ -23,9 +61,9 @@ namespace nk {
             const VkDeviceMemory memory,
             const u64 memory_size,
             const u32 memory_index) noexcept {
-            if (buffer != nullptr)
+            if (buffer != VK_NULL_HANDLE)
                 vkDestroyBuffer(device.get(), buffer, allocator);
-            if (memory != nullptr)
+            if (memory != VK_NULL_HANDLE)
                 device.free_memory(memory, memory_size, memory_index);
         }
     }
@@ -33,39 +71,45 @@ namespace nk {
     result<void, renderer_error> Buffer::init(
         Device* device,
         VkAllocationCallbacks* vulkan_allocator,
-        const u64 size,
-        const VkBufferUsageFlags usage,
-        const u32 memory_property_flags,
-        const bool bind_on_create,
-        mem::Allocator* suballocation_metadata,
-        const u64 suballocation_capacity) {
-        if (device == nullptr || device->get() == nullptr || size == 0 ||
-            (suballocation_metadata == nullptr) !=
-                (suballocation_capacity == 0) ||
+        const RenderBufferConfig& config,
+        mem::Allocator* suballocation_metadata) noexcept {
+        if (device == nullptr || device->get() == VK_NULL_HANDLE ||
             m_device != nullptr) {
             return err(buffer_error(
                 renderer_error_code::initialization_failed));
         }
-
-        if (suballocation_metadata != nullptr) {
-            auto suballocator_initialized = m_suballocator.init(
-                *suballocation_metadata,
-                size,
-                suballocation_capacity);
-            if (!suballocator_initialized)
-                return err(suballocator_initialized.error());
-        }
-
         m_device = device;
         m_vulkan_allocator = vulkan_allocator;
-        m_total_size = size;
-        m_usage = usage;
-        m_memory_property_flags = memory_property_flags;
+        auto initialized = init_render_buffer(config, suballocation_metadata);
+        if (!initialized) {
+            m_device = nullptr;
+            m_vulkan_allocator = nullptr;
+            return err(initialized.error());
+        }
+        return ok();
+    }
+
+    void Buffer::shutdown() noexcept {
+        RenderBuffer::shutdown();
+        m_device = nullptr;
+        m_vulkan_allocator = nullptr;
+    }
+
+    result<void, renderer_error> Buffer::create_backend(
+        const RenderBufferConfig& config) noexcept {
+        m_total_size = config.size;
+        m_usage = vulkan_usage(config.usage);
+        m_memory_property_flags = vulkan_memory(config.memory, *m_device);
+        m_persistently_mapped = config.persistent_map;
+        if (m_usage == 0 || m_memory_property_flags == 0) {
+            destroy_backend();
+            return err(buffer_error(renderer_error_code::buffer_usage_invalid));
+        }
 
         VkBufferCreateInfo buffer_create_info{};
         buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        buffer_create_info.size = size;
-        buffer_create_info.usage = usage;
+        buffer_create_info.size = config.size;
+        buffer_create_info.usage = m_usage;
         buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         VkResult native_result = vkCreateBuffer(
@@ -74,11 +118,10 @@ namespace nk {
             m_vulkan_allocator,
             &m_buffer);
         if (native_result != VK_SUCCESS) {
-            const renderer_error error = buffer_error(
+            destroy_backend();
+            return err(buffer_error(
                 renderer_error_code::buffer_creation_failed,
-                native_result);
-            shutdown();
-            return err(error);
+                native_result));
         }
 
         VkMemoryRequirements memory_requirements{};
@@ -86,16 +129,30 @@ namespace nk {
             m_device->get(), m_buffer, &memory_requirements);
         if (!m_device->find_memory_index(
                 memory_requirements.memoryTypeBits,
-                memory_property_flags,
+                m_memory_property_flags,
                 &m_memory_index)) {
-            // ReBAR/UMA is a preference for host-visible buffers, not a GPU
-            // requirement. Discrete GPUs may only offer ordinary host memory.
-            m_memory_property_flags &= ~VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-            if (!(memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
-                !m_device->find_memory_index(memory_requirements.memoryTypeBits,
-                    m_memory_property_flags, &m_memory_index)) {
-                shutdown();
-                return err(buffer_error(renderer_error_code::buffer_memory_failed));
+            // Device-local/cached/coherent host memory are preferences. The
+            // generic contract only requires host visibility for upload and
+            // readback; explicit flushes cover a non-coherent fallback.
+            m_memory_property_flags &=
+                ~(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                  VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+            if (config.memory == MemoryUsage::device_local ||
+                !m_device->find_memory_index(
+                    memory_requirements.memoryTypeBits,
+                    m_memory_property_flags,
+                    &m_memory_index)) {
+                m_memory_property_flags &=
+                    ~VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+                if (config.memory == MemoryUsage::device_local ||
+                    !m_device->find_memory_index(
+                        memory_requirements.memoryTypeBits,
+                        m_memory_property_flags,
+                        &m_memory_index)) {
+                    destroy_backend();
+                    return err(buffer_error(
+                        renderer_error_code::buffer_memory_failed));
+                }
             }
         }
 
@@ -103,36 +160,46 @@ namespace nk {
         memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         memory_allocate_info.allocationSize = memory_requirements.size;
         memory_allocate_info.memoryTypeIndex = m_memory_index;
-
         native_result = m_device->allocate_memory(
             memory_allocate_info, &m_memory);
         if (native_result != VK_SUCCESS) {
-            const renderer_error error = buffer_error(
+            destroy_backend();
+            return err(buffer_error(
                 renderer_error_code::buffer_memory_failed,
-                native_result);
-            shutdown();
-            return err(error);
+                native_result));
         }
         m_memory_size = memory_requirements.size;
 
-        if (bind_on_create) {
-            native_result = vkBindBufferMemory(
-                m_device->get(), m_buffer, m_memory, 0);
-            if (native_result != VK_SUCCESS) {
-                const renderer_error error = buffer_error(
-                    renderer_error_code::buffer_memory_failed,
-                    native_result);
-                shutdown();
-                return err(error);
-            }
-            m_is_bound = true;
+        native_result = vkBindBufferMemory(
+            m_device->get(), m_buffer, m_memory, 0);
+        if (native_result != VK_SUCCESS) {
+            destroy_backend();
+            return err(buffer_error(
+                renderer_error_code::buffer_memory_failed,
+                native_result));
         }
+        m_is_bound = true;
 
+        if (m_persistently_mapped) {
+            native_result = vkMapMemory(
+                m_device->get(),
+                m_memory,
+                0,
+                VK_WHOLE_SIZE,
+                0,
+                &m_mapped_data);
+            if (native_result != VK_SUCCESS) {
+                destroy_backend();
+                return err(buffer_error(
+                    renderer_error_code::buffer_map_failed,
+                    native_result));
+            }
+        }
         return ok();
     }
 
-    void Buffer::shutdown() {
-        if (m_device != nullptr && m_device->get() != nullptr) {
+    void Buffer::destroy_backend() noexcept {
+        if (m_device != nullptr && m_device->get() != VK_NULL_HANDLE) {
             if (m_mapped_data != nullptr || m_is_locked)
                 vkUnmapMemory(m_device->get(), m_memory);
             destroy_buffer_storage(
@@ -143,32 +210,151 @@ namespace nk {
                 m_memory_size,
                 m_memory_index);
         }
-
-        m_suballocator.shutdown();
-        m_device = nullptr;
-        m_vulkan_allocator = nullptr;
         m_total_size = 0;
-        m_buffer = nullptr;
+        m_buffer = VK_NULL_HANDLE;
         m_usage = 0;
         m_is_locked = false;
-        m_mapped_data = nullptr;
         m_is_bound = false;
-        m_memory = nullptr;
+        m_persistently_mapped = false;
+        m_mapped_data = nullptr;
+        m_memory = VK_NULL_HANDLE;
         m_memory_size = 0;
         m_memory_index = 0;
         m_memory_property_flags = 0;
     }
 
-    result<void, renderer_error> Buffer::resize(
+    result<void*, renderer_error> Buffer::map_backend(
+        const u64 offset,
+        const u64) noexcept {
+        if ((m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0)
+            return err(buffer_error(renderer_error_code::buffer_map_failed));
+        if (m_persistently_mapped)
+            return ok(static_cast<void*>(
+                static_cast<u8*>(m_mapped_data) + offset));
+        if (m_is_locked)
+            return err(buffer_error(renderer_error_code::buffer_map_failed));
+
+        void* data = nullptr;
+        const VkResult mapped = vkMapMemory(
+            m_device->get(), m_memory, 0, VK_WHOLE_SIZE, 0, &data);
+        if (mapped != VK_SUCCESS)
+            return err(buffer_error(
+                renderer_error_code::buffer_map_failed, mapped));
+        m_is_locked = true;
+        return ok(static_cast<void*>(static_cast<u8*>(data) + offset));
+    }
+
+    void Buffer::unmap_backend() noexcept {
+        if (m_persistently_mapped || !m_is_locked)
+            return;
+        vkUnmapMemory(m_device->get(), m_memory);
+        m_is_locked = false;
+    }
+
+    result<void, renderer_error> Buffer::flush_backend(
+        const u64 offset,
+        const u64 size) noexcept {
+        if ((m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0)
+            return err(buffer_error(renderer_error_code::buffer_map_failed));
+        if ((m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0)
+            return ok();
+
+        const u64 atom = m_device->non_coherent_atom_size();
+        const u64 aligned_offset = offset & ~(atom - 1);
+        if (size > numeric::u64_max - offset)
+            return err(buffer_error(renderer_error_code::buffer_range_invalid));
+        const u64 end = offset + size;
+        u64 aligned_end = end;
+        const u64 remainder = end & (atom - 1);
+        if (remainder != 0) {
+            const u64 padding = atom - remainder;
+            aligned_end = padding > numeric::u64_max - end
+                ? m_memory_size
+                : end + padding;
+        }
+        if (aligned_end > m_memory_size)
+            aligned_end = m_memory_size;
+
+        VkMappedMemoryRange range{};
+        range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        range.memory = m_memory;
+        range.offset = aligned_offset;
+        range.size = aligned_end - aligned_offset;
+        const VkResult flushed = vkFlushMappedMemoryRanges(
+            m_device->get(), 1, &range);
+        if (flushed != VK_SUCCESS)
+            return err(buffer_error(
+                renderer_error_code::buffer_memory_failed, flushed));
+        return ok();
+    }
+
+    result<void, renderer_error> Buffer::upload_backend(
+        const u64 offset,
         const u64 size,
-        const VkQueue queue,
-        const VkCommandPool pool) {
-        if (m_device == nullptr || m_buffer == nullptr || m_memory == nullptr ||
-            !m_is_bound || m_is_locked || size == 0) {
+        const void* data) noexcept {
+        if ((m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0) {
+            Buffer staging;
+            auto initialized = staging.init(
+                m_device,
+                m_vulkan_allocator,
+                {
+                    .size = size,
+                    .usage = BufferUsage::transfer_source,
+                    .memory = MemoryUsage::upload,
+                    .persistent_map = true,
+                });
+            if (!initialized)
+                return err(initialized.error());
+            auto staged = staging.upload(0, size, data);
+            if (!staged)
+                return err(staged.error());
+            auto source = staging.view(0, size);
+            auto target = view(offset, size);
+            if (!source || !target)
+                return err(buffer_error(renderer_error_code::buffer_range_invalid));
+            return staging.copy_to(*source, *this, *target);
+        }
+
+        auto mapped = map_backend(offset, size);
+        if (!mapped)
+            return err(mapped.error());
+        std::memcpy(*mapped, data, size);
+        auto flushed = flush_backend(offset, size);
+        if (!m_persistently_mapped)
+            unmap_backend();
+        if (!flushed)
+            return err(flushed.error());
+        return ok();
+    }
+
+    result<void, renderer_error> Buffer::copy_backend(
+        const u64 source_offset,
+        RenderBuffer& destination,
+        const u64 destination_offset,
+        const u64 size) noexcept {
+        auto* target = dynamic_cast<Buffer*>(&destination);
+        if (target == nullptr || target->m_device != m_device)
+            return err(buffer_error(renderer_error_code::buffer_copy_failed));
+        return copy_native({
+            .pool = m_device->get_graphics_command_pool(),
+            .fence = VK_NULL_HANDLE,
+            .queue = m_device->get_graphics_queue(),
+            .source = m_buffer,
+            .source_offset = source_offset,
+            .destination = target->m_buffer,
+            .destination_offset = destination_offset,
+            .size = size,
+        });
+    }
+
+    result<void, renderer_error> Buffer::resize_backend(
+        const u64 size) noexcept {
+        if (m_buffer == VK_NULL_HANDLE || m_memory == VK_NULL_HANDLE ||
+            !m_is_bound || m_is_locked ||
+            (m_usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) == 0 ||
+            (m_usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) == 0) {
             return err(buffer_error(renderer_error_code::buffer_resize_failed));
         }
-        if (size == m_total_size)
-            return ok();
 
         VkBufferCreateInfo buffer_create_info{};
         buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -176,190 +362,95 @@ namespace nk {
         buffer_create_info.usage = m_usage;
         buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        VkBuffer new_buffer = nullptr;
+        VkBuffer new_buffer = VK_NULL_HANDLE;
         VkResult native_result = vkCreateBuffer(
             m_device->get(),
             &buffer_create_info,
             m_vulkan_allocator,
             &new_buffer);
-        if (native_result != VK_SUCCESS) {
+        if (native_result != VK_SUCCESS)
             return err(buffer_error(
-                renderer_error_code::buffer_creation_failed,
-                native_result));
-        }
+                renderer_error_code::buffer_creation_failed, native_result));
 
-        VkMemoryRequirements memory_requirements{};
+        VkMemoryRequirements requirements{};
         vkGetBufferMemoryRequirements(
-            m_device->get(), new_buffer, &memory_requirements);
-
+            m_device->get(), new_buffer, &requirements);
         u32 new_memory_index = 0;
         if (!m_device->find_memory_index(
-                memory_requirements.memoryTypeBits,
+                requirements.memoryTypeBits,
                 m_memory_property_flags,
                 &new_memory_index)) {
-            vkDestroyBuffer(
-                m_device->get(), new_buffer, m_vulkan_allocator);
-            return err(buffer_error(
-                renderer_error_code::buffer_memory_failed));
+            vkDestroyBuffer(m_device->get(), new_buffer, m_vulkan_allocator);
+            return err(buffer_error(renderer_error_code::buffer_memory_failed));
         }
 
-        VkMemoryAllocateInfo memory_allocate_info{};
-        memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        memory_allocate_info.allocationSize = memory_requirements.size;
-        memory_allocate_info.memoryTypeIndex = new_memory_index;
-
-        VkDeviceMemory new_memory = nullptr;
-        native_result = m_device->allocate_memory(
-            memory_allocate_info, &new_memory);
+        VkMemoryAllocateInfo allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.allocationSize = requirements.size;
+        allocation.memoryTypeIndex = new_memory_index;
+        VkDeviceMemory new_memory = VK_NULL_HANDLE;
+        native_result = m_device->allocate_memory(allocation, &new_memory);
         if (native_result != VK_SUCCESS) {
-            vkDestroyBuffer(
-                m_device->get(), new_buffer, m_vulkan_allocator);
+            vkDestroyBuffer(m_device->get(), new_buffer, m_vulkan_allocator);
             return err(buffer_error(
-                renderer_error_code::buffer_memory_failed,
-                native_result));
+                renderer_error_code::buffer_memory_failed, native_result));
         }
 
         native_result = vkBindBufferMemory(
             m_device->get(), new_buffer, new_memory, 0);
         if (native_result != VK_SUCCESS) {
-            destroy_buffer_storage(
-                *m_device, m_vulkan_allocator, new_buffer, new_memory,
-                memory_requirements.size, new_memory_index);
+            destroy_buffer_storage(*m_device, m_vulkan_allocator,
+                new_buffer, new_memory, requirements.size, new_memory_index);
             return err(buffer_error(
-                renderer_error_code::buffer_memory_failed,
-                native_result));
+                renderer_error_code::buffer_memory_failed, native_result));
         }
 
-        const u64 copy_size = size < m_total_size ? size : m_total_size;
-        auto copied = copy_to({
-            .pool = pool,
-            .fence = nullptr,
-            .queue = queue,
+        auto copied = copy_native({
+            .pool = m_device->get_graphics_command_pool(),
+            .fence = VK_NULL_HANDLE,
+            .queue = m_device->get_graphics_queue(),
             .source = m_buffer,
             .source_offset = 0,
             .destination = new_buffer,
             .destination_offset = 0,
-            .size = copy_size,
+            .size = m_total_size,
         });
         if (!copied) {
-            destroy_buffer_storage(
-                *m_device, m_vulkan_allocator, new_buffer, new_memory,
-                memory_requirements.size, new_memory_index);
+            destroy_buffer_storage(*m_device, m_vulkan_allocator,
+                new_buffer, new_memory, requirements.size, new_memory_index);
             return err(copied.error());
         }
 
-        native_result = vkDeviceWaitIdle(m_device->get());
-        if (native_result != VK_SUCCESS) {
-            destroy_buffer_storage(
-                *m_device, m_vulkan_allocator, new_buffer, new_memory,
-                memory_requirements.size, new_memory_index);
-            return err(buffer_error(
-                renderer_error_code::device_wait_failed,
-                native_result));
-        }
-
-        if (m_suballocator.initialized()) {
-            auto ranges_resized = m_suballocator.resize(size);
-            if (!ranges_resized) {
-                destroy_buffer_storage(
-                    *m_device, m_vulkan_allocator, new_buffer, new_memory,
-                    memory_requirements.size, new_memory_index);
-                return err(ranges_resized.error());
+        void* new_mapped_data = nullptr;
+        if (m_persistently_mapped) {
+            native_result = vkMapMemory(m_device->get(), new_memory,
+                0, VK_WHOLE_SIZE, 0, &new_mapped_data);
+            if (native_result != VK_SUCCESS) {
+                destroy_buffer_storage(*m_device, m_vulkan_allocator,
+                    new_buffer, new_memory, requirements.size, new_memory_index);
+                return err(buffer_error(
+                    renderer_error_code::buffer_map_failed, native_result));
             }
         }
 
-        if (m_mapped_data != nullptr) {
+        if (m_mapped_data != nullptr)
             vkUnmapMemory(m_device->get(), m_memory);
-            m_mapped_data = nullptr;
-        }
-        destroy_buffer_storage(
-            *m_device, m_vulkan_allocator, m_buffer, m_memory,
-            m_memory_size, m_memory_index);
+        destroy_buffer_storage(*m_device, m_vulkan_allocator,
+            m_buffer, m_memory, m_memory_size, m_memory_index);
         m_total_size = size;
         m_buffer = new_buffer;
         m_memory = new_memory;
-        m_memory_size = memory_requirements.size;
+        m_memory_size = requirements.size;
         m_memory_index = new_memory_index;
+        m_mapped_data = new_mapped_data;
         return ok();
     }
 
-    result<mem::MemoryRange, renderer_error> Buffer::reserve(
-        const u64 size,
-        const u64 alignment) noexcept {
-        return m_suballocator.reserve(size, alignment);
-    }
-
-    result<void, renderer_error> Buffer::release(
-        const mem::MemoryRange range) noexcept {
-        return m_suballocator.release(range);
-    }
-
-    void Buffer::bind(const u64 offset) {
-        VulkanCheck(vkBindBufferMemory(
-            m_device->get(), m_buffer, m_memory, offset));
-        m_is_bound = true;
-    }
-
-    void* Buffer::lock_memory(
-        const u64 offset,
-        const u64 size,
-        const u32 flags) {
-        if (m_mapped_data != nullptr || m_is_locked)
-            return nullptr;
-        void* data = nullptr;
-        VulkanCheck(vkMapMemory(
-            m_device->get(), m_memory, offset, size, flags, &data));
-        m_is_locked = data != nullptr;
-        return data;
-    }
-
-    void Buffer::unlock_memory() {
-        if (!m_is_locked)
-            return;
-        vkUnmapMemory(m_device->get(), m_memory);
-        m_is_locked = false;
-    }
-
-    result<void, renderer_error> Buffer::load_data(
-        const u64 offset,
-        const u64 size,
-        const u32 flags,
-        const void* data) {
-        if (m_device == nullptr || m_memory == nullptr || data == nullptr ||
-            m_is_locked || !(m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
-            size == 0 || offset > m_total_size ||
-            size > m_total_size - offset) {
-            return err(buffer_error(
-                renderer_error_code::buffer_memory_failed));
-        }
-
-        if (m_mapped_data == nullptr) {
-            const VkResult mapped = vkMapMemory(m_device->get(), m_memory,
-                0, VK_WHOLE_SIZE, flags, &m_mapped_data);
-            if (mapped != VK_SUCCESS)
-                return err(buffer_error(renderer_error_code::buffer_memory_failed, mapped));
-        }
-
-        std::memcpy(static_cast<u8*>(m_mapped_data) + offset, data, size);
-        if (!(m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-            VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
-            range.memory = m_memory;
-            range.size = VK_WHOLE_SIZE;
-            const VkResult flushed = vkFlushMappedMemoryRanges(m_device->get(), 1, &range);
-            if (flushed != VK_SUCCESS)
-                return err(buffer_error(renderer_error_code::buffer_memory_failed, flushed));
-        }
-        return ok();
-    }
-
-    result<void, renderer_error> Buffer::copy_to(
-        const BufferCopyInfo& copy_info) {
-        const VkResult wait_result = vkQueueWaitIdle(copy_info.queue);
-        if (wait_result != VK_SUCCESS) {
-            return err(buffer_error(
-                renderer_error_code::device_wait_failed,
-                wait_result));
-        }
+    result<void, renderer_error> Buffer::copy_native(
+        const BufferCopyInfo& copy_info) noexcept {
+        if (copy_info.queue == VK_NULL_HANDLE ||
+            copy_info.pool == VK_NULL_HANDLE || copy_info.size == 0)
+            return err(buffer_error(renderer_error_code::buffer_copy_failed));
 
         CommandBuffer command_buffer;
         auto initialized = command_buffer.init(
@@ -378,7 +469,6 @@ namespace nk {
             copy_info.destination,
             1,
             &copy_region);
-
         return command_buffer.end_single_use(copy_info.queue);
     }
 }

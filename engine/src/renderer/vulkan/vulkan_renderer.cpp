@@ -929,9 +929,14 @@ namespace nk {
         const u64 expected_vertex_stride = pass == RenderPassKind::world
             ? sizeof(glm::Vertex3D)
             : sizeof(glm::Vertex2D);
-        if (geometry.vertex_range.size !=
-            geometry.vertex_count * expected_vertex_stride) {
-            ErrorLog("Geometry vertex layout does not match the active render pass.");
+        if (!m_object_vertex_buffer.valid(geometry.vertex_range) ||
+            geometry.vertex_range.size !=
+                geometry.vertex_count * expected_vertex_stride ||
+            (geometry.index_count != 0 &&
+             (!m_object_index_buffer.valid(geometry.index_range) ||
+              geometry.index_range.size !=
+                  geometry.index_count * sizeof(u32)))) {
+            ErrorLog("Geometry buffer range or layout is invalid for the active render pass.");
             return;
         }
 
@@ -992,22 +997,22 @@ namespace nk {
         const u32 mip_levels = mipmaps ? vk::mip_level_count({width, height}) : 1;
 
         // Create a staging buffer and load data into it.
-        VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        VkMemoryPropertyFlags memory_prop_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         Buffer staging;
         auto staging_initialized = staging.init(
             &m_device,
             m_vulkan_allocator,
-            image_size,
-            usage,
-            memory_prop_flags,
-            true);
+            {
+                .size = image_size,
+                .usage = BufferUsage::transfer_source,
+                .memory = MemoryUsage::upload,
+                .persistent_map = true,
+            });
         if (!staging_initialized) {
             m_allocator->deconstruct_t(TextureData, texture_data);
             return err(staging_initialized.error());
         }
 
-        auto staged = staging.load_data(0, image_size, 0, pixels);
+        auto staged = staging.upload(0, image_size, pixels);
         if (!staged) {
             m_allocator->deconstruct_t(TextureData, texture_data);
             return err(staged.error());
@@ -1119,16 +1124,17 @@ namespace nk {
         auto staging_initialized = staging.init(
             &m_device,
             m_vulkan_allocator,
-            image_size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            true);
+            {
+                .size = image_size,
+                .usage = BufferUsage::transfer_source,
+                .memory = MemoryUsage::upload,
+                .persistent_map = true,
+            });
         if (!staging_initialized) {
             m_allocator->deconstruct_t(TextureData, texture_data);
             return err(staging_initialized.error());
         }
-        auto staged = staging.load_data(0, image_size, 0, face_pixels);
+        auto staged = staging.upload(0, image_size, face_pixels);
         if (!staged) {
             m_allocator->deconstruct_t(TextureData, texture_data);
             return err(staged.error());
@@ -1322,14 +1328,15 @@ namespace nk {
         auto staging_initialized = staging.init(
             &m_device,
             m_vulkan_allocator,
-            size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            true);
+            {
+                .size = size,
+                .usage = BufferUsage::transfer_source,
+                .memory = MemoryUsage::upload,
+                .persistent_map = true,
+            });
         if (!staging_initialized)
             return err(staging_initialized.error());
-        auto staged = staging.load_data(0, size, 0, pixels.data());
+        auto staged = staging.upload(0, size, pixels.data());
         if (!staged)
             return err(staged.error());
 
@@ -1550,7 +1557,7 @@ namespace nk {
         if (!vertex_reserved)
             return err(vertex_reserved.error());
 
-        mem::MemoryRange index_range{};
+        RenderBufferView index_range{};
         if (!indices.empty()) {
             auto index_reserved = m_object_index_buffer.reserve(
                 index_size,
@@ -1565,14 +1572,8 @@ namespace nk {
             index_range = *index_reserved;
         }
 
-        auto vertices_uploaded = upload_data_range(
-            m_device.get_graphics_command_pool(),
-            nullptr,
-            m_device.get_graphics_queue(),
-            &m_object_vertex_buffer,
-            vertex_reserved->offset,
-            vertex_size,
-            vertices);
+        auto vertices_uploaded = m_object_vertex_buffer.upload(
+            *vertex_reserved, vertices);
         if (!vertices_uploaded) {
             if (index_range.size != 0) {
                 auto index_released = m_object_index_buffer.release(index_range);
@@ -1587,14 +1588,8 @@ namespace nk {
         }
 
         if (!indices.empty()) {
-            auto indices_uploaded = upload_data_range(
-                m_device.get_graphics_command_pool(),
-                nullptr,
-                m_device.get_graphics_queue(),
-                &m_object_index_buffer,
-                index_range.offset,
-                index_size,
-                indices.data());
+            auto indices_uploaded = m_object_index_buffer.upload(
+                index_range, indices.data());
             if (!indices_uploaded) {
                 auto index_released = m_object_index_buffer.release(index_range);
                 auto vertex_released = m_object_vertex_buffer.release(
@@ -1956,18 +1951,19 @@ namespace nk {
     }
 
     result<void, renderer_error> VulkanRenderer::create_buffers() {
-        VkMemoryPropertyFlags memory_property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
         constexpr u64 vertex_buffer_size = sizeof(glm::Vertex3D) * 1024 * 1024;
         auto vertex_buffer_initialized = m_object_vertex_buffer.init(
             &m_device,
             m_vulkan_allocator,
-            vertex_buffer_size,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            memory_property_flags,
-            true,
-            m_allocator,
-            geometry_range_capacity);
+            {
+                .size = vertex_buffer_size,
+                .usage = BufferUsage::vertex |
+                    BufferUsage::transfer_destination |
+                    BufferUsage::transfer_source,
+                .memory = MemoryUsage::device_local,
+                .suballocation_capacity = geometry_range_capacity,
+            },
+            m_allocator);
         if (!vertex_buffer_initialized)
             return err(vertex_buffer_initialized.error());
         
@@ -1975,12 +1971,15 @@ namespace nk {
         auto index_buffer_initialized = m_object_index_buffer.init(
             &m_device,
             m_vulkan_allocator,
-            index_buffer_size,
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            memory_property_flags,
-            true,
-            m_allocator,
-            geometry_range_capacity);
+            {
+                .size = index_buffer_size,
+                .usage = BufferUsage::index |
+                    BufferUsage::transfer_destination |
+                    BufferUsage::transfer_source,
+                .memory = MemoryUsage::device_local,
+                .suballocation_capacity = geometry_range_capacity,
+            },
+            m_allocator);
         if (!index_buffer_initialized)
             return err(index_buffer_initialized.error());
 
@@ -1988,49 +1987,4 @@ namespace nk {
         return ok();
     }
 
-    result<void, renderer_error> VulkanRenderer::upload_data_range(
-        VkCommandPool pool,
-        VkFence fence,
-        VkQueue queue,
-        Buffer* buffer,
-        u64 offset,
-        u64 size,
-        const void* data
-    ) {
-        // Create a host visible staging buffer to upload to mark is as the source of the transfer
-        VkBufferUsageFlags flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        Buffer staging;
-        auto staging_initialized = staging.init(
-            &m_device,
-            m_vulkan_allocator,
-            size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            flags,
-            true);
-        if (!staging_initialized)
-            return err(staging_initialized.error());
-
-        // Load the data into the staging buffer.
-        auto staged = staging.load_data(0, size, 0, data);
-        if (!staged)
-            return err(staged.error());
-
-        // Perform the copy from staging to the device local buffer.
-        auto copied = staging.copy_to({
-            .pool = pool,
-            .fence = fence,
-            .queue = queue,
-            .source = staging,
-            .source_offset = 0,
-            .destination = buffer->get(),
-            .destination_offset = offset,
-            .size = size,
-        });
-        if (!copied)
-            return err(copied.error());
-
-        // Clean up the staging buffer.
-        staging.shutdown();
-        return ok();
-    }
 }

@@ -509,10 +509,6 @@ namespace nk {
                 return fail(descriptor_error(native_result));
         }
 
-        const VkMemoryPropertyFlags optional_device_local =
-            m_device->supports_device_local_host_visible()
-                ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-                : 0;
         if (m_global_uniform_size != 0) {
             u64 global_buffer_size = 0;
             if (!align_up(m_global_uniform_size,
@@ -523,13 +519,13 @@ namespace nk {
             auto initialized = m_global_uniform_buffer.init(
                 m_device,
                 m_vulkan_allocator,
-                global_buffer_size,
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-                    optional_device_local,
-                true);
+                {
+                    .size = global_buffer_size,
+                    .usage = BufferUsage::uniform |
+                        BufferUsage::transfer_destination,
+                    .memory = MemoryUsage::upload,
+                    .persistent_map = true,
+                });
             if (!initialized)
                 return fail(initialized.error());
             if (!m_global_uniform_data.arr_init(
@@ -556,13 +552,13 @@ namespace nk {
             auto initialized = m_instance_uniform_buffer.init(
                 m_device,
                 m_vulkan_allocator,
-                instance_buffer_size,
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-                    optional_device_local,
-                true);
+                {
+                    .size = instance_buffer_size,
+                    .usage = BufferUsage::uniform |
+                        BufferUsage::transfer_destination,
+                    .memory = MemoryUsage::upload,
+                    .persistent_map = true,
+                });
             if (!initialized)
                 return fail(initialized.error());
             u64 instance_data_size = 0;
@@ -906,10 +902,9 @@ namespace nk {
         u32 write_count = 0;
 
         if (m_global_uniform_size != 0) {
-            auto loaded = m_global_uniform_buffer.load_data(
+            auto loaded = m_global_uniform_buffer.upload(
                 m_global_uniform_stride * frame_index,
                 m_global_uniform_size,
-                0,
                 m_global_uniform_data.data());
             if (!loaded)
                 return err(loaded.error());
@@ -1006,11 +1001,10 @@ namespace nk {
             u32& generation =
                 instance.uniform_state.generations[frame_index];
             if (instance.uploaded_revisions[frame_index] != instance.uniform_revision) {
-                auto loaded = m_instance_uniform_buffer.load_data(
+                auto loaded = m_instance_uniform_buffer.upload(
                     m_instance_frame_stride * frame_index +
                         m_instance_uniform_stride * m_bound_instance_id,
                     m_instance_uniform_size,
-                    0,
                     m_instance_uniform_data.data() +
                         m_instance_uniform_size * m_bound_instance_id);
                 if (!loaded)

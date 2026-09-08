@@ -86,6 +86,10 @@ namespace nk {
                 m_properties.limits.minUniformBufferOffsetAlignment;
             return alignment == 0 ? 1 : alignment;
         }
+        u64 non_coherent_atom_size() const noexcept {
+            const u64 alignment = m_properties.limits.nonCoherentAtomSize;
+            return alignment == 0 ? 1 : alignment;
+        }
         u32 max_push_constant_size() const noexcept {
             return m_properties.limits.maxPushConstantsSize;
         }

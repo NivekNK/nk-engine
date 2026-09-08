@@ -135,23 +135,13 @@ namespace nk {
             const void* vertices,
             cl::slice<const u32> indices);
 
-        [[nodiscard]] result<void, renderer_error> upload_data_range(
-            VkCommandPool pool,
-            VkFence fence,
-            VkQueue queue,
-            Buffer* buffer,
-            u64 offset,
-            u64 size,
-            const void* data
-        );
-
         struct VulkanGeometryData {
             u32 id = numeric::invalid_id;
             u32 generation = numeric::invalid_id;
             u64 vertex_count = 0;
-            mem::MemoryRange vertex_range{};
+            RenderBufferView vertex_range{};
             u64 index_count = 0;
-            mem::MemoryRange index_range{};
+            RenderBufferView index_range{};
         };
 
         bool release_geometry_ranges(
