@@ -106,6 +106,10 @@ namespace nk {
     private:
         Texture* m_attachments[max_render_target_attachments]{};
         u32 m_generations[max_render_target_attachments]{};
+        TextureFormat m_formats[max_render_target_attachments]{};
+        TextureSampleCount m_sample_counts[max_render_target_attachments]{};
+        RenderAttachmentRole m_roles[max_render_target_attachments]{};
+        RenderAttachmentSource m_sources[max_render_target_attachments]{};
         u32 m_width = 0;
         u32 m_height = 0;
         u8 m_attachment_count = 0;
