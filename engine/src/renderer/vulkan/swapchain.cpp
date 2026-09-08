@@ -230,6 +230,7 @@ namespace nk {
                 .format = vk::texture_format(m_image_format.format),
                 .flags = TextureFlag::writable | TextureFlag::external,
                 .generation = next_generation,
+                .state = TextureState::ready,
                 .m_internal_data = &m_texture_data[i],
             };
         }
@@ -267,6 +268,7 @@ namespace nk {
                 .format = vk::texture_format(m_device->get_depth_format()),
                 .flags = TextureFlag::writable,
                 .generation = next_generation,
+                .state = TextureState::ready,
                 .m_internal_data = &m_depth_texture_data[index],
             };
         }

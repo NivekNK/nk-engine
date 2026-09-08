@@ -1520,6 +1520,100 @@ TEST(TextureSystem, DoesNotPublishFailedLoads) {
     EXPECT_EQ(renderer.destroyed_textures(), 3u);
 }
 
+TEST(TextureSystem, DecodesOnAWorkerAndPublishesOnMain) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto jobs_created = nk::JobSystem::create(
+        allocator,
+        {.worker_count = 1, .max_jobs = 8});
+    ASSERT_TRUE(jobs_created);
+    nk::JobSystem* jobs = *jobs_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 4, jobs);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
+
+    auto first = textures->acquire("cobblestone", true);
+    ASSERT_TRUE(first);
+    EXPECT_FALSE((*first)->valid());
+    EXPECT_EQ(textures->loaded_count(), 0u);
+    auto duplicate = textures->acquire("cobblestone", true);
+    ASSERT_TRUE(duplicate);
+    EXPECT_EQ(*duplicate, *first);
+    EXPECT_EQ(textures->reference_count("cobblestone"), 2u);
+
+    ASSERT_TRUE(jobs->drain());
+    EXPECT_TRUE((*first)->valid());
+    EXPECT_EQ((*first)->state, nk::TextureState::ready);
+    EXPECT_EQ((*first)->width, 512u);
+    EXPECT_EQ(textures->loaded_count(), 1u);
+
+    textures->release("cobblestone");
+    textures->release("cobblestone");
+    EXPECT_EQ(textures->reference_count("cobblestone"), 0u);
+    nk::TextureSystem::destroy(allocator, textures);
+    nk::JobSystem::destroy(allocator, jobs);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
+TEST(TextureSystem, DiscardsReleasedAndFailedAsyncPublications) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    auto resources_created = nk::ResourceSystem::create(
+        allocator, NK_TEST_ASSET_ROOT);
+    ASSERT_TRUE(resources_created);
+    nk::ResourceSystem* resources = *resources_created;
+    auto jobs_created = nk::JobSystem::create(
+        allocator,
+        {.worker_count = 0, .max_jobs = 8});
+    ASSERT_TRUE(jobs_created);
+    nk::JobSystem* jobs = *jobs_created;
+    auto created = nk::TextureSystem::create(
+        allocator, renderer, *resources, 4, jobs);
+    ASSERT_TRUE(created);
+    nk::TextureSystem* textures = *created;
+
+    auto released = textures->acquire("cobblestone", true);
+    ASSERT_TRUE(released);
+    textures->release("cobblestone");
+    auto cancelling = textures->state("cobblestone");
+    ASSERT_TRUE(cancelling);
+    EXPECT_EQ(*cancelling, nk::TextureState::cancelling);
+    ASSERT_TRUE(jobs->drain());
+    EXPECT_FALSE(textures->state("cobblestone"));
+    EXPECT_EQ(textures->loaded_count(), 0u);
+
+    auto missing = textures->acquire("missing", true);
+    ASSERT_TRUE(missing);
+    ASSERT_TRUE(jobs->drain());
+    auto missing_state = textures->state("missing");
+    ASSERT_TRUE(missing_state);
+    EXPECT_EQ(*missing_state, nk::TextureState::failed);
+    EXPECT_FALSE((*missing)->valid());
+
+    renderer.fail_texture_create(true);
+    auto upload_failed = textures->acquire("paving", true);
+    ASSERT_TRUE(upload_failed);
+    ASSERT_TRUE(jobs->drain());
+    auto failed_state = textures->state("paving");
+    ASSERT_TRUE(failed_state);
+    EXPECT_EQ(*failed_state, nk::TextureState::failed);
+    EXPECT_FALSE((*upload_failed)->valid());
+    EXPECT_EQ(textures->loaded_count(), 0u);
+
+    textures->release("missing");
+    textures->release("paving");
+    nk::TextureSystem::destroy(allocator, textures);
+    nk::JobSystem::destroy(allocator, jobs);
+    nk::ResourceSystem::destroy(allocator, resources);
+    EXPECT_EQ(allocator.get_active_allocation_count(), 0u);
+}
+
 TEST(TextureSystem, RollsBackWhenDefaultSpecularTextureCreationFails) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};

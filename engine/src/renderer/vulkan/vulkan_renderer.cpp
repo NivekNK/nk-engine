@@ -934,6 +934,7 @@ namespace nk {
         texture.channel_count = channel_count;
         texture.format = unorm_texture_format(channel_count);
         texture.generation = 0;
+        texture.state = TextureState::ready;
 
         TextureData* texture_data = m_allocator->construct_t(TextureData);
         if (texture_data == nullptr)
@@ -1163,6 +1164,7 @@ namespace nk {
             .layer_count = face_count,
             .format = TextureFormat::rgba8_unorm,
             .generation = 0,
+            .state = TextureState::ready,
             .m_internal_data = texture_data,
         };
         DebugLog(

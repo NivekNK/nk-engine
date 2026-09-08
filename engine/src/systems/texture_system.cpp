@@ -5,12 +5,24 @@
 #include "collections/dyarr.h"
 #include "core/format.h"
 #include "memory/allocator.h"
+#include "memory/malloc_allocator.h"
 #include "renderer/renderer.h"
 #include "resources/image_loader.h"
 #include "resources/material.h"
 #include "systems/resource_system.h"
 
 namespace nk {
+    struct TextureSystem::AsyncTextureLoad {
+        mem::MallocAllocator allocator{mem::untracked};
+        DecodedImage image{};
+        TextureSystem* system = nullptr;
+        strbuf<texture_name_capacity> name;
+        strbuf<1023> path;
+        u32 slot = numeric::invalid_id;
+        u32 request_generation = 0;
+        texture_error failure{texture_error_code::decode_failed, 0};
+    };
+
     result<void, texture_error> TextureSystem::acquire_map_resources(TextureMap& map) {
         if (!m_initialized) return err(texture_error{texture_error_code::not_initialized, 0});
         if (map.sampler.valid()) return err(texture_error{texture_error_code::renderer_failed, 0});
@@ -122,7 +134,8 @@ namespace nk {
         mem::Allocator& allocator,
         Renderer& renderer,
         ResourceSystem& resources,
-        const u32 max_texture_count) {
+        const u32 max_texture_count,
+        JobSystem* jobs) {
         TextureSystem* system = allocator.construct_t(TextureSystem);
         if (system == nullptr)
             return err(texture_error{texture_error_code::out_of_memory, 0});
@@ -131,7 +144,8 @@ namespace nk {
             allocator,
             renderer,
             resources,
-            max_texture_count);
+            max_texture_count,
+            jobs);
         if (!initialized) {
             const texture_error error = initialized.error();
             allocator.deconstruct_t(TextureSystem, system);
@@ -151,13 +165,15 @@ namespace nk {
         mem::Allocator& allocator,
         Renderer& renderer,
         ResourceSystem& resources,
-        const u32 max_texture_count) {
+        const u32 max_texture_count,
+        JobSystem* jobs) {
         if (max_texture_count == 0)
             return err(texture_error{texture_error_code::capacity_exceeded, 0});
 
         m_allocator = &allocator;
         m_renderer = &renderer;
         m_resources = &resources;
+        m_jobs = jobs;
         if (!m_textures.arr_init(&allocator, max_texture_count)) {
             shutdown();
             return err(texture_error{texture_error_code::out_of_memory, 0});
@@ -187,6 +203,14 @@ namespace nk {
     }
 
     void TextureSystem::shutdown() {
+        m_shutting_down = true;
+        if (m_jobs != nullptr && m_references.allocator() != nullptr) {
+            for (const auto entry : m_references) {
+                if (entry.value.job.valid())
+                    (void)m_jobs->cancel(entry.value.job);
+            }
+            (void)m_jobs->drain();
+        }
         if (m_renderer != nullptr) {
             m_renderer->set_default_texture(nullptr);
             for (Texture& texture : m_textures) {
@@ -214,7 +238,9 @@ namespace nk {
         m_initialized = false;
         m_renderer = nullptr;
         m_resources = nullptr;
+        m_jobs = nullptr;
         m_allocator = nullptr;
+        m_shutting_down = false;
     }
 
     result<void, texture_error> TextureSystem::create_default_textures() {
@@ -255,6 +281,7 @@ namespace nk {
         }
         m_default_texture.id = numeric::invalid_id;
         m_default_texture.generation = 0;
+        m_default_texture.state = TextureState::ready;
 
         constexpr u8 specular_pixel[]{0, 0, 0, 255};
         created = m_renderer->create_texture(
@@ -274,6 +301,7 @@ namespace nk {
         }
         m_default_specular_texture.id = numeric::invalid_id;
         m_default_specular_texture.generation = 0;
+        m_default_specular_texture.state = TextureState::ready;
 
         constexpr u8 normal_pixel[]{128, 128, 255, 255};
         created = m_renderer->create_texture(
@@ -294,6 +322,7 @@ namespace nk {
         }
         m_default_normal_texture.id = numeric::invalid_id;
         m_default_normal_texture.generation = 0;
+        m_default_normal_texture.state = TextureState::ready;
         return ok();
     }
 
@@ -320,7 +349,20 @@ namespace nk {
                     texture_error_code::incompatible_texture,
                     0,
                 });
+            if (m_textures[reference->slot].state == TextureState::cancelling)
+                return err(texture_error{
+                    texture_error_code::invalid_operation,
+                    0,
+                });
             ++reference->reference_count;
+            if (m_textures[reference->slot].state == TextureState::failed &&
+                m_jobs != nullptr) {
+                auto queued = queue_texture_load(name, *reference);
+                if (!queued) {
+                    --reference->reference_count;
+                    return err(queued.error());
+                }
+            }
             return ok(&m_textures[reference->slot]);
         }
 
@@ -332,15 +374,8 @@ namespace nk {
             });
         }
 
-        Texture texture{};
-        auto loaded = load_texture(name, texture);
-        if (!loaded)
-            return err(loaded.error());
-        texture.id = slot;
-
         str owned_name{*m_allocator};
         if (!owned_name.assign(name)) {
-            m_renderer->destroy_texture(&texture);
             return err(texture_error{texture_error_code::out_of_memory, 0});
         }
 
@@ -353,9 +388,40 @@ namespace nk {
                 .source = TextureSource::file,
             });
         if (!inserted) {
-            m_renderer->destroy_texture(&texture);
             return err(texture_error{texture_error_code::out_of_memory, 0});
         }
+
+        TextureReference* reference = m_references.find(name);
+        if (reference == nullptr) {
+            (void)m_references.remove(name);
+            return err(texture_error{texture_error_code::out_of_memory, 0});
+        }
+
+        Texture texture{};
+        texture.id = slot;
+        texture.state = m_jobs == nullptr
+            ? TextureState::loading
+            : TextureState::queued;
+        m_textures[slot] = texture;
+        if (m_jobs != nullptr) {
+            auto queued = queue_texture_load(name, *reference);
+            if (!queued) {
+                m_textures[slot] = {};
+                (void)m_references.remove(name);
+                return err(queued.error());
+            }
+            TraceLog("Texture '{}' queued for asynchronous loading.", name);
+            return ok(&m_textures[slot]);
+        }
+
+        auto loaded = load_texture(name, texture);
+        if (!loaded) {
+            m_textures[slot] = {};
+            (void)m_references.remove(name);
+            return err(loaded.error());
+        }
+        texture.id = slot;
+        texture.state = TextureState::ready;
 
         m_textures[slot] = texture;
         ++m_loaded_count;
@@ -503,6 +569,7 @@ namespace nk {
                 created.error().native_code,
             });
         texture.generation = 0;
+        texture.state = TextureState::ready;
 
         str owned_name{*m_allocator};
         if (!owned_name.assign(name)) {
@@ -599,11 +666,23 @@ namespace nk {
             return;
 
         Texture& texture = m_textures[reference->slot];
-        m_renderer->destroy_texture(&texture);
+        if (texture.state == TextureState::queued ||
+            texture.state == TextureState::loading) {
+            texture.state = TextureState::cancelling;
+            if (m_jobs != nullptr && reference->job.valid())
+                (void)m_jobs->cancel(reference->job);
+            return;
+        }
+        if (texture.state == TextureState::cancelling)
+            return;
+        const TextureState released_state = texture.state;
+        if (texture.valid())
+            m_renderer->destroy_texture(&texture);
         if (reference->source == TextureSource::runtime)
             --m_runtime_count;
-        else
+        else if (released_state == TextureState::ready)
             --m_loaded_count;
+        texture = {};
         m_references.remove(name);
         TraceLog("Texture '{}' unloaded.", name);
     }
@@ -652,6 +731,7 @@ namespace nk {
             });
         }
         texture.generation = 0;
+        texture.state = TextureState::ready;
 
         InfoLog(
             "Texture '{}' loaded ({}x{}, {} channels, generation {}).",
@@ -661,6 +741,141 @@ namespace nk {
             texture.channel_count,
             texture.generation);
         return ok();
+    }
+
+    result<void, texture_error> TextureSystem::queue_texture_load(
+        const strview name,
+        TextureReference& reference) {
+        if (m_jobs == nullptr)
+            return err(texture_error{texture_error_code::invalid_operation, 0});
+
+        AsyncTextureLoad load{};
+        load.system = this;
+        load.slot = reference.slot;
+        ++reference.request_generation;
+        if (reference.request_generation == 0)
+            ++reference.request_generation;
+        load.request_generation = reference.request_generation;
+        if (!load.name.assign(name) || !format_to(
+                load.path,
+                "{}/textures/{}.png",
+                m_resources->asset_base_path(),
+                name)) {
+            return err(texture_error{texture_error_code::invalid_name, 0});
+        }
+
+        m_textures[reference.slot].state = TextureState::queued;
+        auto submitted = m_jobs->submit(
+            JobPriority::normal,
+            std::move(load),
+            &TextureSystem::load_texture_cpu,
+            &TextureSystem::complete_texture_load);
+        if (!submitted) {
+            m_textures[reference.slot].state = TextureState::failed;
+            return err(texture_error{
+                submitted.error().code == job_error_code::queue_full
+                    ? texture_error_code::capacity_exceeded
+                    : texture_error_code::out_of_memory,
+                submitted.error().native_code,
+            });
+        }
+        reference.job = *submitted;
+        return ok();
+    }
+
+    result<void, job_error> TextureSystem::load_texture_cpu(
+        AsyncTextureLoad& load) noexcept {
+        auto decoded = ImageLoader::load_png(
+            load.allocator,
+            load.path.view(),
+            true);
+        if (!decoded) {
+            load.failure = translate_image_error(decoded.error());
+            return err(job_error{
+                job_error_code::execution_failed,
+                load.failure.native_code,
+            });
+        }
+        load.image = std::move(*decoded);
+        return ok();
+    }
+
+    void TextureSystem::complete_texture_load(
+        AsyncTextureLoad& load,
+        const result<void, job_error>& outcome) noexcept {
+        TextureSystem* system = load.system;
+        if (system == nullptr || system->m_references.allocator() == nullptr)
+            return;
+        TextureReference* reference = system->m_references.find(load.name.view());
+        if (reference == nullptr || reference->slot != load.slot ||
+            reference->request_generation != load.request_generation)
+            return;
+
+        Texture& texture = system->m_textures[load.slot];
+        reference->job = {};
+        if (system->m_shutting_down || reference->reference_count == 0 ||
+            texture.state == TextureState::cancelling ||
+            (!outcome && outcome.error().code == job_error_code::cancelled)) {
+            texture = {};
+            (void)system->m_references.remove(load.name.view());
+            return;
+        }
+        if (!outcome) {
+            texture.state = TextureState::failed;
+            ErrorLog(
+                "Texture '{}' asynchronous decode failed: texture_error={}, native_code={}",
+                load.name.view(),
+                static_cast<u32>(load.failure.code),
+                load.failure.native_code);
+            return;
+        }
+
+        Texture published{};
+        auto created = system->m_renderer->create_texture(
+            load.name.view(),
+            load.image.width,
+            load.image.height,
+            load.image.channel_count,
+            load.image.pixels.data(),
+            load.image.has_transparency,
+            &published);
+        if (!created) {
+            texture.state = TextureState::failed;
+            ErrorLog(
+                "Texture '{}' asynchronous upload failed: renderer_error={}, native_code={}",
+                load.name.view(),
+                static_cast<u32>(created.error().code),
+                created.error().native_code);
+            return;
+        }
+        published.id = load.slot;
+        published.generation = 0;
+        published.state = TextureState::ready;
+        texture = published;
+        ++system->m_loaded_count;
+        InfoLog(
+            "Texture '{}' loaded asynchronously ({}x{}, {} channels).",
+            load.name.view(),
+            texture.width,
+            texture.height,
+            texture.channel_count);
+    }
+
+    result<TextureState, texture_error> TextureSystem::state(
+        const strview name) noexcept {
+        if (!m_initialized)
+            return err(texture_error{texture_error_code::not_initialized, 0});
+        const TextureReference* reference = m_references.find(name);
+        if (reference == nullptr)
+            return err(texture_error{texture_error_code::invalid_name, 0});
+        TextureState current = m_textures[reference->slot].state;
+        if (current == TextureState::queued && m_jobs != nullptr &&
+            reference->job.valid()) {
+            auto job_state = m_jobs->status(reference->job);
+            if (job_state && *job_state == JobStatus::running)
+                current = TextureState::loading;
+        }
+        return ok(current);
     }
 
     result<void, texture_error> TextureSystem::load_cube_texture(
@@ -756,13 +971,16 @@ namespace nk {
             });
         }
         texture.generation = 0;
+        texture.state = TextureState::ready;
         return ok();
     }
 
     u32 TextureSystem::find_free_slot() const noexcept {
         for (u32 index = 0; index < m_textures.length(); ++index) {
-            if (m_textures[index].m_internal_data == nullptr)
+            if (m_textures[index].m_internal_data == nullptr &&
+                m_textures[index].state == TextureState::unloaded) {
                 return index;
+            }
         }
         return numeric::invalid_id;
     }

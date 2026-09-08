@@ -8,6 +8,15 @@ namespace nk {
         cube,
     };
 
+    enum class TextureState : u8 {
+        unloaded,
+        queued,
+        loading,
+        ready,
+        failed,
+        cancelling,
+    };
+
     enum class TextureFormat : u8 {
         unknown,
         r8_unorm,
@@ -93,6 +102,7 @@ namespace nk {
         TextureSampleCount sample_count = TextureSampleCount::one;
         TextureFlag flags = TextureFlag::none;
         u32 generation = numeric::invalid_id;
+        TextureState state = TextureState::unloaded;
         void* m_internal_data = nullptr;
 
         bool valid() const noexcept {

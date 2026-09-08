@@ -7,6 +7,7 @@
 #include "core/str.h"
 #include "resources/texture.h"
 #include "renderer/sampler.h"
+#include "systems/job_system.h"
 
 namespace nk {
     class Renderer;
@@ -60,7 +61,8 @@ namespace nk {
             mem::Allocator& allocator,
             Renderer& renderer,
             ResourceSystem& resources,
-            u32 max_texture_count = default_max_texture_count);
+            u32 max_texture_count = default_max_texture_count,
+            JobSystem* jobs = nullptr);
         static void destroy(mem::Allocator& allocator, TextureSystem* system);
 
         [[nodiscard]] result<Texture*, texture_error> acquire(
@@ -109,6 +111,8 @@ namespace nk {
         u32 reference_count(strview name) const noexcept;
         u32 loaded_count() const noexcept { return m_loaded_count; }
         u32 runtime_count() const noexcept { return m_runtime_count; }
+        [[nodiscard]] result<TextureState, texture_error> state(
+            strview name) noexcept;
 
     private:
         enum class TextureSource : u8 {
@@ -121,18 +125,31 @@ namespace nk {
             u32 slot = numeric::invalid_id;
             bool auto_release = false;
             TextureSource source = TextureSource::file;
+            u32 request_generation = 0;
+            JobHandle job{};
         };
+
+        struct AsyncTextureLoad;
 
         [[nodiscard]] result<void, texture_error> init(
             mem::Allocator& allocator,
             Renderer& renderer,
             ResourceSystem& resources,
-            u32 max_texture_count);
+            u32 max_texture_count,
+            JobSystem* jobs);
         void shutdown();
         [[nodiscard]] result<void, texture_error> create_default_textures();
         [[nodiscard]] result<void, texture_error> load_texture(
             strview name,
             Texture& texture);
+        [[nodiscard]] result<void, texture_error> queue_texture_load(
+            strview name,
+            TextureReference& reference);
+        static result<void, job_error> load_texture_cpu(
+            AsyncTextureLoad& load) noexcept;
+        static void complete_texture_load(
+            AsyncTextureLoad& load,
+            const result<void, job_error>& outcome) noexcept;
         [[nodiscard]] result<void, texture_error> load_cube_texture(
             strview name,
             Texture& texture);
@@ -141,6 +158,7 @@ namespace nk {
         mem::Allocator* m_allocator = nullptr;
         Renderer* m_renderer = nullptr;
         ResourceSystem* m_resources = nullptr;
+        JobSystem* m_jobs = nullptr;
         cl::arr<Texture> m_textures;
         cl::map<str, TextureReference> m_references;
         Texture m_default_texture{};
@@ -149,5 +167,6 @@ namespace nk {
         u32 m_loaded_count = 0;
         u32 m_runtime_count = 0;
         bool m_initialized = false;
+        bool m_shutting_down = false;
     };
 }

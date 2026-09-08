@@ -67,7 +67,9 @@ namespace nk {
 
     class JobSystem final {
     public:
-        static constexpr u64 inline_payload_bytes = 512;
+        // Large enough for owned resource requests (bounded paths plus decoded
+        // result owner) while retaining one allocation for the entire pool.
+        static constexpr u64 inline_payload_bytes = 2048;
         static constexpr u64 inline_payload_alignment = alignof(std::max_align_t);
 
         JobSystem(const JobSystem&) = delete;
