@@ -240,7 +240,24 @@ if (NOT SLANGC)
     message(FATAL_ERROR "slangc was not found. Add it to PATH or configure -DSLANGC=/path/to/slangc")
 endif()
 
-file(GLOB SLANG_SHADER_FILES
+execute_process(
+    COMMAND "${SLANGC}" -version
+    RESULT_VARIABLE SLANG_VERSION_RESULT
+    OUTPUT_VARIABLE SLANG_VERSION
+    ERROR_VARIABLE SLANG_VERSION_ERROR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE
+)
+if (NOT SLANG_VERSION_RESULT EQUAL 0)
+    message(FATAL_ERROR
+        "Unable to execute slangc at '${SLANGC}': ${SLANG_VERSION_ERROR}")
+endif()
+if (SLANG_VERSION STREQUAL "")
+    set(SLANG_VERSION "${SLANG_VERSION_ERROR}")
+endif()
+message(STATUS "Slang compiler: ${SLANG_VERSION} (${SLANGC})")
+
+file(GLOB SLANG_SHADER_FILES CONFIGURE_DEPENDS
     "assets/shaders/*.slang"
 )
 
@@ -248,12 +265,20 @@ foreach(SLANG ${SLANG_SHADER_FILES})
     get_filename_component(FILE_NAME ${SLANG} NAME_WLE)
     get_filename_component(SHADER_EXT ${FILE_NAME} LAST_EXT)
     string(REPLACE "." "" SHADER_STAGE ${SHADER_EXT})
+    if (NOT SHADER_STAGE MATCHES "^(vertex|fragment|geometry)$")
+        message(FATAL_ERROR
+            "Unsupported Slang stage suffix '${SHADER_STAGE}' in '${SLANG}'. "
+            "Use .vertex.slang, .fragment.slang or .geometry.slang.")
+    endif()
     set(SPIRV "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/shaders/${FILE_NAME}.spv")
     add_custom_command(
         OUTPUT ${SPIRV}
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/shaders/"
-        COMMAND ${SLANGC} ${SLANG} -entry main -stage ${SHADER_STAGE} -target spirv -o ${SPIRV}
-        DEPENDS ${SLANG}
+        COMMAND "${SLANGC}" "${SLANG}" -entry main -stage ${SHADER_STAGE}
+            -target spirv -o "${SPIRV}"
+        DEPENDS "${SLANG}"
+        COMMENT "Compiling ${FILE_NAME} with Slang"
+        VERBATIM
     )
     list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(SLANG)
@@ -261,7 +286,8 @@ endforeach(SLANG)
 add_custom_target(SHADERS DEPENDS ${SPIRV_BINARY_FILES})
 add_dependencies(engine SHADERS)
 
-file(GLOB SHADER_CONFIG_FILES "assets/shaders/*.shadercfg")
+file(GLOB SHADER_CONFIG_FILES CONFIGURE_DEPENDS
+    "assets/shaders/*.shadercfg")
 
 foreach(SHADER_CONFIG ${SHADER_CONFIG_FILES})
     get_filename_component(SHADER_CONFIG_NAME ${SHADER_CONFIG} NAME)
@@ -281,6 +307,18 @@ endforeach(SHADER_CONFIG)
 
 add_custom_target(SHADER_CONFIGS DEPENDS ${SHADER_CONFIG_BINARY_FILES})
 add_dependencies(engine SHADER_CONFIGS)
+
+add_custom_target(shader_assets
+    DEPENDS ${SPIRV_BINARY_FILES} ${SHADER_CONFIG_BINARY_FILES})
+add_custom_target(verify_shader_assets
+    COMMAND ${CMAKE_COMMAND}
+        -DSHADER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders
+        -DSHADER_OUTPUT_DIR=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/shaders
+        -P ${CMAKE_HOME_DIRECTORY}/.scripts/verify-shader-assets.cmake
+    DEPENDS shader_assets
+    COMMENT "Verifying compiled Slang shader assets"
+    VERBATIM
+)
 
 file(GLOB MODEL_FILES
     "assets/models/*.obj"

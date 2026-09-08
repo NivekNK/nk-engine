@@ -112,6 +112,18 @@ nix develop
 .scripts/run.sh Debug
 ```
 
+Compile and verify only the Slang shader assets:
+
+```bash
+.scripts/compile-shaders.sh Debug
+```
+
+The equivalent Windows command is:
+
+```powershell
+.scripts/compile-shaders.ps1 -BuildType Debug
+```
+
 Measure a built release configuration (60 warmup frames, then 1200 samples):
 
 ```bash
