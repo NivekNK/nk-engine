@@ -206,18 +206,28 @@ namespace nk::mem {
         }
 #endif
 
-        void* _allocate_raw(u64 size_bytes, u64 alignment) noexcept;
-        void* _allocate_zeroed_raw(u64 size_bytes, u64 alignment) noexcept;
-        bool _free_raw(void* data, u64 size_bytes) noexcept;
+        virtual void* _allocate_raw(u64 size_bytes, u64 alignment) noexcept;
+        virtual void* _allocate_zeroed_raw(
+            u64 size_bytes,
+            u64 alignment) noexcept;
+        virtual bool _free_raw(void* data, u64 size_bytes) noexcept;
 
 #if NK_MEMORY_TRACKING_ENABLED
-        void* _allocate_raw(cstr file, u32 line, u64 size_bytes, u64 alignment) noexcept;
-        void* _allocate_zeroed_raw(
+        virtual void* _allocate_raw(
             cstr file,
             u32 line,
             u64 size_bytes,
             u64 alignment) noexcept;
-        bool _free_raw(cstr file, u32 line, void* data, u64 size_bytes) noexcept;
+        virtual void* _allocate_zeroed_raw(
+            cstr file,
+            u32 line,
+            u64 size_bytes,
+            u64 alignment) noexcept;
+        virtual bool _free_raw(
+            cstr file,
+            u32 line,
+            void* data,
+            u64 size_bytes) noexcept;
 #endif
 
 #if NK_MEMORY_TRACKING_ENABLED

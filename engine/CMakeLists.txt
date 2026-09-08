@@ -61,6 +61,7 @@ set(SOURCES
     src/core/transform.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
+    src/memory/synchronized_allocator.cpp
     src/memory/linear_allocator.cpp
     src/memory/free_list.cpp
     src/memory/free_list_allocator.cpp
