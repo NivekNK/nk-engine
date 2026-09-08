@@ -32,6 +32,9 @@ namespace nk {
         u32 generation = numeric::invalid_id;
         strbuf<geometry_name_capacity> name;
         Material* material = nullptr;
+        glm::vec3 center{0.0f};
+        glm::vec3 min_extents{0.0f};
+        glm::vec3 max_extents{0.0f};
 
         bool valid() const noexcept {
             return internal_id != numeric::invalid_id &&

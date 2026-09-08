@@ -188,6 +188,21 @@ namespace nk {
         return ok();
     }
 
+    result<void, renderer_error> VulkanRenderer::set_material_blend_mode(
+        const MaterialBlendMode blend_mode) {
+        VulkanShader* shader = resolve_shader(m_active_shader);
+        if (shader == nullptr || !m_render_pass_active ||
+            m_image_index >= m_graphics_command_buffers.length()) {
+            return err(renderer_error{
+                renderer_error_code::shader_state_invalid,
+                0,
+            });
+        }
+        return shader->use(
+            m_graphics_command_buffers[m_image_index],
+            blend_mode);
+    }
+
     result<void, renderer_error> VulkanRenderer::bind_shader_globals(
         const ShaderHandle handle) {
         VulkanShader* shader = resolve_shader(handle);

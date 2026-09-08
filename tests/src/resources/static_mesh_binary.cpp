@@ -61,7 +61,7 @@ TEST(StaticMeshBinary, UsesAnExplicitLittleEndianWireLayout) {
     ASSERT_TRUE(encoded);
     ASSERT_EQ(encoded->length(), 298);
     EXPECT_EQ(std::memcmp(encoded->data(), "NKMESH\r\n", 8), 0);
-    constexpr u8 prefix[]{2, 0, 0, 0, 4, 3, 2, 1, 64, 0, 0, 0, 48, 0, 0, 0};
+    constexpr u8 prefix[]{3, 0, 0, 0, 4, 3, 2, 1, 64, 0, 0, 0, 48, 0, 0, 0};
     EXPECT_EQ(std::memcmp(encoded->data() + 8, prefix, sizeof(prefix)), 0);
     EXPECT_EQ((*encoded)[40], 1); // One geometry; no padding-dependent count.
     EXPECT_EQ((*encoded)[82], 3); // Three vertices.
@@ -84,6 +84,8 @@ TEST(StaticMeshBinary, RoundTripsAllAttributesMaterialsAndDependenciesDeterminis
     material.diffuse_color = {.1f, .2f, .3f, .4f};
     material.shininess = 17;
     material.auto_release = false;
+    material.blend_mode = MaterialBlendMode::transparent;
+    material.alpha_cutoff = 0.25f;
     material.diffuse_sampler.min_filter = TextureFilter::nearest;
     material.diffuse_sampler.wrap_u = TextureWrap::clamp_to_border;
     material.specular_sampler.wrap_v = TextureWrap::mirrored_repeat;
@@ -104,6 +106,10 @@ TEST(StaticMeshBinary, RoundTripsAllAttributesMaterialsAndDependenciesDeterminis
     EXPECT_EQ(decoded->mesh.materials[0].diffuse_color, material.diffuse_color);
     EXPECT_EQ(decoded->mesh.materials[0].normal_map_name.view(), material.normal_map_name.view());
     EXPECT_FALSE(decoded->mesh.materials[0].auto_release);
+    EXPECT_EQ(
+        decoded->mesh.materials[0].blend_mode,
+        MaterialBlendMode::transparent);
+    EXPECT_FLOAT_EQ(decoded->mesh.materials[0].alpha_cutoff, 0.25f);
     EXPECT_EQ(decoded->mesh.materials[0].diffuse_sampler, material.diffuse_sampler);
     EXPECT_EQ(decoded->mesh.materials[0].specular_sampler, material.specular_sampler);
     EXPECT_EQ(decoded->mesh.materials[0].normal_sampler, material.normal_sampler);
@@ -141,11 +147,11 @@ TEST(StaticMeshBinary, RejectsOldFormatAndInvalidSerializedSampling) {
     EXPECT_EQ(blocked.calls, 0);
     ASSERT_TRUE(mesh.materials.dyarr_init_len(&allocator, 1, 1));
     mesh.materials[0].name.assign("m");
-    // One material with otherwise empty strings: sampler fields start at 113.
-    for (u64 offset : {113u, 117u, 121u, 125u, 129u, 133u, 137u}) {
+    // One material with otherwise empty strings: sampler fields start at 121.
+    for (u64 offset : {121u, 125u, 129u, 133u, 137u, 141u, 145u}) {
         auto encoded = mesh_binary::encode(allocator, mesh);
         ASSERT_TRUE(encoded);
-        put_u32(*encoded, offset, offset == 137 ? 0x7fc00000u : 256u);
+        put_u32(*encoded, offset, offset == 145 ? 0x7fc00000u : 256u);
         checksum(*encoded);
         EXPECT_FALSE(mesh_binary::decode(blocked, cl::slice<const u8>{*encoded}));
     }

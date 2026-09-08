@@ -13,6 +13,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace nk {
+    Renderer::~Renderer() {
+        release_world_draw_scratch();
+    }
+
     bool on_render_view_mode(
         const SystemEventCode code,
         void*,
@@ -76,6 +80,17 @@ namespace nk {
 
         renderer->m_frame_number = 0;
 
+        if (!renderer->initialize_world_draw_scratch(
+                *renderer->m_allocator)) {
+            native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            renderer->m_allocator = nullptr;
+            allocator->deconstruct_t(VulkanRenderer, renderer);
+            return err(renderer_error{
+                .code = renderer_error_code::out_of_memory,
+                .native_code = 0,
+            });
+        }
+
         renderer->m_view = glm::inverse(
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -30.0f)));
         renderer->m_view_position = glm::vec3(0.0f, 0.0f, -30.0f);
@@ -84,7 +99,9 @@ namespace nk {
             platform->width(),
             platform->height());
         if (!views_initialized) {
+            renderer->release_world_draw_scratch();
             native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            renderer->m_allocator = nullptr;
             allocator->deconstruct_t(VulkanRenderer, renderer);
             return err(renderer_error{
                 .code = renderer_error_code::initialization_failed,
@@ -97,7 +114,9 @@ namespace nk {
             const renderer_error error = initialized.error();
             renderer->shutdown();
             renderer->m_render_views.shutdown();
+            renderer->release_world_draw_scratch();
             native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            renderer->m_allocator = nullptr;
             allocator->deconstruct_t(VulkanRenderer, renderer);
             return err(error);
         }
@@ -110,13 +129,19 @@ namespace nk {
             return;
         renderer->shutdown();
         renderer->m_render_views.shutdown();
+        renderer->release_world_draw_scratch();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+        renderer->m_allocator = nullptr;
         allocator->deconstruct_t(VulkanRenderer, renderer);
     }
 
     result<frame_outcome, renderer_error> Renderer::draw_frame(
         MaterialSystem& materials,
         const RenderPacket& packet) {
+        auto prepared = prepare_world_draws(packet);
+        if (!prepared)
+            return err(prepared.error());
+
         auto begun = begin_frame(packet.delta_time);
         if (!begun)
             return err(begun.error());
@@ -129,10 +154,11 @@ namespace nk {
             .world_view = &m_view,
             .world_view_position = m_view_position,
             .lighting = &packet.lighting,
-            .geometry_count = packet.geometry_count,
-            .geometries = packet.geometries,
-            .mesh_count = packet.mesh_count,
-            .meshes = packet.meshes,
+            .geometry_count = static_cast<u32>(
+                m_world_draw_scratch.length()),
+            .geometries = m_world_draw_scratch.data(),
+            .mesh_count = 0,
+            .meshes = nullptr,
             .ui_geometry_count = packet.ui_geometry_count,
             .ui_geometries = packet.ui_geometries,
         }, {view_packets});
@@ -149,6 +175,101 @@ namespace nk {
         }
 
         return end_frame_impl(packet.delta_time);
+    }
+
+    result<void, renderer_error> Renderer::prepare_world_draws(
+        const RenderPacket& packet) {
+        if ((packet.geometry_count != 0 && packet.geometries == nullptr) ||
+            (packet.mesh_count != 0 && packet.meshes == nullptr)) {
+            return err(renderer_error{
+                renderer_error_code::initialization_failed,
+                0,
+            });
+        }
+
+        u64 total = packet.geometry_count;
+        for (u32 mesh_index = 0; mesh_index < packet.mesh_count; ++mesh_index) {
+            const u64 count = packet.meshes[mesh_index].geometries().length();
+            if (count > numeric::u32_max - total) {
+                return err(renderer_error{
+                    renderer_error_code::out_of_memory,
+                    0,
+                });
+            }
+            total += count;
+        }
+        if (m_world_draw_scratch.allocator() == nullptr &&
+            !m_world_draw_scratch.dyarr_init(m_allocator, total)) {
+            return err(renderer_error{
+                renderer_error_code::out_of_memory,
+                0,
+            });
+        }
+        auto reserved = m_world_draw_scratch.dyarr_reserve(total);
+        if (!reserved || !m_world_draw_scratch.dyarr_resize(total)) {
+            return err(renderer_error{
+                renderer_error_code::out_of_memory,
+                0,
+            });
+        }
+
+        auto transparent = [](const Geometry* geometry) noexcept {
+            return geometry != nullptr && geometry->material != nullptr &&
+                   geometry->material->valid() &&
+                   geometry->material->type == MaterialType::world &&
+                   geometry->material->blend_mode ==
+                       MaterialBlendMode::transparent;
+        };
+        u64 opaque_count = 0;
+        for (u32 index = 0; index < packet.geometry_count; ++index)
+            opaque_count += transparent(packet.geometries[index].geometry) ? 0 : 1;
+        for (u32 mesh_index = 0; mesh_index < packet.mesh_count; ++mesh_index) {
+            for (Geometry* geometry : packet.meshes[mesh_index].geometries())
+                opaque_count += transparent(geometry) ? 0 : 1;
+        }
+
+        u64 opaque_index = 0;
+        u64 transparent_index = opaque_count;
+        auto append = [&](const GeometryRenderData data) {
+            m_world_draw_scratch[
+                transparent(data.geometry)
+                    ? transparent_index++
+                    : opaque_index++] = data;
+        };
+        for (u32 index = 0; index < packet.geometry_count; ++index)
+            append(packet.geometries[index]);
+        for (u32 mesh_index = 0; mesh_index < packet.mesh_count; ++mesh_index) {
+            const Mesh& mesh = packet.meshes[mesh_index];
+            const glm::mat4 model = mesh.transform().world_matrix();
+            for (Geometry* geometry : mesh.geometries())
+                append({.model = model, .geometry = geometry});
+        }
+
+        auto distance_squared = [this](const GeometryRenderData& data) {
+            const glm::vec3 local_center = data.geometry == nullptr
+                ? glm::vec3{0.0f}
+                : data.geometry->center;
+            const glm::vec3 center = glm::vec3{
+                data.model * glm::vec4{local_center, 1.0f}};
+            const glm::vec3 offset = center - m_view_position;
+            const f32 distance = glm::dot(offset, offset);
+            return std::isfinite(distance) ? distance : 0.0f;
+        };
+        // Stable insertion sort keeps submission order for equal distances.
+        for (u64 index = opaque_count + 1; index < total; ++index) {
+            GeometryRenderData value = m_world_draw_scratch[index];
+            const f32 value_distance = distance_squared(value);
+            u64 destination = index;
+            while (destination > opaque_count &&
+                   value_distance > distance_squared(
+                       m_world_draw_scratch[destination - 1])) {
+                m_world_draw_scratch[destination] =
+                    m_world_draw_scratch[destination - 1];
+                --destination;
+            }
+            m_world_draw_scratch[destination] = value;
+        }
+        return ok();
     }
 
     result<void, renderer_error> Renderer::draw_render_pass(
@@ -232,6 +353,10 @@ namespace nk {
         }
 
         if (bound_material != material) {
+            auto blend_selected = set_material_blend_mode(
+                material->blend_mode);
+            if (!blend_selected)
+                return err(blend_selected.error());
             auto instance_applied = materials.apply_instance(
                 *material,
                 m_frame_number);

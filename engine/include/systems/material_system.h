@@ -131,6 +131,8 @@ namespace nk {
             ShaderUniformHandle normal_matrix{};
             ShaderUniformHandle specular_texture{};
             ShaderUniformHandle shininess{};
+            ShaderUniformHandle blend_mode{};
+            ShaderUniformHandle alpha_cutoff{};
             ShaderUniformHandle view_position{};
             ShaderUniformHandle normal_texture{};
             ShaderUniformHandle point_light_count{};
@@ -148,7 +150,8 @@ namespace nk {
                       directional_light_direction.valid() &&
                       directional_light_color.valid() &&
                       normal_matrix.valid() && specular_texture.valid() &&
-                      shininess.valid() && view_position.valid() &&
+                      shininess.valid() && blend_mode.valid() &&
+                      alpha_cutoff.valid() && view_position.valid() &&
                       normal_texture.valid() && point_light_count.valid() &&
                       point_lights.valid() && render_view_mode.valid()));
             }

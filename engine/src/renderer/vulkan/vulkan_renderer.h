@@ -102,6 +102,8 @@ namespace nk {
         virtual void destroy_geometry(Geometry& geometry) override;
 
     private:
+        [[nodiscard]] result<void, renderer_error> set_material_blend_mode(
+            MaterialBlendMode blend_mode) override;
         bool sampler_mutation_allowed() const noexcept;
         void on_default_texture_changed(Texture* texture) override;
         [[nodiscard]] result<void, renderer_error> set_shader_uniform_raw(

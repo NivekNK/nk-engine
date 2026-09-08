@@ -12,6 +12,7 @@
 #include "renderer/render_view.h"
 #include "renderer/shader.h"
 #include "collections/slice.h"
+#include "collections/dyarr.h"
 #include "core/result.h"
 #include "core/str.h"
 
@@ -39,7 +40,7 @@ namespace nk {
 
     class Renderer {
     public:
-        virtual ~Renderer() = default;
+        virtual ~Renderer();
 
         [[nodiscard]] static result<Renderer*, renderer_error> create(
             mem::Allocator* allocator,
@@ -192,6 +193,18 @@ namespace nk {
         virtual void draw_geometry(
             RenderPassKind pass,
             GeometryRenderData data) = 0;
+        [[nodiscard]] virtual result<void, renderer_error>
+        set_material_blend_mode(MaterialBlendMode) { return ok(); }
+        [[nodiscard]] bool initialize_world_draw_scratch(
+            mem::Allocator& allocator,
+            u64 capacity = 256) {
+            return m_world_draw_scratch.allocator() != nullptr ||
+                   m_world_draw_scratch.dyarr_init(&allocator, capacity);
+        }
+        void release_world_draw_scratch() noexcept {
+            if (m_world_draw_scratch.allocator() != nullptr)
+                (void)m_world_draw_scratch.dyarr_shutdown();
+        }
         virtual void on_default_texture_changed(Texture*) {}
         [[nodiscard]] virtual result<frame_outcome, renderer_error> end_frame(
             f64 delta_time) = 0;
@@ -207,6 +220,7 @@ namespace nk {
         glm::mat4 m_view;
         glm::vec3 m_view_position{};
         RenderViewSystem m_render_views;
+        cl::dyarr<GeometryRenderData> m_world_draw_scratch;
 
         Texture* m_default_texture = nullptr;
         RenderViewMode m_render_view_mode = RenderViewMode::default_lit;
@@ -222,6 +236,8 @@ namespace nk {
             Material*& bound_material);
         [[nodiscard]] result<frame_outcome, renderer_error> end_frame_impl(
             f64 delta_time);
+        [[nodiscard]] result<void, renderer_error> prepare_world_draws(
+            const RenderPacket& packet);
 
     };
 }

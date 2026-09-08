@@ -150,13 +150,18 @@ namespace nk::mesh_binary {
                 material.specular_map_name.assign(reader.string(texture_name_capacity));
                 material.normal_map_name.assign(reader.string(texture_name_capacity));
                 const u32 type = reader.integer(), auto_release = reader.integer();
-                if (type != static_cast<u32>(MaterialType::world) || auto_release > 1)
+                const u32 blend_mode = reader.integer();
+                if (type != static_cast<u32>(MaterialType::world) || auto_release > 1 ||
+                    blend_mode > static_cast<u32>(MaterialBlendMode::transparent))
                     reader.reject(error::invalid_data);
                 material.type = MaterialType::world;
                 material.auto_release = auto_release != 0;
+                material.blend_mode = static_cast<MaterialBlendMode>(blend_mode);
                 material.diffuse_color = reader.vec4();
                 material.shininess = reader.number();
-                if (material.shininess <= 0) reader.reject(error::invalid_data);
+                material.alpha_cutoff = reader.number();
+                if (material.shininess <= 0 || material.alpha_cutoff < 0 ||
+                    material.alpha_cutoff > 1) reader.reject(error::invalid_data);
                 material.diffuse_sampler = read_sampler(reader);
                 material.specular_sampler = read_sampler(reader);
                 material.normal_sampler = read_sampler(reader);
@@ -255,8 +260,10 @@ namespace nk::mesh_binary {
                 writer.string(material.normal_map_name.view());
                 writer.integer(static_cast<u32>(material.type));
                 writer.integer(material.auto_release ? 1 : 0);
+                writer.integer(static_cast<u32>(material.blend_mode));
                 writer.vec4(material.diffuse_color);
                 writer.number(material.shininess);
+                writer.number(material.alpha_cutoff);
                 write_sampler(writer, material.diffuse_sampler);
                 write_sampler(writer, material.specular_sampler);
                 write_sampler(writer, material.normal_sampler);

@@ -243,6 +243,14 @@ namespace nk {
             if (!shininess)
                 return err(translate_shader_error(shininess.error()));
             resolved.shininess = *shininess;
+            auto blend_mode = m_shaders->uniform(*shader, "blend_mode");
+            if (!blend_mode)
+                return err(translate_shader_error(blend_mode.error()));
+            resolved.blend_mode = *blend_mode;
+            auto alpha_cutoff = m_shaders->uniform(*shader, "alpha_cutoff");
+            if (!alpha_cutoff)
+                return err(translate_shader_error(alpha_cutoff.error()));
+            resolved.alpha_cutoff = *alpha_cutoff;
             auto view_position = m_shaders->uniform(*shader, "view_position");
             if (!view_position)
                 return err(translate_shader_error(view_position.error()));
@@ -287,6 +295,7 @@ namespace nk {
         MaterialConfig ui_config;
         ui_config.name.assign(default_ui_material_name);
         ui_config.type = MaterialType::ui;
+        ui_config.blend_mode = MaterialBlendMode::transparent;
         Material ui;
         auto ui_created = load_material(ui_config, ui);
         if (!ui_created) {
@@ -920,6 +929,17 @@ namespace nk {
                     material.shininess);
                 if (!shininess_set)
                     return err(translate_shader_error(shininess_set.error()));
+                const u32 blend_mode = static_cast<u32>(material.blend_mode);
+                auto blend_mode_set = m_shaders->set_uniform(
+                    uniform->blend_mode,
+                    blend_mode);
+                if (!blend_mode_set)
+                    return err(translate_shader_error(blend_mode_set.error()));
+                auto alpha_cutoff_set = m_shaders->set_uniform(
+                    uniform->alpha_cutoff,
+                    material.alpha_cutoff);
+                if (!alpha_cutoff_set)
+                    return err(translate_shader_error(alpha_cutoff_set.error()));
             }
         }
         auto applied = m_shaders->apply_instance(needs_update);
@@ -971,11 +991,21 @@ namespace nk {
         Material& material) {
         if (!config.diffuse_sampler.valid() || !config.specular_sampler.valid() || !config.normal_sampler.valid())
             return err(material_error{material_error_code::invalid_config, 0});
+        if (static_cast<u32>(config.blend_mode) >
+            static_cast<u32>(MaterialBlendMode::transparent)) {
+            return err(material_error{material_error_code::invalid_config, 0});
+        }
         material.diffuse_map.sampling = config.diffuse_sampler;
         material.specular_map.sampling = config.specular_sampler;
         material.normal_map.sampling = config.normal_sampler;
         material.name.assign(config.name.view());
         material.type = config.type;
+        material.blend_mode = config.blend_mode;
+        material.alpha_cutoff = config.alpha_cutoff;
+        if (!std::isfinite(material.alpha_cutoff) ||
+            material.alpha_cutoff < 0.0f || material.alpha_cutoff > 1.0f) {
+            return err(material_error{material_error_code::invalid_config, 0});
+        }
         material.diffuse_color = config.diffuse_color;
         material.diffuse_map.use = TextureUse::diffuse;
         material.diffuse_map_name.assign(config.diffuse_map_name.view());

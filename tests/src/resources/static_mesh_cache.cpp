@@ -16,7 +16,7 @@
 namespace {
     using namespace nk;
     const strview triangle = "mtllib tri.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl paint\nf 1 2 3\n";
-    const strview material = "newmtl paint\nKd 0.2 0.4 0.8\nNs 16\nmap_Kd paint.png\n";
+    const strview material = "newmtl paint\nKd 0.2 0.4 0.8\nd 0.5\nNs 16\nmap_Kd paint.png\n";
 
     class StaticMeshCache : public testing::Test {
     protected:
@@ -94,7 +94,10 @@ TEST_F(StaticMeshCache, ImportsOnMissThenLoadsEquivalentBinaryAndWritesDetermini
     EXPECT_EQ(mesh().geometries[0].vertices[1].position, original_vertex.position);
     EXPECT_EQ(mesh().geometries[0].vertices[1].normal, original_vertex.normal);
     EXPECT_EQ(mesh().geometries[0].vertices[1].tangent, original_vertex.tangent);
-    EXPECT_EQ(mesh().materials[0].diffuse_color, glm::vec4(.2f, .4f, .8f, 1));
+    EXPECT_EQ(mesh().materials[0].diffuse_color, glm::vec4(.2f, .4f, .8f, .5f));
+    EXPECT_EQ(
+        mesh().materials[0].blend_mode,
+        MaterialBlendMode::transparent);
     EXPECT_FLOAT_EQ(mesh().materials[0].shininess, 16);
     remove("models/tri.nkmesh");
     ASSERT_TRUE(load());

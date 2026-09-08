@@ -26,6 +26,9 @@ namespace nk {
         u32 vertex_stride;
         bool is_wireframe;
         bool depth_test_enabled;
+        bool depth_write_enabled;
+        bool blend_enabled;
+        VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
     };
 
     class Pipeline {

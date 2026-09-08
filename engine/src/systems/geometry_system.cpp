@@ -144,6 +144,9 @@ namespace nk {
         Geometry world{};
         world.name.assign(default_geometry_name);
         world.material = &m_materials->default_material();
+        world.center = {0.0f, 0.0f, 0.0f};
+        world.min_extents = {-0.5f * scale, -0.5f * scale, 0.0f};
+        world.max_extents = {0.5f * scale, 0.5f * scale, 0.0f};
         auto world_created = m_renderer->create_geometry(
             world,
             cl::slice<const glm::Vertex3D>{vertices},
@@ -219,6 +222,9 @@ namespace nk {
             config.material_name.view(),
             MaterialType::world,
             nullptr,
+            config.center,
+            config.min_extents,
+            config.max_extents,
             auto_release);
     }
 
@@ -239,6 +245,9 @@ namespace nk {
             config.material_name.view(),
             MaterialType::world,
             &material,
+            config.center,
+            config.min_extents,
+            config.max_extents,
             auto_release);
     }
 
@@ -252,6 +261,9 @@ namespace nk {
             config.material_name.view(),
             MaterialType::ui,
             nullptr,
+            {},
+            {},
+            {},
             auto_release);
     }
 
@@ -263,6 +275,9 @@ namespace nk {
         const strview material_name,
         const MaterialType material_type,
         const MaterialConfig* material_config,
+        const glm::vec3 center,
+        const glm::vec3 min_extents,
+        const glm::vec3 max_extents,
         const bool auto_release) {
         if (!m_initialized)
             return err(geometry_error{geometry_error_code::not_initialized, 0});
@@ -283,6 +298,9 @@ namespace nk {
 
         Geometry geometry{};
         geometry.id = slot;
+        geometry.center = center;
+        geometry.min_extents = min_extents;
+        geometry.max_extents = max_extents;
         auto created = create_geometry(
             vertices,
             indices,
@@ -545,6 +563,9 @@ namespace nk {
             name.empty() ? default_geometry_name : name);
         config.material_name.assign(
             material_name.empty() ? default_material_name : material_name);
+        config.center = {0.0f, 0.0f, 0.0f};
+        config.min_extents = {-half_width, -half_height, 0.0f};
+        config.max_extents = {half_width, half_height, 0.0f};
         return ok(std::move(config));
     }
 
@@ -667,6 +688,9 @@ namespace nk {
             name.empty() ? default_geometry_name : name);
         config.material_name.assign(
             material_name.empty() ? default_material_name : material_name);
+        config.center = {0.0f, 0.0f, 0.0f};
+        config.min_extents = {min_x, min_y, min_z};
+        config.max_extents = {max_x, max_y, max_z};
         return ok(std::move(config));
     }
 

@@ -446,6 +446,10 @@ namespace nk {
 
                 output.auto_release = true;
                 output.type = MaterialType::world;
+                output.blend_mode =
+                    std::isfinite(input.dissolve) && input.dissolve < 1.0f
+                        ? MaterialBlendMode::transparent
+                        : MaterialBlendMode::opaque;
                 output.diffuse_color = {
                     input.diffuse[0],
                     input.diffuse[1],

@@ -126,6 +126,9 @@ namespace nk {
             strview material_name,
             MaterialType material_type,
             const MaterialConfig* material_config,
+            glm::vec3 center,
+            glm::vec3 min_extents,
+            glm::vec3 max_extents,
             bool auto_release);
         template<typename Vertex>
         [[nodiscard]] result<void, geometry_error> create_geometry(

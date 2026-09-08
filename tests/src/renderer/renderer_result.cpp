@@ -50,9 +50,12 @@ namespace {
                 720);
             if (!views_initialized)
                 std::abort();
+            if (!initialize_world_draw_scratch(m_view_allocator))
+                std::abort();
         }
 
         ~TestRenderer() override {
+            release_world_draw_scratch();
             render_views().shutdown();
         }
 
@@ -109,6 +112,14 @@ namespace {
         nk::u32 shader_trace_length() const { return m_shader_trace_length; }
         nk::u8 shader_trace(nk::u32 index) const {
             return m_shader_trace[index];
+        }
+        nk::u32 drawn_geometry_count() const { return m_drawn_geometry_count; }
+        nk::Geometry* drawn_geometry(nk::u32 index) const {
+            return m_drawn_geometries[index];
+        }
+        nk::u32 blend_mode_count() const { return m_blend_mode_count; }
+        nk::MaterialBlendMode blend_mode(nk::u32 index) const {
+            return m_blend_modes[index];
         }
         const glm::vec4& ambient_color() const { return m_ambient_color; }
         const glm::vec3& directional_light_direction() const {
@@ -465,11 +476,26 @@ namespace {
 
         void draw_geometry(
             const nk::RenderPassKind pass,
-            nk::GeometryRenderData) override {
+            const nk::GeometryRenderData data) override {
             if (pass == nk::RenderPassKind::world)
                 ++m_world_object_updates;
             else
                 ++m_ui_object_updates;
+            ASSERT_LT(m_drawn_geometry_count, std::size(m_drawn_geometries));
+            m_drawn_geometries[m_drawn_geometry_count++] = data.geometry;
+        }
+
+        nk::result<void, nk::renderer_error> set_material_blend_mode(
+            const nk::MaterialBlendMode mode) override {
+            if (m_blend_mode_count >= std::size(m_blend_modes)) {
+                ADD_FAILURE() << "blend mode trace capacity exceeded";
+                return nk::err(nk::renderer_error{
+                    nk::renderer_error_code::out_of_memory,
+                    0,
+                });
+            }
+            m_blend_modes[m_blend_mode_count++] = mode;
+            return nk::ok();
         }
 
         nk::result<nk::frame_outcome, nk::renderer_error> end_frame(
@@ -545,6 +571,10 @@ namespace {
         nk::f32 m_shininess = 0.0f;
         nk::u8 m_shader_trace[64]{};
         nk::u32 m_shader_trace_length = 0;
+        nk::Geometry* m_drawn_geometries[16]{};
+        nk::u32 m_drawn_geometry_count = 0;
+        nk::MaterialBlendMode m_blend_modes[16]{};
+        nk::u32 m_blend_mode_count = 0;
     };
 
     class FailingAllocator final : public nk::mem::MallocAllocator {
@@ -751,6 +781,64 @@ TEST(RendererResult, RunsWorldAndUiPassesInOrder) {
     EXPECT_EQ(renderer.ui_object_updates(), 1u);
 }
 
+TEST(RendererResult, DrawsOpaqueFirstAndTransparentBackToFrontStably) {
+    nk::mem::MallocAllocator allocator{nk::mem::untracked};
+    TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
+    TestRenderSystems systems{allocator, renderer};
+    ASSERT_TRUE(systems.init());
+
+    nk::MaterialConfig transparent_config{};
+    transparent_config.name.assign("transparent_test");
+    transparent_config.blend_mode = nk::MaterialBlendMode::transparent;
+    auto transparent_material = systems.materials->acquire(
+        transparent_config);
+    ASSERT_TRUE(transparent_material);
+
+    nk::Geometry opaque{};
+    opaque.internal_id = 0;
+    opaque.generation = 0;
+    opaque.material = &systems.materials->default_material();
+    nk::Geometry near{};
+    near.internal_id = 1;
+    near.generation = 0;
+    near.material = *transparent_material;
+    near.center = {0.0f, 0.0f, 5.0f};
+    nk::Geometry far{};
+    far.internal_id = 2;
+    far.generation = 0;
+    far.material = *transparent_material;
+    far.center = {0.0f, 0.0f, 20.0f};
+    nk::Geometry tied{};
+    tied.internal_id = 3;
+    tied.generation = 0;
+    tied.material = *transparent_material;
+    tied.center = far.center;
+    const nk::GeometryRenderData submitted[]{
+        {.model = glm::mat4{1.0f}, .geometry = &near},
+        {.model = glm::mat4{1.0f}, .geometry = &opaque},
+        {.model = glm::mat4{1.0f}, .geometry = &far},
+        {.model = glm::mat4{1.0f}, .geometry = &tied},
+    };
+
+    auto frame = renderer.draw_frame(*systems.materials, {
+        .delta_time = 1.0 / 60.0,
+        .geometry_count = static_cast<nk::u32>(std::size(submitted)),
+        .geometries = submitted,
+    });
+
+    ASSERT_TRUE(frame);
+    ASSERT_EQ(renderer.drawn_geometry_count(), 4u);
+    EXPECT_EQ(renderer.drawn_geometry(0), &opaque);
+    EXPECT_EQ(renderer.drawn_geometry(1), &far);
+    EXPECT_EQ(renderer.drawn_geometry(2), &tied);
+    EXPECT_EQ(renderer.drawn_geometry(3), &near);
+    ASSERT_EQ(renderer.blend_mode_count(), 2u);
+    EXPECT_EQ(renderer.blend_mode(0), nk::MaterialBlendMode::opaque);
+    EXPECT_EQ(renderer.blend_mode(1), nk::MaterialBlendMode::transparent);
+
+    systems.materials->release((*transparent_material)->name.view());
+}
+
 TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
     TestRenderer renderer{allocator, TestRenderer::BeginMode::render};
@@ -808,7 +896,7 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
 
     ASSERT_TRUE(frame);
     constexpr nk::u8 world_protocol[] = {
-        1, 2, 3, 3, 6, 6, 6, 6, 6, 6, 6, 4, 5, 6, 7, 7, 7, 6, 8, 9, 9,
+        1, 2, 3, 3, 6, 6, 6, 6, 6, 6, 6, 4, 5, 6, 7, 7, 7, 6, 6, 6, 8, 9, 9,
     };
     constexpr nk::u8 ui_protocol[] = {
         1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
@@ -2382,6 +2470,9 @@ TEST(GeometrySystem, OwnsGeometryAndMaterialReferencesUntilFinalRelease) {
     ASSERT_TRUE(plane);
     auto geometry = geometries->acquire(*plane, true);
     ASSERT_TRUE(geometry);
+    EXPECT_EQ((*geometry)->center, glm::vec3(0.0f));
+    EXPECT_EQ((*geometry)->min_extents, glm::vec3(-1.0f, -1.0f, 0.0f));
+    EXPECT_EQ((*geometry)->max_extents, glm::vec3(1.0f, 1.0f, 0.0f));
     EXPECT_EQ((*geometry)->id, 0u);
     ASSERT_NE((*geometry)->material, nullptr);
     EXPECT_EQ((*geometry)->material->name.view(), nk::strview{"test_material"});

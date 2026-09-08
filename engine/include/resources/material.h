@@ -24,6 +24,12 @@ namespace nk {
         ui,
     };
 
+    enum class MaterialBlendMode : u8 {
+        opaque,
+        masked,
+        transparent,
+    };
+
     struct TextureMap {
         Texture* texture = nullptr;
         TextureUse use = TextureUse::unknown;
@@ -38,6 +44,8 @@ namespace nk {
         strbuf<shader_name_capacity> shader_name;
         bool auto_release = true;
         MaterialType type = MaterialType::world;
+        MaterialBlendMode blend_mode = MaterialBlendMode::opaque;
+        f32 alpha_cutoff = 0.5f;
         glm::vec4 diffuse_color{1.0f};
         strbuf<texture_name_capacity> diffuse_map_name;
         strbuf<texture_name_capacity> specular_map_name;
@@ -68,6 +76,8 @@ namespace nk {
         strbuf<material_name_capacity> name;
         ShaderHandle shader{};
         MaterialType type = MaterialType::world;
+        MaterialBlendMode blend_mode = MaterialBlendMode::opaque;
+        f32 alpha_cutoff = 0.5f;
         glm::vec4 diffuse_color{1.0f};
         TextureMap diffuse_map{};
         strbuf<texture_name_capacity> diffuse_map_name;

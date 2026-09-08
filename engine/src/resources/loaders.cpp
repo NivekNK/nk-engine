@@ -311,6 +311,7 @@ namespace nk {
             return err(file_failure(opened.error()));
 
         MaterialConfig parsed{};
+        bool blend_mode_seen = false;
         parsed.name.assign(name);
         str line{allocator};
         while (true) {
@@ -364,6 +365,20 @@ namespace nk {
                         0,
                     });
                 }
+            } else if (key == strview{"blend_mode", 10}) {
+                blend_mode_seen = true;
+                if (value == strview{"opaque", 6}) {
+                    parsed.blend_mode = MaterialBlendMode::opaque;
+                } else if (value == strview{"masked", 6}) {
+                    parsed.blend_mode = MaterialBlendMode::masked;
+                } else if (value == strview{"transparent", 11}) {
+                    parsed.blend_mode = MaterialBlendMode::transparent;
+                } else {
+                    return err(resource_error{
+                        resource_error_code::invalid_data,
+                        0,
+                    });
+                }
             } else if (key == strview{"diffuse_map_name", 16}) {
                 if (!parsed.diffuse_map_name.assign(value)) {
                     return err(resource_error{
@@ -393,6 +408,15 @@ namespace nk {
                         0,
                     });
                 }
+            } else if (key == strview{"alpha_cutoff", 12}) {
+                if (!parse_f32(value, parsed.alpha_cutoff) ||
+                    parsed.alpha_cutoff < 0.0f ||
+                    parsed.alpha_cutoff > 1.0f) {
+                    return err(resource_error{
+                        resource_error_code::invalid_data,
+                        0,
+                    });
+                }
             } else if (key == strview{"diffuse_colour", 14} &&
                        !parse_color(value, parsed.diffuse_color)) {
                 return err(resource_error{
@@ -412,6 +436,8 @@ namespace nk {
                     ? strview{"Builtin.MaterialShader", 22}
                     : strview{"Builtin.UIShader", 16});
         }
+        if (parsed.type == MaterialType::ui && !blend_mode_seen)
+            parsed.blend_mode = MaterialBlendMode::transparent;
 
         MaterialConfig* config = allocator.construct_t(MaterialConfig, parsed);
         if (config == nullptr)

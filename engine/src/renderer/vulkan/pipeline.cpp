@@ -44,7 +44,7 @@ namespace nk {
         rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE;
         rasterizer_create_info.polygonMode = create_info.is_wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
         rasterizer_create_info.lineWidth = 1.0f;
-        rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
+        rasterizer_create_info.cullMode = create_info.cull_mode;
         rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizer_create_info.depthBiasEnable = VK_FALSE;
         rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -67,7 +67,8 @@ namespace nk {
         memset(&depth_stencil_create_info, 0, sizeof(depth_stencil_create_info));
         depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
         depth_stencil_create_info.depthTestEnable = create_info.depth_test_enabled;
-        depth_stencil_create_info.depthWriteEnable = create_info.depth_test_enabled;
+        depth_stencil_create_info.depthWriteEnable =
+            create_info.depth_write_enabled;
         depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
         depth_stencil_create_info.depthBoundsTestEnable = VK_FALSE;
         depth_stencil_create_info.stencilTestEnable = VK_FALSE;
@@ -75,11 +76,12 @@ namespace nk {
         // Color blend attachment
         VkPipelineColorBlendAttachmentState color_blend_attachment_create_info;
         memset(&color_blend_attachment_create_info, 0, sizeof(color_blend_attachment_create_info));
-        color_blend_attachment_create_info.blendEnable = VK_TRUE;
+        color_blend_attachment_create_info.blendEnable =
+            create_info.blend_enabled;
         color_blend_attachment_create_info.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
         color_blend_attachment_create_info.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         color_blend_attachment_create_info.colorBlendOp = VK_BLEND_OP_ADD;
-        color_blend_attachment_create_info.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        color_blend_attachment_create_info.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         color_blend_attachment_create_info.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         color_blend_attachment_create_info.alphaBlendOp = VK_BLEND_OP_ADD;
         color_blend_attachment_create_info.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |

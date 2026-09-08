@@ -1,4 +1,5 @@
 name=sampling
+blend_mode=masked
 diffuse_sampler.min_filter=nearest
 diffuse_sampler.mag_filter=linear
 diffuse_sampler.mip_filter=nearest

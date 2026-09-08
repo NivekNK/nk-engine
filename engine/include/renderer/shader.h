@@ -132,11 +132,13 @@ namespace nk {
         inline constexpr ShaderUniformHandle normal_matrix{8};
         inline constexpr ShaderUniformHandle specular_texture{9};
         inline constexpr ShaderUniformHandle shininess{10};
-        inline constexpr ShaderUniformHandle view_position{11};
-        inline constexpr ShaderUniformHandle normal_texture{12};
-        inline constexpr ShaderUniformHandle point_light_count{13};
-        inline constexpr ShaderUniformHandle point_lights{14};
-        inline constexpr ShaderUniformHandle render_view_mode{15};
+        inline constexpr ShaderUniformHandle blend_mode{11};
+        inline constexpr ShaderUniformHandle alpha_cutoff{12};
+        inline constexpr ShaderUniformHandle view_position{13};
+        inline constexpr ShaderUniformHandle normal_texture{14};
+        inline constexpr ShaderUniformHandle point_light_count{15};
+        inline constexpr ShaderUniformHandle point_lights{16};
+        inline constexpr ShaderUniformHandle render_view_mode{17};
     }
 }
 

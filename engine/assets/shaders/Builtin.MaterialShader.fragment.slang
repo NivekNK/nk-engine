@@ -2,11 +2,15 @@ struct LocalUniformObject
 {
     float4 diffuse_color;
     float shininess;
+    uint blend_mode;
+    float alpha_cutoff;
+    float padding;
 };
 
 static const uint max_point_light_count = 2;
 static const uint render_view_mode_lighting_only = 1;
 static const uint render_view_mode_normals = 2;
+static const uint material_blend_mode_masked = 1;
 
 struct PointLight
 {
@@ -132,6 +136,10 @@ float4 main(FragmentInput input) : SV_Target0 {
     float4 sampled_color = material_samplers[diffuse_sampler_index].Sample(
         input.in_dto.tex_coord);
     float4 surface_color = object_ubo.diffuse_color * sampled_color;
+    if (object_ubo.blend_mode == material_blend_mode_masked &&
+        surface_color.a < object_ubo.alpha_cutoff) {
+        discard;
+    }
 
     float3 geometric_normal = safe_normalize(input.in_dto.normal);
     float3 tangent = input.in_dto.tangent.xyz - geometric_normal * dot(

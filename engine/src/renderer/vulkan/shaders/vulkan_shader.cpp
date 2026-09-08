@@ -623,7 +623,7 @@ namespace nk {
         VkRect2D scissor{};
         scissor.extent = {width, height};
 
-        auto pipeline_initialized = m_pipeline.init({
+        PipelineCreateInfo pipeline_create_info{
             .device = m_device,
             .vulkan_allocator = m_vulkan_allocator,
             .render_pass = render_pass,
@@ -642,7 +642,17 @@ namespace nk {
             .vertex_stride = config.vertex_stride,
             .is_wireframe = config.wireframe,
             .depth_test_enabled = config.depth_test_enabled,
-        });
+            .depth_write_enabled = config.depth_test_enabled,
+            .blend_enabled = false,
+        };
+        auto pipeline_initialized = m_opaque_pipeline.init(
+            pipeline_create_info);
+        if (!pipeline_initialized)
+            return fail(pipeline_initialized.error());
+        pipeline_create_info.depth_write_enabled = false;
+        pipeline_create_info.blend_enabled = true;
+        pipeline_initialized = m_transparent_pipeline.init(
+            pipeline_create_info);
         if (!pipeline_initialized)
             return fail(pipeline_initialized.error());
 
@@ -656,7 +666,8 @@ namespace nk {
             release_descriptor_state(state);
 
         if (m_device != nullptr && m_device->get() != nullptr) {
-            m_pipeline.shutdown();
+            m_transparent_pipeline.shutdown();
+            m_opaque_pipeline.shutdown();
             m_instance_uniform_buffer.shutdown();
             m_global_uniform_buffer.shutdown();
 
@@ -721,13 +732,18 @@ namespace nk {
         m_instance_frame_stride = 0;
         m_bound_instance_id = numeric::invalid_id;
         m_globals_bound = false;
+        m_blend_mode = MaterialBlendMode::opaque;
     }
 
     result<void, renderer_error> VulkanShader::use(
-        const CommandBuffer& command_buffer) {
+        const CommandBuffer& command_buffer,
+        const MaterialBlendMode blend_mode) {
         if (!initialized())
             return err(invalid_shader_state());
-        m_pipeline.bind(&command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+        m_blend_mode = blend_mode;
+        active_pipeline().bind(
+            &command_buffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS);
         m_globals_bound = false;
         m_bound_instance_id = numeric::invalid_id;
         return ok();
@@ -936,7 +952,7 @@ namespace nk {
         vkCmdBindDescriptorSets(
             command_buffer.get(),
             VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_pipeline.get_layout(),
+            active_pipeline().get_layout(),
             m_global_set_index,
             1,
             &descriptor,
@@ -1156,7 +1172,7 @@ namespace nk {
             return err(initialization_error());
 
         vk::GraphicsCommands{*m_device, command_buffer.get()}.push_root(
-            m_pipeline.get_layout(), to_vulkan_stages(stages), offset, size, data);
+            active_pipeline().get_layout(), to_vulkan_stages(stages), offset, size, data);
         return ok();
     }
 
@@ -1239,7 +1255,7 @@ namespace nk {
         vkCmdBindDescriptorSets(
             command_buffer.get(),
             VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_pipeline.get_layout(),
+            active_pipeline().get_layout(),
             m_instance_set_index,
             1,
             &set,

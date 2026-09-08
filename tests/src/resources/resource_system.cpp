@@ -23,6 +23,7 @@ TEST(ResourceSystem, ParsesPerMapSamplingAndPreservesLegacyDefaults) {
     auto loaded = resources->load("sampling", nk::ResourceType::material);
     ASSERT_TRUE(loaded);
     const auto& config = *loaded->as<nk::MaterialConfig>();
+    EXPECT_EQ(config.blend_mode, nk::MaterialBlendMode::masked);
     EXPECT_EQ(config.diffuse_sampler.min_filter, nk::TextureFilter::nearest);
     EXPECT_EQ(config.diffuse_sampler.mag_filter, nk::TextureFilter::linear);
     EXPECT_EQ(config.diffuse_sampler.mip_filter, nk::TextureFilter::nearest);
@@ -102,6 +103,9 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
         ui_material->as<nk::MaterialConfig>()->type,
         nk::MaterialType::ui);
     EXPECT_EQ(
+        ui_material->as<nk::MaterialConfig>()->blend_mode,
+        nk::MaterialBlendMode::transparent);
+    EXPECT_EQ(
         ui_material->as<nk::MaterialConfig>()->diffuse_map_name.view(),
         nk::strview{"orange_lines_512"});
     EXPECT_EQ(
@@ -128,9 +132,9 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
     ASSERT_EQ(shader_config.descriptor_sets[0].bindings.length(), 1u);
     EXPECT_EQ(shader_config.descriptor_sets[0].bindings[0].element_size, 292u);
     ASSERT_EQ(shader_config.descriptor_sets[1].bindings.length(), 2u);
-    EXPECT_EQ(shader_config.descriptor_sets[1].bindings[0].element_size, 20u);
+    EXPECT_EQ(shader_config.descriptor_sets[1].bindings[0].element_size, 28u);
     EXPECT_EQ(shader_config.descriptor_sets[1].bindings[1].count, 3u);
-    ASSERT_EQ(shader_config.uniforms.length(), 16u);
+    ASSERT_EQ(shader_config.uniforms.length(), 18u);
     EXPECT_EQ(shader_config.uniforms[1].offset, 64u);
     EXPECT_EQ(shader_config.uniforms[3].type, nk::ShaderUniformType::sampler_2d);
     EXPECT_EQ(shader_config.uniforms[3].offset, 0u);
@@ -145,20 +149,24 @@ TEST(ResourceSystem, LoadsAndExplicitlyUnloadsKnownResourceTypes) {
         nk::ShaderUniformType::sampler_2d);
     EXPECT_EQ(shader_config.uniforms[9].offset, 1u);
     EXPECT_EQ(shader_config.uniforms[10].offset, 16u);
-    EXPECT_EQ(shader_config.uniforms[11].offset, 176u);
+    EXPECT_EQ(shader_config.uniforms[11].type, nk::ShaderUniformType::u32);
+    EXPECT_EQ(shader_config.uniforms[11].offset, 20u);
+    EXPECT_EQ(shader_config.uniforms[12].type, nk::ShaderUniformType::f32);
+    EXPECT_EQ(shader_config.uniforms[12].offset, 24u);
+    EXPECT_EQ(shader_config.uniforms[13].offset, 176u);
     EXPECT_EQ(
-        shader_config.uniforms[12].type,
+        shader_config.uniforms[14].type,
         nk::ShaderUniformType::sampler_2d);
-    EXPECT_EQ(shader_config.uniforms[12].offset, 2u);
-    EXPECT_EQ(shader_config.uniforms[13].type, nk::ShaderUniformType::u32);
-    EXPECT_EQ(shader_config.uniforms[13].offset, 188u);
-    EXPECT_EQ(shader_config.uniforms[14].type, nk::ShaderUniformType::custom);
-    EXPECT_EQ(shader_config.uniforms[14].offset, 192u);
-    EXPECT_EQ(shader_config.uniforms[14].custom_size, 48u);
-    EXPECT_EQ(shader_config.uniforms[14].array_length, 2u);
-    EXPECT_EQ(nk::shader_uniform_size(shader_config.uniforms[14]), 96u);
+    EXPECT_EQ(shader_config.uniforms[14].offset, 2u);
     EXPECT_EQ(shader_config.uniforms[15].type, nk::ShaderUniformType::u32);
-    EXPECT_EQ(shader_config.uniforms[15].offset, 288u);
+    EXPECT_EQ(shader_config.uniforms[15].offset, 188u);
+    EXPECT_EQ(shader_config.uniforms[16].type, nk::ShaderUniformType::custom);
+    EXPECT_EQ(shader_config.uniforms[16].offset, 192u);
+    EXPECT_EQ(shader_config.uniforms[16].custom_size, 48u);
+    EXPECT_EQ(shader_config.uniforms[16].array_length, 2u);
+    EXPECT_EQ(nk::shader_uniform_size(shader_config.uniforms[16]), 96u);
+    EXPECT_EQ(shader_config.uniforms[17].type, nk::ShaderUniformType::u32);
+    EXPECT_EQ(shader_config.uniforms[17].offset, 288u);
     EXPECT_EQ(shader_config.push_constants[0].size, 128u);
     EXPECT_EQ(resources->active_resource_count(), 6u);
 

@@ -7,6 +7,7 @@
 #include "renderer/shader.h"
 #include "renderer/shader_config.h"
 #include "resources/texture.h"
+#include "resources/material.h"
 #include "vulkan/samplers.h"
 #include "vulkan/buffer.h"
 #include "vulkan/pipeline.h"
@@ -45,7 +46,8 @@ namespace nk {
             return m_device != nullptr;
         }
         [[nodiscard]] result<void, renderer_error> use(
-            const CommandBuffer& command_buffer);
+            const CommandBuffer& command_buffer,
+            MaterialBlendMode blend_mode = MaterialBlendMode::opaque);
         [[nodiscard]] result<void, renderer_error> bind_globals();
         [[nodiscard]] result<void, renderer_error> bind_instance(
             u32 instance_id);
@@ -152,7 +154,8 @@ namespace nk {
         cl::arr<DescriptorState> m_global_sampler_states;
         cl::arr<InstanceState> m_instance_states;
         VkDescriptorPool m_descriptor_pool = nullptr;
-        Pipeline m_pipeline;
+        Pipeline m_opaque_pipeline;
+        Pipeline m_transparent_pipeline;
         Buffer m_global_uniform_buffer;
         Buffer m_instance_uniform_buffer;
 
@@ -169,5 +172,17 @@ namespace nk {
         u64 m_instance_frame_stride = 0;
         u32 m_bound_instance_id = numeric::invalid_id;
         bool m_globals_bound = false;
+        MaterialBlendMode m_blend_mode = MaterialBlendMode::opaque;
+
+        [[nodiscard]] Pipeline& active_pipeline() noexcept {
+            return m_blend_mode == MaterialBlendMode::transparent
+                ? m_transparent_pipeline
+                : m_opaque_pipeline;
+        }
+        [[nodiscard]] const Pipeline& active_pipeline() const noexcept {
+            return m_blend_mode == MaterialBlendMode::transparent
+                ? m_transparent_pipeline
+                : m_opaque_pipeline;
+        }
     };
 }
