@@ -18,6 +18,7 @@
 #include "systems/camera_system.h"
 #include "systems/job_system.h"
 #include "resources/static_mesh_resource.h"
+#include "text/text_overlay.h"
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -578,6 +579,17 @@ namespace nk {
             return false;
         }
 
+        const cstr text_overlay = std::getenv("NK_TEXT_OVERLAY");
+        if (text_overlay == nullptr || std::strcmp(text_overlay, "0") != 0) {
+            m_text_overlay = m_allocator->construct_t(TextOverlay);
+            if (m_text_overlay == nullptr) { shutdown_impl(); return false; }
+            auto initialized = m_text_overlay->init(*m_allocator, *m_renderer,
+                *m_shader_system, m_resource_system->asset_base_path(), m_platform->content_scale());
+            if (!initialized) {
+                ErrorLog("Text overlay initialization failed: {}", static_cast<u32>(initialized.error()));
+                shutdown_impl(); return false;
+            }
+        }
         m_clock.init(m_platform);
 
         EventSystem::register_event(SystemEventCode::ApplicationQuit, nullptr, on_event);
@@ -611,6 +623,13 @@ namespace nk {
         if (m_test_meshes.allocator() != nullptr)
             (void)m_test_meshes.dyarr_shutdown();
         m_test_material = nullptr;
+        if (m_text_overlay) {
+            const auto stats = m_text_overlay->statistics();
+            InfoLog("Text: {} shape calls, {} cached glyphs, {} atlas pages ({} bytes)",
+                stats.shape_calls, stats.rasterized_glyphs, stats.pages, stats.atlas_bytes);
+            m_allocator->deconstruct_t(TextOverlay, m_text_overlay);
+            m_text_overlay = nullptr;
+        }
         if (m_geometry_system != nullptr) {
             if (m_skybox_geometry != nullptr) {
                 m_geometry_system->release(m_skybox_geometry);
@@ -1062,6 +1081,16 @@ namespace nk {
                         static_cast<f32>(m_platform->height()) / 512.0f));
                     ui_geometry.model = glm::scale(glm::mat4{1.0f}, glm::vec3{scale, scale, 1});
                 }
+                const TextFrame* text_frame = nullptr;
+                if (m_text_overlay) {
+                    auto prepared = m_text_overlay->frame(m_platform->width(), m_platform->height(),
+                        m_platform->content_scale(), delta, m_renderer->gpu_frame_ms());
+                    if (!prepared) {
+                        ErrorLog("Text overlay failed: {}", static_cast<u32>(prepared.error()));
+                        m_platform->close(); break;
+                    }
+                    text_frame = *prepared;
+                }
                 auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
                     .lighting = scene_lighting,
@@ -1074,6 +1103,7 @@ namespace nk {
                     .ui_geometry_count =
                         m_test_ui_geometry == nullptr ? 0u : 1u,
                     .ui_geometries = &ui_geometry,
+                    .text = text_frame,
                 });
                 if (!frame) {
                     const renderer_error& error = frame.error();
@@ -1084,6 +1114,9 @@ namespace nk {
                     m_platform->close();
                     break;
                 }
+
+                if (m_text_overlay && *frame == frame_outcome::rendered)
+                    m_text_overlay->acknowledge_frame();
 
                 // Figure out how long the frame took
                 f64 frame_end_time = m_platform->get_absolute_time();

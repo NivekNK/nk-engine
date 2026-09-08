@@ -18,6 +18,7 @@ namespace nk {
     class GeometrySystem;
     class CameraSystem;
     class JobSystem;
+    class TextOverlay;
     struct Material;
     struct Geometry;
 
@@ -75,6 +76,7 @@ namespace nk {
         GeometrySystem* m_geometry_system = nullptr;
         CameraSystem* m_camera_system = nullptr;
         JobSystem* m_job_system = nullptr;
+        TextOverlay* m_text_overlay = nullptr;
         cl::dyarr<Mesh> m_test_meshes;
         Geometry* m_test_ui_geometry = nullptr;
         Geometry* m_skybox_geometry = nullptr;

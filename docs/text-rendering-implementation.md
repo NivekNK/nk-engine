@@ -8,9 +8,9 @@ dependencia de este tramo. Sus futuros widgets serán responsabilidad de NK.
 - [x] FreeType y HarfBuzz como submódulos a tags, CSV y Nix sincronizados.
 - [x] UTF-8 validado sin cambiar la semántica en bytes de str/strview.
 - [x] Fuentes, métricas, shaping y medición con la misma información que el dibujo.
-- [ ] Atlas R8 paginado, posiciones estables y uploads agrupados.
-- [ ] Geometría de texto agrupada y buffers por frame; shaders Slang.
-- [ ] Texto dinámico, colores, tamaños, saltos de línea y clipping sobre Sponza.
+- [x] Atlas R8 paginado, posiciones estables y uploads agrupados.
+- [x] Geometría de texto agrupada y buffers por frame; shaders Slang.
+- [x] Texto dinámico, colores, tamaños, saltos de línea y clipping en la escena.
 - [ ] Base de entrada de texto y escala para Wayland/Win32.
 - [ ] Tests CPU, fallos y lifecycle; builds y smokes Vulkan moderno/legacy.
 
@@ -41,6 +41,19 @@ handles, pero no mueve celdas de atlas de las demás fuentes.
 
 Validación inicial: Debug compila; 12 pruebas de UTF-8, memoria, shaping,
 dirección explícita, atlas, handles y rollback pasan.
+
+El overlay reutiliza layouts estáticos y actualiza estadísticas a 4 Hz. Las
+métricas de contorno se cachean por glyph/tamaño: no se recargan contornos de
+FreeType para cada actualización del contador. `TextDrawList` genera seis
+vértices por quad y une sólo batches adyacentes con atlas/scissor iguales, aun
+con colores distintos. No hay índice ni buffer por texto; es un primer formato
+sencillo para streaming. La reducción a cuatro vértices indexados/instancias
+queda como optimización medible, no un requisito de GPU más moderna.
+
+Inspección visual realizada en Niri/RADV Renoir; texto orientado correctamente,
+acentos, tamaños y estadísticas visibles. Smoke inicial sin errores Vulkan ni
+fugas. El comprobador histórico de allocations empieza demasiado temprano para
+carga asíncrona; se medirá de nuevo después del calentamiento completo.
 
 ## Referencias
 

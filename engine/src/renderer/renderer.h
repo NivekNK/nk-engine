@@ -22,6 +22,7 @@ namespace nk {
     class ResourceSystem;
     class MaterialSystem;
     class Mesh;
+    struct TextFrame;
     enum class SystemEventCode : u16;
     struct EventContext;
 
@@ -37,6 +38,7 @@ namespace nk {
         const Mesh* meshes = nullptr;
         u32 ui_geometry_count = 0;
         const GeometryRenderData* ui_geometries = nullptr;
+        const TextFrame* text = nullptr;
     };
 
     class Renderer {
@@ -191,6 +193,12 @@ namespace nk {
             f64 delta_time) = 0;
         virtual void begin_render_pass(RenderPassKind pass) = 0;
         virtual void end_render_pass(RenderPassKind pass) = 0;
+        [[nodiscard]] virtual result<void, renderer_error> prepare_text_frame(const TextFrame&) {
+            return err(renderer_error{renderer_error_code::initialization_failed, 0});
+        }
+        [[nodiscard]] virtual result<void, renderer_error> draw_text_frame(const TextFrame&) {
+            return err(renderer_error{renderer_error_code::initialization_failed, 0});
+        }
         [[nodiscard]] virtual result<void, renderer_error>
         set_shader_uniform_raw(
             ShaderHandle shader,
@@ -235,7 +243,7 @@ namespace nk {
     private:
         [[nodiscard]] result<void, renderer_error> draw_render_pass(
             MaterialSystem& materials,
-            const RenderViewPacket& packet);
+            const RenderViewPacket& packet, const TextFrame* text = nullptr);
         [[nodiscard]] result<void, renderer_error> draw_render_data(
             MaterialSystem& materials,
             RenderPassKind pass,

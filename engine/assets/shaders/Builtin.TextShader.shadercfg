@@ -1,0 +1,17 @@
+# R8 glyph coverage. Straight-alpha color is supplied per vertex.
+version=1
+name=Builtin.TextShader
+render_pass=ui
+max_instances=64
+wireframe=false
+depth_test=false
+depth_write=false
+cull_mode=none
+
+stage=vertex,vertex,main
+stage=fragment,fragment,main
+attribute=f32_2,position
+attribute=f32_2,texcoord
+attribute=f32_4,color
+uniform=mat4,global,projection
+uniform=sampler_2d,instance,atlas

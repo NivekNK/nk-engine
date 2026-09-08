@@ -197,3 +197,16 @@ TEST_F(FontTest, RejectsMissingAndNonFontAssets) {
     EXPECT_FALSE(fonts.load(font_path, 5));
     EXPECT_EQ(fonts.statistics().fonts, 1);
 }
+
+TEST(Fonts, ReusesWarmMetricsAndLayoutStorageForDynamicText) {
+    BudgetAllocator allocator;
+    FontSystem fonts;
+    ASSERT_TRUE(fonts.init(allocator));
+    auto font = fonts.load(font_path); ASSERT_TRUE(font);
+    TextLayout layout;
+    ASSERT_TRUE(fonts.layout(*font, "FPS 0123456789", {}, layout));
+    ASSERT_TRUE(fonts.layout(*font, "FPS 0123456789", {}, layout));
+    allocator.budget = 0;
+    for (u32 i = 0; i < 100; ++i)
+        ASSERT_TRUE(fonts.layout(*font, i % 2 ? "FPS 60" : "FPS 144", {}, layout));
+}

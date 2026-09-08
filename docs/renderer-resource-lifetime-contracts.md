@@ -129,6 +129,23 @@ These orderings are invariants:
 
 ## Ownership matrix
 
+Text adds an independent CPU `FontSystem` and a `TextRenderer` resource owner.
+The former owns FreeType faces, font bytes, shaping scratch, metrics caches and
+R8 atlas pages. `TextLayout` owns glyph positions using its font service's
+allocator; both its allocator and font handle must remain valid when drawing.
+`TextDrawList` preserves painter order and owns only CPU vertices/batches.
+`TextRenderer` borrows the font service, renderer and shader system, and owns its
+atlas textures, sampler and shader instances. Destroy it before those services;
+destroy layouts and lists before their allocator. There is no Clay dependency.
+
+`TextFrame` borrows CPU slices only through `draw_frame()`. After the slot fence
+retires, Vulkan copies vertices and atlas dirty rectangles into that slot's
+persistent mapped buffers. Image uploads and sampled-use barriers are recorded
+before rendering on the graphics queue; previous frames' sampling is included
+in the dependency. No glyph/text owns a GPU buffer or submission. Atlas UVs do
+not move, and upload acknowledgements carry revisions so skipped frames/resize
+cannot silently lose pending glyphs. NK uses straight-alpha coverage blending.
+
 | Object | Owner | Borrowed dependencies | Destruction authority |
 |---|---|---|---|
 | `ResourceSystem` | `Engine` through the root allocator | Registered custom loaders | `ResourceSystem::destroy` with the same allocator |

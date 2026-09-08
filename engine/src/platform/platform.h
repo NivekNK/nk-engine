@@ -26,6 +26,8 @@ namespace nk {
         bool running() const { return m_running; }
         u32 width() const { return m_width; }
         u32 height() const { return m_height; }
+        // Framebuffer dimensions remain physical; text/UI consumes logical units.
+        f32 content_scale() const noexcept { return m_content_scale; }
 
         void close() { m_running = false; }
         void on_resized(u32 width, u32 height) {
@@ -47,5 +49,6 @@ namespace nk {
         i16 m_pos_y;
         u32 m_width;
         u32 m_height;
+        f32 m_content_scale = 1;
     };
 }

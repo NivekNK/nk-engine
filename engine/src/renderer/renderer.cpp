@@ -148,6 +148,11 @@ namespace nk {
         if (*begun == frame_outcome::skipped_swapchain_recreation)
             return ok(frame_outcome::skipped_swapchain_recreation);
 
+        if (packet.text) {
+            auto text_prepared = prepare_text_frame(*packet.text);
+            if (!text_prepared) return err(text_prepared.error());
+        }
+
         RenderViewPacket view_packets[
             RenderViewSystem::maximum_render_view_count]{};
         auto built = m_render_views.build_packets({
@@ -170,7 +175,7 @@ namespace nk {
             });
         }
         for (u32 index = 0; index < *built; ++index) {
-            auto drawn = draw_render_pass(materials, view_packets[index]);
+            auto drawn = draw_render_pass(materials, view_packets[index], packet.text);
             if (!drawn)
                 return err(drawn.error());
         }
@@ -275,7 +280,7 @@ namespace nk {
 
     result<void, renderer_error> Renderer::draw_render_pass(
         MaterialSystem& materials,
-        const RenderViewPacket& packet) {
+        const RenderViewPacket& packet, const TextFrame* text) {
         const RenderPassKind pass = packet.pass;
         begin_render_pass(pass);
         auto fail = [this, pass](const renderer_error error)
@@ -357,6 +362,10 @@ namespace nk {
                 if (!drawn)
                     return fail(drawn.error());
             }
+        }
+        if (text && packet.type == RenderViewType::ui) {
+            auto drawn = draw_text_frame(*text);
+            if (!drawn) return fail(drawn.error());
         }
         end_render_pass(pass);
         return ok();

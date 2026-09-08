@@ -546,6 +546,7 @@ namespace nk {
         m_timestamp_pending.arr_shutdown();
 
         m_geometry_upload_buffer.shutdown();
+        if (m_text_frames.allocator()) (void)m_text_frames.arr_shutdown();
         m_object_vertex_buffer.shutdown();
         m_object_index_buffer.shutdown();
         if (m_geometry_upload_batches != 0) {

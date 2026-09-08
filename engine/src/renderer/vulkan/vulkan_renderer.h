@@ -112,6 +112,10 @@ namespace nk {
         virtual void destroy_geometry(Geometry& geometry) override;
 
     private:
+        [[nodiscard]] result<void, renderer_error> prepare_text_frame(const TextFrame&) override;
+        [[nodiscard]] result<void, renderer_error> draw_text_frame(const TextFrame&) override;
+        struct TextGpuFrame { Buffer vertices, staging; };
+        cl::arr<TextGpuFrame> m_text_frames;
         [[nodiscard]] result<void, renderer_error> set_material_blend_mode(
             MaterialBlendMode blend_mode) override;
         bool sampler_mutation_allowed() const noexcept;

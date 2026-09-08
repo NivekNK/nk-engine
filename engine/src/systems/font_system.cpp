@@ -67,14 +67,24 @@ namespace nk {
         struct Face {
             cl::dyarr<u8> bytes;
             cl::map<u64, RasterGlyph> glyphs;
+            cl::map<u64, hb_glyph_extents_t> extents;
             FT_Face ft = nullptr;
             hb_font_t* hb = nullptr;
             u32 generation = 0;
+            u32 physical_size = 0, shape_size = 0;
+            bool set_size(u32 size) {
+                if (physical_size == size) return true;
+                if (FT_Set_Char_Size(ft, 0, size, 72, 72)) return false;
+                physical_size = size;
+                return true;
+            }
             void reset() {
                 if (hb) hb_font_destroy(hb);
                 if (ft) FT_Done_Face(ft);
                 hb = nullptr; ft = nullptr;
                 if (glyphs.allocator()) (void)glyphs.map_shutdown();
+                if (extents.allocator()) (void)extents.map_shutdown();
+                physical_size = shape_size = 0;
                 if (bytes.allocator()) (void)bytes.dyarr_shutdown();
             }
         };
@@ -165,7 +175,8 @@ namespace nk {
         face.bytes = std::move(*bytes);
         face.hb = hb_ft_font_create_referenced(face.ft);
         if (face.hb == hb_font_get_empty() ||
-            !face.glyphs.map_init(m_allocator, 256, hash_seed::deterministic)) {
+            !face.glyphs.map_init(m_allocator, 256, hash_seed::deterministic) ||
+            !face.extents.map_init(m_allocator, 256, hash_seed::deterministic)) {
             face.reset(); return err(text_error::out_of_memory);
         }
         hb_ft_font_set_load_flags(face.hb, glyph_load_flags);
@@ -202,9 +213,12 @@ namespace nk {
         scratch.metrics = {};
         auto& face = m_state->faces[font.index];
         m_state->memory_context.failed = false;
-        if (FT_Set_Char_Size(face.ft, 0, scratch.pixel_size_64, 72, 72))
+        if (!face.set_size(scratch.pixel_size_64))
             return err(text_error::font_failed);
-        hb_ft_font_changed(face.hb);
+        if (face.shape_size != scratch.pixel_size_64) {
+            hb_ft_font_changed(face.hb);
+            face.shape_size = scratch.pixel_size_64;
+        }
         auto& metrics = scratch.metrics;
         const f32 unit = 1.0f / (64 * options.scale);
         metrics.ascender = face.ft->size->metrics.ascender * unit;
@@ -262,7 +276,17 @@ namespace nk {
                     positions[i].x_advance * unit};
                 if (!scratch.glyphs.dyarr_emplace_back(glyph)) return err(text_error::out_of_memory);
                 hb_glyph_extents_t extent{};
-                if (hb_font_get_glyph_extents(face.hb, glyph.id, &extent) && extent.width != 0 && extent.height != 0) {
+                const u64 extent_key = (static_cast<u64>(scratch.pixel_size_64) << 32) | glyph.id;
+                if (const auto* cached = face.extents.find(extent_key)) {
+                    extent = *cached;
+                } else {
+                    (void)hb_font_get_glyph_extents(face.hb, glyph.id, &extent);
+                    if (m_state->memory_context.failed) return err(text_error::out_of_memory);
+                    if (face.extents.length() >= m_state->config.max_glyphs_per_font)
+                        return err(text_error::atlas_full);
+                    if (!face.extents.insert(extent_key, extent)) return err(text_error::out_of_memory);
+                }
+                if (extent.width != 0 && extent.height != 0) {
                     const f32 left = glyph.x + extent.x_bearing * unit;
                     const f32 top = glyph.baseline - extent.y_bearing * unit;
                     const f32 right = left + extent.width * unit;
@@ -307,7 +331,7 @@ namespace nk {
         if (face.glyphs.length() >= m_state->config.max_glyphs_per_font)
             return err(text_error::atlas_full);
         if (!face.glyphs.reserve(face.glyphs.length() + 1)) return err(text_error::out_of_memory);
-        if (FT_Set_Char_Size(face.ft, 0, layout.pixel_size_64, 72, 72) ||
+        if (!face.set_size(layout.pixel_size_64) ||
             FT_Load_Glyph(face.ft, glyph_id, glyph_load_flags) ||
             FT_Render_Glyph(face.ft->glyph, FT_RENDER_MODE_NORMAL))
             return err(text_error::raster_failed);

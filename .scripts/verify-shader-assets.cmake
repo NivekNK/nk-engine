@@ -25,7 +25,8 @@ endforeach()
 foreach(required IN ITEMS
     Builtin.MaterialShader
     Builtin.UIShader
-    Builtin.SkyboxShader)
+    Builtin.SkyboxShader
+    Builtin.TextShader)
     if (NOT EXISTS "${SHADER_OUTPUT_DIR}/${required}.vertex.spv" OR
         NOT EXISTS "${SHADER_OUTPUT_DIR}/${required}.fragment.spv" OR
         NOT EXISTS "${SHADER_OUTPUT_DIR}/${required}.shadercfg")

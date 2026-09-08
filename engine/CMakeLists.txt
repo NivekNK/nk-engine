@@ -84,7 +84,11 @@ set(SOURCES
     src/core/hash.cpp
     src/core/str.cpp
     src/text/library_memory.cpp
+    src/text/text_overlay.cpp
     src/systems/font_system.cpp
+    src/renderer/text_draw.cpp
+    src/renderer/text_renderer.cpp
+    src/renderer/vulkan/text.cpp
     src/core/transform.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp
@@ -402,6 +406,19 @@ endforeach(TEXTURE)
 
 add_custom_target(TEXTURES DEPENDS ${TEXTURE_BINARY_FILES})
 add_dependencies(engine TEXTURES)
+
+file(GLOB FONT_FILES CONFIGURE_DEPENDS "assets/fonts/*.ttf" "assets/fonts/*.otf" "assets/fonts/OFL.txt")
+foreach(FONT ${FONT_FILES})
+    get_filename_component(FONT_NAME ${FONT} NAME)
+    set(FONT_OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/fonts/${FONT_NAME}")
+    add_custom_command(OUTPUT ${FONT_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/fonts/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FONT} ${FONT_OUTPUT}
+        DEPENDS ${FONT} VERBATIM)
+    list(APPEND FONT_BINARY_FILES ${FONT_OUTPUT})
+endforeach()
+add_custom_target(FONTS DEPENDS ${FONT_BINARY_FILES})
+add_dependencies(engine FONTS)
 
 file(GLOB MATERIAL_FILES "assets/materials/*.kmt")
 
