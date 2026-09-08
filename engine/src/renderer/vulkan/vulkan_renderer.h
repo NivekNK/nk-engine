@@ -11,7 +11,10 @@
 #include "vulkan/command_buffer.h"
 #include "vulkan/fence.h"
 #include "vulkan/buffer.h"
+#include "vulkan/host_allocator.h"
 #include "vulkan/samplers.h"
+#include "memory/malloc_allocator.h"
+#include "memory/synchronized_allocator.h"
 #include "renderer/render_target.h"
 
 #include "vulkan/shaders/vulkan_shader.h"
@@ -169,6 +172,9 @@ namespace nk {
         static constexpr u64 geometry_range_capacity =
             static_cast<u64>(max_geometry_count) + 2;
 
+        mem::MallocAllocator m_vulkan_host_backing{mem::untracked};
+        mem::SynchronizedAllocator m_vulkan_host_memory;
+        vk::VulkanHostAllocator m_vulkan_host_allocator;
         VkAllocationCallbacks* m_vulkan_allocator = nullptr;
         Instance m_instance;
         Device m_device;

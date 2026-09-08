@@ -359,6 +359,25 @@ namespace nk {
 
     result<void, renderer_error> VulkanRenderer::init() {
         m_vulkan_allocator = nullptr;
+        const cstr host_allocator_option =
+            std::getenv("NK_VULKAN_HOST_ALLOCATOR");
+        if (host_allocator_option != nullptr &&
+            host_allocator_option[0] == '1' &&
+            host_allocator_option[1] == '\0') {
+            if (m_vulkan_host_memory.allocator_init(
+                    mem::SynchronizedAllocator,
+                    "Vulkan host allocations",
+                    MemoryType::Renderer,
+                    m_vulkan_host_backing) == nullptr ||
+                !m_vulkan_host_allocator.init(m_vulkan_host_memory)) {
+                return err(renderer_error{
+                    renderer_error_code::initialization_failed,
+                    0,
+                });
+            }
+            m_vulkan_allocator = m_vulkan_host_allocator.callbacks();
+            InfoLog("Vulkan host allocation callbacks enabled for diagnostics.");
+        }
 
         m_framebuffer_width = m_platform->width();
         m_framebuffer_height = m_platform->height();
@@ -581,6 +600,21 @@ namespace nk {
         if (m_instance_initialized) {
             m_instance.shutdown();
             m_instance_initialized = false;
+        }
+        if (m_vulkan_allocator != nullptr) {
+            const vk::VulkanHostAllocatorStatistics host =
+                m_vulkan_host_allocator.statistics();
+            InfoLog(
+                "Vulkan host allocator peak: {} byte(s), {} active allocation(s).",
+                host.peak_allocated_bytes,
+                host.active_allocations);
+            if (!m_vulkan_host_allocator.shutdown()) {
+                ErrorLog(
+                    "Vulkan host allocator shutdown found {} active allocation(s) and {} internal allocation(s).",
+                    host.active_allocations,
+                    host.internal_allocations);
+            }
+            m_vulkan_allocator = nullptr;
         }
     }
 
