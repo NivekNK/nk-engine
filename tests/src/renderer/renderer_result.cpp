@@ -19,6 +19,7 @@
 #include "systems/texture_system.h"
 #include "systems/event_system.h"
 #include "systems/material_system.h"
+#include "systems/memory_system.h"
 #include "systems/geometry_system.h"
 #include "systems/resource_system.h"
 #include "systems/shader_system.h"
@@ -1009,6 +1010,7 @@ TEST(RendererLighting, PreservesTheLastValidRenderViewMode) {
 
 TEST(RendererLighting, RoutesPortableNumberKeysThroughEvents) {
     nk::EventSystem::shutdown();
+    nk::mem::MemorySystem::init();
     nk::EventSystem::init();
 
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
@@ -1044,6 +1046,7 @@ TEST(RendererLighting, RoutesPortableNumberKeysThroughEvents) {
         &renderer,
         nk::on_render_view_mode));
     nk::EventSystem::shutdown();
+    nk::mem::MemorySystem::shutdown();
 }
 
 TEST(MaterialSystem, RejectsInvalidPointLightConfiguration) {

@@ -22,18 +22,26 @@ namespace nk {
     }
 
     bool InputSystem::is_mouse_button_down(MouseButton button) {
+        if (static_cast<u8>(button) >= static_cast<u8>(MouseButton::MaxButtons))
+            return false;
         return m_current_mouse_state.buttons[static_cast<u8>(button)] == true;
     }
 
     bool InputSystem::is_mouse_button_up(MouseButton button) {
+        if (static_cast<u8>(button) >= static_cast<u8>(MouseButton::MaxButtons))
+            return false;
         return m_current_mouse_state.buttons[static_cast<u8>(button)] == false;
     }
 
     bool InputSystem::was_mouse_button_down(MouseButton button) {
+        if (static_cast<u8>(button) >= static_cast<u8>(MouseButton::MaxButtons))
+            return false;
         return m_previous_mouse_state.buttons[static_cast<u8>(button)] == true;
     }
 
     bool InputSystem::was_mouse_button_up(MouseButton button) {
+        if (static_cast<u8>(button) >= static_cast<u8>(MouseButton::MaxButtons))
+            return false;
         return m_previous_mouse_state.buttons[static_cast<u8>(button)] == false;
     }
 
@@ -59,13 +67,15 @@ namespace nk {
         m_current_keyboard_state.keys[keycode] = pressed;
 
         const SystemEventCode code = pressed ? SystemEventCode::KeyPressed : SystemEventCode::KeyReleased;
-        EventContext context;
+        EventContext context{};
         context.data.u16[0] = keycode;
         EventSystem::fire_event(code, nullptr, context);
     }
 
     void InputSystem::process_mouse_button_impl(MouseButton button, bool pressed) {
         const u8 button_value = static_cast<u8>(button);
+        if (button_value >= static_cast<u8>(MouseButton::MaxButtons))
+            return;
 
         if (m_current_mouse_state.buttons[button_value] == pressed)
             return;
@@ -73,7 +83,7 @@ namespace nk {
         m_current_mouse_state.buttons[button_value] = pressed;
 
         const SystemEventCode code = pressed ? SystemEventCode::ButtonPressed : SystemEventCode::ButtonReleased;
-        EventContext context;
+        EventContext context{};
         context.data.u8[0] = button_value;
         EventSystem::fire_event(code, nullptr, context);
     }
@@ -85,14 +95,14 @@ namespace nk {
         m_current_mouse_state.x = x;
         m_current_mouse_state.y = y;
 
-        EventContext context;
+        EventContext context{};
         context.data.i16[0] = x;
         context.data.i16[1] = y;
         EventSystem::fire_event(SystemEventCode::MouseMoved, nullptr, context);
     }
 
     void InputSystem::process_mouse_wheel_impl(i8 z_delta) {
-        EventContext context;
+        EventContext context{};
         context.data.i8[0] = z_delta;
         EventSystem::fire_event(SystemEventCode::MouseWheel, nullptr, context);
     }

@@ -61,7 +61,9 @@ namespace nk {
 
         const u64 registered_count = instance.m_registered[code_value].events.length();
         for (u64 i = 0; i < registered_count; i++) {
-            if (instance.m_registered[code_value].events[i].listener == listener) {
+            const RegisteredEvent& event =
+                instance.m_registered[code_value].events[i];
+            if (event.listener == listener && event.callback == callback) {
                 return false;
             }
         }
