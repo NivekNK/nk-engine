@@ -17,6 +17,8 @@ namespace nk {
         VkBuffer destination;
         u64 destination_offset;
         u64 size;
+        VkPipelineStageFlags destination_stages;
+        VkAccessFlags destination_access;
     };
 
     class Buffer final : public RenderBuffer {

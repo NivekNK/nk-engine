@@ -1471,7 +1471,11 @@ namespace nk {
             *texture = {};
             return;
         }
-        vkDeviceWaitIdle(m_device);
+        auto retired = wait_for_in_flight_frames();
+        if (!retired) {
+            ErrorLog("Texture destruction could not retire in-flight frames.");
+            return;
+        }
 
         TextureData* texture_data = static_cast<TextureData*>(texture->m_internal_data);
 
@@ -1572,32 +1576,22 @@ namespace nk {
             index_range = *index_reserved;
         }
 
-        auto vertices_uploaded = m_object_vertex_buffer.upload(
-            *vertex_reserved, vertices);
-        if (!vertices_uploaded) {
+        auto uploaded_ranges = upload_geometry_ranges(
+            *vertex_reserved,
+            vertices,
+            index_range,
+            indices.data());
+        if (!uploaded_ranges) {
+            bool rollback_succeeded = true;
             if (index_range.size != 0) {
                 auto index_released = m_object_index_buffer.release(index_range);
-                if (!index_released)
-                    ErrorLog("Failed to roll back an index buffer range.");
+                rollback_succeeded = static_cast<bool>(index_released);
             }
             auto vertex_released = m_object_vertex_buffer.release(
                 *vertex_reserved);
-            if (!vertex_released)
-                ErrorLog("Failed to roll back a vertex buffer range.");
-            return err(vertices_uploaded.error());
-        }
-
-        if (!indices.empty()) {
-            auto indices_uploaded = m_object_index_buffer.upload(
-                index_range, indices.data());
-            if (!indices_uploaded) {
-                auto index_released = m_object_index_buffer.release(index_range);
-                auto vertex_released = m_object_vertex_buffer.release(
-                    *vertex_reserved);
-                if (!index_released || !vertex_released)
-                    ErrorLog("Failed to roll back geometry buffer ranges.");
-                return err(indices_uploaded.error());
-            }
+            if (!rollback_succeeded || !vertex_released)
+                ErrorLog("Failed to roll back geometry buffer ranges.");
+            return err(uploaded_ranges.error());
         }
 
         VulkanGeometryData uploaded{
@@ -1638,6 +1632,98 @@ namespace nk {
         return ok();
     }
 
+    result<void, renderer_error> VulkanRenderer::upload_geometry_ranges(
+        const RenderBufferView& vertices,
+        const void* vertex_data,
+        const RenderBufferView& indices,
+        const void* index_data) {
+        if (!m_object_vertex_buffer.valid(vertices) || vertex_data == nullptr ||
+            (vertices.offset & 3) != 0 || (vertices.size & 3) != 0 ||
+            (indices.size != 0 &&
+             (!m_object_index_buffer.valid(indices) || index_data == nullptr ||
+              (indices.offset & 3) != 0 || (indices.size & 3) != 0)) ||
+            vertices.size > numeric::u64_max - 3) {
+            return err(renderer_error{
+                renderer_error_code::buffer_range_invalid,
+                0,
+            });
+        }
+
+        const u64 index_source_offset = (vertices.size + 3) & ~u64{3};
+        if (indices.size > numeric::u64_max - index_source_offset) {
+            return err(renderer_error{
+                renderer_error_code::buffer_range_invalid,
+                0,
+            });
+        }
+        const u64 staging_size = index_source_offset + indices.size;
+        Buffer staging;
+        auto initialized = staging.init(
+            &m_device,
+            m_vulkan_allocator,
+            {
+                .size = staging_size,
+                .usage = BufferUsage::transfer_source,
+                .memory = MemoryUsage::upload,
+                .persistent_map = true,
+            });
+        if (!initialized)
+            return err(initialized.error());
+        auto vertices_staged = staging.upload(
+            0, vertices.size, vertex_data);
+        if (!vertices_staged)
+            return err(vertices_staged.error());
+        if (indices.size != 0) {
+            auto indices_staged = staging.upload(
+                index_source_offset, indices.size, index_data);
+            if (!indices_staged)
+                return err(indices_staged.error());
+        }
+
+        CommandBuffer commands;
+        auto begun = commands.init(
+            m_device.get_graphics_command_pool(),
+            &m_device,
+            true,
+            true);
+        if (!begun)
+            return err(begun.error());
+
+        const VkBufferCopy vertex_copy{
+            .srcOffset = 0,
+            .dstOffset = vertices.offset,
+            .size = vertices.size,
+        };
+        vkCmdCopyBuffer(commands, staging.get(),
+            m_object_vertex_buffer.get(), 1, &vertex_copy);
+
+        const vk::GraphicsCommands graphics{m_device, commands};
+        const vk::AccessScope transferred{
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+        };
+        if (indices.size != 0) {
+            const VkBufferCopy index_copy{
+                .srcOffset = index_source_offset,
+                .dstOffset = indices.offset,
+                .size = indices.size,
+            };
+            vkCmdCopyBuffer(commands, staging.get(),
+                m_object_index_buffer.get(), 1, &index_copy);
+            graphics.buffer_barrier(
+                {m_object_index_buffer.get(), indices.offset, indices.size},
+                transferred,
+                {VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+                    VK_ACCESS_INDEX_READ_BIT});
+        }
+        graphics.buffer_barrier(
+            {m_object_vertex_buffer.get(), vertices.offset, vertices.size},
+            transferred,
+            {VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+                VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT});
+        return commands.end_single_use(m_device.get_graphics_queue());
+    }
+
     void VulkanRenderer::destroy_geometry(Geometry& geometry) {
         if (geometry.internal_id >= max_geometry_count)
             return;
@@ -1646,10 +1732,9 @@ namespace nk {
         if (internal.id == numeric::invalid_id)
             return;
 
-        const VkResult wait_result = vkQueueWaitIdle(
-            m_device.get_graphics_queue());
-        if (wait_result != VK_SUCCESS) {
-            ErrorLog("Geometry destruction could not wait for the graphics queue.");
+        auto retired = wait_for_in_flight_frames();
+        if (!retired) {
+            ErrorLog("Geometry destruction could not retire in-flight frames.");
             return;
         }
         if (!release_geometry_ranges(internal)) {
@@ -1679,6 +1764,16 @@ namespace nk {
         auto vertex_released = m_object_vertex_buffer.release(
             geometry.vertex_range);
         return static_cast<bool>(vertex_released);
+    }
+
+    result<void, renderer_error>
+    VulkanRenderer::wait_for_in_flight_frames() noexcept {
+        for (Fence& fence : m_in_flight_fences) {
+            auto retired = fence.wait(numeric::u64_max);
+            if (!retired)
+                return err(retired.error());
+        }
+        return ok();
     }
 
     result<void, renderer_error> VulkanRenderer::recreate_render_targets() {

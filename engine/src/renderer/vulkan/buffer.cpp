@@ -4,6 +4,7 @@
 
 #include "vulkan/command_buffer.h"
 #include "vulkan/device.h"
+#include "vulkan/graphics_commands.h"
 
 namespace nk {
     namespace {
@@ -52,6 +53,40 @@ namespace nk {
                         VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
             }
             return 0;
+        }
+
+        [[nodiscard]] vk::AccessScope consumer_scope(
+            const VkBufferUsageFlags usage) noexcept {
+            vk::AccessScope scope{};
+            if ((usage & (VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                          VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) != 0) {
+                scope.stages |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+            }
+            if ((usage & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) != 0)
+                scope.access |= VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+            if ((usage & VK_BUFFER_USAGE_INDEX_BUFFER_BIT) != 0)
+                scope.access |= VK_ACCESS_INDEX_READ_BIT;
+            if ((usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) != 0) {
+                scope.stages |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                scope.access |= VK_ACCESS_UNIFORM_READ_BIT;
+            }
+            if ((usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) != 0) {
+                scope.stages |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+                scope.access |= VK_ACCESS_SHADER_READ_BIT |
+                    VK_ACCESS_SHADER_WRITE_BIT;
+            }
+            if ((usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) != 0) {
+                scope.stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+                scope.access |= VK_ACCESS_TRANSFER_READ_BIT;
+            }
+            if (scope.stages == 0)
+                scope.stages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            if (scope.access == 0)
+                scope.access = VK_ACCESS_MEMORY_READ_BIT;
+            return scope;
         }
 
         void destroy_buffer_storage(
@@ -344,6 +379,8 @@ namespace nk {
             .destination = target->m_buffer,
             .destination_offset = destination_offset,
             .size = size,
+            .destination_stages = consumer_scope(target->m_usage).stages,
+            .destination_access = consumer_scope(target->m_usage).access,
         });
     }
 
@@ -414,6 +451,8 @@ namespace nk {
             .destination = new_buffer,
             .destination_offset = 0,
             .size = m_total_size,
+            .destination_stages = consumer_scope(m_usage).stages,
+            .destination_access = consumer_scope(m_usage).access,
         });
         if (!copied) {
             destroy_buffer_storage(*m_device, m_vulkan_allocator,
@@ -469,6 +508,20 @@ namespace nk {
             copy_info.destination,
             1,
             &copy_region);
+        vk::GraphicsCommands{*m_device, command_buffer}.buffer_barrier(
+            {
+                copy_info.destination,
+                copy_info.destination_offset,
+                copy_info.size,
+            },
+            {
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_TRANSFER_WRITE_BIT,
+            },
+            {
+                copy_info.destination_stages,
+                copy_info.destination_access,
+            });
         return command_buffer.end_single_use(copy_info.queue);
     }
 }

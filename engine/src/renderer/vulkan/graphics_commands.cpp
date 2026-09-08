@@ -26,6 +26,51 @@ namespace nk::vk {
         }
     }
 
+    void GraphicsCommands::buffer_barrier(
+        const BufferView buffer,
+        const AccessScope before,
+        const AccessScope after) const {
+        if (m_device.synchronization2()) {
+            VkBufferMemoryBarrier2 memory{};
+            memory.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            memory.srcStageMask = before.stages;
+            memory.srcAccessMask = before.access;
+            memory.dstStageMask = after.stages;
+            memory.dstAccessMask = after.access;
+            memory.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            memory.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            memory.buffer = buffer.buffer;
+            memory.offset = buffer.offset;
+            memory.size = buffer.size;
+            VkDependencyInfo dependency{};
+            dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dependency.bufferMemoryBarrierCount = 1;
+            dependency.pBufferMemoryBarriers = &memory;
+            m_device.commands().pipeline_barrier(m_commands, &dependency);
+        } else {
+            VkBufferMemoryBarrier memory{};
+            memory.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            memory.srcAccessMask = before.access;
+            memory.dstAccessMask = after.access;
+            memory.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            memory.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            memory.buffer = buffer.buffer;
+            memory.offset = buffer.offset;
+            memory.size = buffer.size;
+            vkCmdPipelineBarrier(
+                m_commands,
+                before.stages,
+                after.stages,
+                0,
+                0,
+                nullptr,
+                1,
+                &memory,
+                0,
+                nullptr);
+        }
+    }
+
     void GraphicsCommands::transition(const VkImage image, const VkImageSubresourceRange range,
         const ImageUse before, const ImageUse after) const {
         ImageAccess source = image_access(before);

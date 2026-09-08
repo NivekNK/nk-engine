@@ -134,6 +134,11 @@ namespace nk {
             u64 vertex_count,
             const void* vertices,
             cl::slice<const u32> indices);
+        [[nodiscard]] result<void, renderer_error> upload_geometry_ranges(
+            const RenderBufferView& vertices,
+            const void* vertex_data,
+            const RenderBufferView& indices,
+            const void* index_data);
 
         struct VulkanGeometryData {
             u32 id = numeric::invalid_id;
@@ -146,6 +151,8 @@ namespace nk {
 
         bool release_geometry_ranges(
             const VulkanGeometryData& geometry) noexcept;
+        [[nodiscard]] result<void, renderer_error>
+        wait_for_in_flight_frames() noexcept;
 
         struct VulkanShaderSlot {
             VulkanShader* shader = nullptr;

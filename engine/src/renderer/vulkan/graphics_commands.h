@@ -85,6 +85,10 @@ namespace nk::vk {
             : m_device{device}, m_commands{commands} {}
 
         void barrier(AccessScope before, AccessScope after) const;
+        void buffer_barrier(
+            BufferView buffer,
+            AccessScope before,
+            AccessScope after) const;
         void transition(VkImage image, VkImageSubresourceRange range,
             ImageUse before, ImageUse after) const;
         void begin_rendering(const RenderingTarget& target) const;

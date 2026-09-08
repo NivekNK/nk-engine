@@ -3,6 +3,7 @@
 #include "vulkan/command_buffer.h"
 
 #include "vulkan/device.h"
+#include "vulkan/fence.h"
 
 namespace nk {
     CommandBuffer::CommandBuffer(CommandBuffer&& other) 
@@ -133,25 +134,30 @@ namespace nk {
             std::abort();
         }
 
-        // Submit the queue
+        Fence completion;
+        auto fence_initialized = completion.init(
+            false, m_device, m_device->allocation_callbacks());
+        if (!fence_initialized)
+            return err(fence_initialized.error());
+
+        // The fence retires only this upload submission. Waiting for the
+        // entire queue would also stall unrelated frames and presentation.
         VkSubmitInfo submit_info = {};
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &m_command_buffer;
-        VkResult result = vkQueueSubmit(queue, 1, &submit_info, nullptr);
+        VkResult result = vkQueueSubmit(
+            queue, 1, &submit_info, completion.get());
         if (result != VK_SUCCESS)
             return err(renderer_error{
                 .code = renderer_error_code::queue_submit_failed,
                 .native_code = static_cast<i32>(result),
             });
 
-        // Wait for it to finish
-        result = vkQueueWaitIdle(queue);
-        if (result != VK_SUCCESS)
-            return err(renderer_error{
-                .code = renderer_error_code::device_wait_failed,
-                .native_code = static_cast<i32>(result),
-            });
+        m_state = CommandBufferState::Submitted;
+        auto retired = completion.wait(numeric::u64_max);
+        if (!retired)
+            return err(retired.error());
 
         shutdown();
         return ok();
