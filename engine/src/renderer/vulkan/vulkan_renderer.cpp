@@ -789,10 +789,11 @@ namespace nk {
             });
             command_buffer.set_state(CommandBufferState::InRenderPass);
         } else {
-            const RenderTarget& target = pass == RenderPassKind::world
-                ? m_world_targets[m_image_index]
-                : m_ui_targets[m_image_index];
-            Assert(target.current(), "Render target attachments are stale.");
+            Assert(
+                (pass == RenderPassKind::world
+                    ? m_world_targets[m_image_index]
+                    : m_ui_targets[m_image_index]).current(),
+                "Render target attachments are stale.");
             switch (pass) {
                 case RenderPassKind::world:
                     m_world_render_pass.begin(
