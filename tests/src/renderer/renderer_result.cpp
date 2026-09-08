@@ -277,6 +277,8 @@ namespace {
                 .width = width,
                 .height = height,
                 .channel_count = static_cast<nk::u8>(channel_count),
+                .format = nk::unorm_texture_format(
+                    static_cast<nk::u8>(channel_count)),
                 .flags = has_transparency
                     ? nk::TextureFlag::has_transparency
                     : nk::TextureFlag::none,

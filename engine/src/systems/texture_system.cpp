@@ -390,6 +390,7 @@ namespace nk {
             .width = width,
             .height = height,
             .channel_count = channel_count,
+            .format = unorm_texture_format(channel_count),
             .flags = TextureFlag::writable |
                 (has_transparency
                     ? TextureFlag::has_transparency

@@ -69,7 +69,11 @@ namespace nk::vk {
         VkImageView depth;
         VkRect2D area;
         VkClearColorValue clear_color;
-        bool clear;
+        VkClearDepthStencilValue clear_depth;
+        VkAttachmentLoadOp color_load;
+        VkAttachmentStoreOp color_store;
+        VkAttachmentLoadOp depth_load;
+        VkAttachmentStoreOp depth_store;
     };
 
     // Small command surface inspired by NoGraphicsAPI: borrowed ranges, root

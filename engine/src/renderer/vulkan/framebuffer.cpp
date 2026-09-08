@@ -4,6 +4,7 @@
 
 #include "vulkan/device.h"
 #include "vulkan/render_pass.h"
+#include "vulkan/resources/texture_data.h"
 
 namespace nk {
     Framebuffer::Framebuffer(Framebuffer&& other)
@@ -42,15 +43,33 @@ namespace nk {
     }
 
     result<void, renderer_error> Framebuffer::init(
-        const u32 width,
-        const u32 height,
-        cl::arr<VkImageView>& attachments,
+        const RenderTarget& target,
         Device* device,
         RenderPass& render_pass,
         VkAllocationCallbacks* vulkan_allocator) {
-        m_width = width;
-        m_height = height;
-        m_attachments = std::move(attachments);
+        if (m_framebuffer != VK_NULL_HANDLE || device == nullptr ||
+            !target.current() || target.attachment_count() == 0) {
+            return err(renderer_error{
+                renderer_error_code::render_target_config_invalid, 0});
+        }
+        if (!m_attachments.arr_init(
+                device->allocator(), target.attachment_count())) {
+            return err(renderer_error{renderer_error_code::out_of_memory, 0});
+        }
+        for (u8 index = 0; index < target.attachment_count(); ++index) {
+            const Texture* texture = target.attachment(index);
+            const TextureData* data = texture == nullptr
+                ? nullptr
+                : static_cast<const TextureData*>(texture->m_internal_data);
+            if (data == nullptr || data->image.get_view() == VK_NULL_HANDLE) {
+                shutdown();
+                return err(renderer_error{
+                    renderer_error_code::render_target_config_invalid, 0});
+            }
+            m_attachments[index] = data->image.get_view();
+        }
+        m_width = target.width();
+        m_height = target.height();
         m_device = device;
         m_vulkan_allocator = vulkan_allocator;
 
@@ -60,8 +79,8 @@ namespace nk {
         framebuffer_create_info.renderPass = render_pass;
         framebuffer_create_info.attachmentCount = m_attachments.length();
         framebuffer_create_info.pAttachments = m_attachments.data();
-        framebuffer_create_info.width = width;
-        framebuffer_create_info.height = height;
+        framebuffer_create_info.width = m_width;
+        framebuffer_create_info.height = m_height;
         framebuffer_create_info.layers = 1;
 
         const VkResult result = vkCreateFramebuffer(
@@ -69,11 +88,13 @@ namespace nk {
             &framebuffer_create_info,
             m_vulkan_allocator,
             &m_framebuffer);
-        if (result != VK_SUCCESS)
+        if (result != VK_SUCCESS) {
+            shutdown();
             return err(renderer_error{
                 .code = renderer_error_code::framebuffer_creation_failed,
                 .native_code = static_cast<i32>(result),
             });
+        }
         return ok();
     }
 
@@ -85,20 +106,4 @@ namespace nk {
         m_attachments.arr_shutdown();
     }
 
-    result<void, renderer_error> Framebuffer::renew(
-        const u32 width,
-        const u32 height,
-        cl::arr<VkImageView>& attachments,
-        Device* device,
-        RenderPass& render_pass,
-        VkAllocationCallbacks* vulkan_allocator) {
-        shutdown();
-        return init(
-            width,
-            height,
-            attachments,
-            device,
-            render_pass,
-            vulkan_allocator);
-    }
 }

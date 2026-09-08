@@ -39,6 +39,17 @@ namespace nk {
                format <= TextureFormat::depth24_unorm_stencil8;
     }
 
+    [[nodiscard]] constexpr TextureFormat unorm_texture_format(
+        const u8 channel_count) noexcept {
+        switch (channel_count) {
+            case 1: return TextureFormat::r8_unorm;
+            case 2: return TextureFormat::rg8_unorm;
+            case 3: return TextureFormat::rgb8_unorm;
+            case 4: return TextureFormat::rgba8_unorm;
+            default: return TextureFormat::unknown;
+        }
+    }
+
     enum class TextureFlag : u8 {
         none = 0,
         has_transparency = 1 << 0,

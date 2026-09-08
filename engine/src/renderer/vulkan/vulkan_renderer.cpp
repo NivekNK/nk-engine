@@ -8,6 +8,7 @@
 #include "vulkan/resources/texture_data.h"
 #include "vulkan/graphics_commands.h"
 #include "vulkan/image_utils.h"
+#include "vulkan/texture_format.h"
 
 #include <glm/vertex_3d.h>
 #include <glm/vertex_2d.h>
@@ -15,13 +16,27 @@
 namespace nk {
     namespace {
         VkFormat texture_format(const u8 channel_count) noexcept {
-            switch (channel_count) {
-                case 1: return VK_FORMAT_R8_UNORM;
-                case 2: return VK_FORMAT_R8G8_UNORM;
-                case 3: return VK_FORMAT_R8G8B8_UNORM;
-                case 4: return VK_FORMAT_R8G8B8A8_UNORM;
-                default: return VK_FORMAT_UNDEFINED;
+            return vk::texture_format(unorm_texture_format(channel_count));
+        }
+
+        VkAttachmentLoadOp attachment_load(
+            const RenderLoadOperation operation) noexcept {
+            switch (operation) {
+                case RenderLoadOperation::clear:
+                    return VK_ATTACHMENT_LOAD_OP_CLEAR;
+                case RenderLoadOperation::load:
+                    return VK_ATTACHMENT_LOAD_OP_LOAD;
+                case RenderLoadOperation::discard:
+                    return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             }
+            return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        }
+
+        VkAttachmentStoreOp attachment_store(
+            const RenderStoreOperation operation) noexcept {
+            return operation == RenderStoreOperation::store
+                ? VK_ATTACHMENT_STORE_OP_STORE
+                : VK_ATTACHMENT_STORE_OP_DONT_CARE;
         }
     }
 
@@ -372,62 +387,80 @@ namespace nk {
         if (!swapchain_initialized)
             return err(swapchain_initialized.error());
 
-        // clang-format off
+        const TextureFormat color_format =
+            vk::texture_format(m_swapchain.get_image_format().format);
+        const TextureFormat depth_format =
+            vk::texture_format(m_device.get_depth_format());
+        if (color_format == TextureFormat::unknown ||
+            depth_format == TextureFormat::unknown) {
+            return err(renderer_error{
+                renderer_error_code::render_target_config_invalid, 0});
+        }
+        m_world_attachment_configs[0] = {
+            .role = RenderAttachmentRole::color,
+            .source = RenderAttachmentSource::window_color,
+            .format = color_format,
+            .load = RenderLoadOperation::clear,
+            .store = RenderStoreOperation::store,
+        };
+        m_world_attachment_configs[1] = {
+            .role = RenderAttachmentRole::depth,
+            .source = RenderAttachmentSource::window_depth,
+            .format = depth_format,
+            .load = RenderLoadOperation::clear,
+            .store = RenderStoreOperation::discard,
+        };
+        m_ui_attachment_configs[0] = {
+            .role = RenderAttachmentRole::color,
+            .source = RenderAttachmentSource::window_color,
+            .format = color_format,
+            .load = RenderLoadOperation::load,
+            .store = RenderStoreOperation::store,
+        };
+        m_world_render_pass_config = {
+            .name = "world",
+            .kind = RenderPassKind::world,
+            .area = {0, 0, m_framebuffer_width, m_framebuffer_height},
+            .clear_color = {0.0f, 0.0f, 0.45f, 1.0f},
+            .clear_depth = 1.0f,
+            .clear_stencil = 0,
+            .attachments = {m_world_attachment_configs},
+            .has_previous_pass = false,
+            .has_next_pass = true,
+        };
+        m_ui_render_pass_config = {
+            .name = "ui",
+            .kind = RenderPassKind::ui,
+            .area = {0, 0, m_framebuffer_width, m_framebuffer_height},
+            .clear_color = glm::vec4(0.0f),
+            .clear_depth = 1.0f,
+            .clear_stencil = 0,
+            .attachments = {m_ui_attachment_configs},
+            .has_previous_pass = true,
+            .has_next_pass = false,
+        };
+
         auto world_render_pass_initialized = m_world_render_pass.init(
-            {
-                .render_area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
-                .clear_color = {0.0f, 0.0f, 0.45f, 1.0f},
-                .depth = 1.0f,
-                .stencil = 0,
-                .clear_flags = RenderPassClearFlags::color |
-                    RenderPassClearFlags::depth |
-                    RenderPassClearFlags::stencil,
-                .has_previous_pass = false,
-                .has_next_pass = true,
-                .has_depth_attachment = true,
-            },
-            m_swapchain, &m_device, m_vulkan_allocator
+            m_world_render_pass_config, &m_device, m_vulkan_allocator
         );
         m_world_render_pass_initialized = true;
         if (!world_render_pass_initialized)
             return err(world_render_pass_initialized.error());
 
         auto ui_render_pass_initialized = m_ui_render_pass.init(
-            {
-                .render_area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
-                .clear_color = glm::vec4(0.0f),
-                .depth = 1.0f,
-                .stencil = 0,
-                .clear_flags = RenderPassClearFlags::none,
-                .has_previous_pass = true,
-                .has_next_pass = false,
-                .has_depth_attachment = false,
-            },
-            m_swapchain, &m_device, m_vulkan_allocator
+            m_ui_render_pass_config, &m_device, m_vulkan_allocator
         );
         m_ui_render_pass_initialized = true;
         if (!ui_render_pass_initialized)
             return err(ui_render_pass_initialized.error());
-        // clang-format on
-
         const u32 image_count = m_swapchain.get_image_count();
-
-        if (!m_device.dynamic_rendering()) {
-            if (!m_world_framebuffers.dyarr_init_len(
-                    m_allocator, image_count, image_count) ||
-                !m_ui_framebuffers.dyarr_init_len(
-                    m_allocator, image_count, image_count))
-                return err(renderer_error{
-                    .code = renderer_error_code::out_of_memory,
-                    .native_code = 0,
-                });
-            auto framebuffers_created = recreate_framebuffers();
-            if (!framebuffers_created)
-                return err(framebuffers_created.error());
-            InfoLog(
-                "Vulkan world/UI Framebuffers created ({} each).",
-                m_world_framebuffers.length());
-        }
+        auto targets_created = recreate_render_targets();
+        if (!targets_created)
+            return err(targets_created.error());
+        InfoLog(
+            "Vulkan world/UI render targets created ({} each, {} path).",
+            m_world_targets.length(),
+            m_device.dynamic_rendering() ? "dynamic" : "render-pass");
 
         if (!m_graphics_command_buffers.dyarr_init_len(
                 m_allocator, image_count, image_count))
@@ -510,7 +543,9 @@ namespace nk {
 
         m_ui_framebuffers.dyarr_shutdown();
         m_world_framebuffers.dyarr_shutdown();
-        InfoLog("Vulkan world/UI Framebuffers shutdown.");
+        m_ui_targets.dyarr_shutdown();
+        m_world_targets.dyarr_shutdown();
+        InfoLog("Vulkan world/UI render targets shutdown.");
 
         if (m_ui_render_pass_initialized) {
             m_ui_render_pass.shutdown();
@@ -686,32 +721,78 @@ namespace nk {
         if (m_device.dynamic_rendering()) {
             const vk::GraphicsCommands commands{m_device, command_buffer};
             const bool world = pass == RenderPassKind::world;
-            if (world) {
-                commands.transition(m_swapchain.get_image_at(m_image_index),
+            RenderTarget& target = world
+                ? m_world_targets[m_image_index]
+                : m_ui_targets[m_image_index];
+            Assert(target.current(), "Render target attachments are stale.");
+            Texture* color_texture =
+                target.attachment(RenderAttachmentRole::color);
+            Texture* depth_texture =
+                target.attachment(RenderAttachmentRole::depth);
+            TextureData* color_data = static_cast<TextureData*>(
+                color_texture->m_internal_data);
+            TextureData* depth_data = depth_texture == nullptr
+                ? nullptr
+                : static_cast<TextureData*>(depth_texture->m_internal_data);
+            RenderPass& render_pass = world
+                ? m_world_render_pass
+                : m_ui_render_pass;
+            const RenderPassConfig& pass_config = world
+                ? m_world_render_pass_config
+                : m_ui_render_pass_config;
+            const RenderAttachmentConfig* color_config =
+                render_pass.attachment(RenderAttachmentRole::color);
+            const RenderAttachmentConfig* depth_config =
+                render_pass.attachment(RenderAttachmentRole::depth);
+
+            if (!pass_config.has_previous_pass) {
+                commands.transition(color_data->image.get(),
                     {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
                     vk::ImageUse::discard, vk::ImageUse::color_attachment);
                 VkImageAspectFlags depth_aspects = VK_IMAGE_ASPECT_DEPTH_BIT;
-                if (m_device.get_depth_format() != VK_FORMAT_D32_SFLOAT)
+                if (depth_texture != nullptr &&
+                    depth_texture->format != TextureFormat::depth32_float) {
                     depth_aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
-                commands.transition(m_swapchain.get_depth_attachment(m_image_index)->get(),
-                    {depth_aspects, 0, 1, 0, 1},
-                    vk::ImageUse::discard, vk::ImageUse::depth_attachment);
+                }
+                if (depth_data != nullptr) {
+                    commands.transition(depth_data->image.get(),
+                        {depth_aspects, 0, 1, 0, 1},
+                        vk::ImageUse::discard,
+                        vk::ImageUse::depth_attachment);
+                }
             } else {
                 commands.barrier(
                     {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT},
                     {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                         VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT});
             }
-            const glm::vec4& clear = m_world_render_pass.clear_color();
+            const glm::vec4& clear = render_pass.clear_color();
             commands.begin_rendering({
-                .color = m_swapchain.get_image_view_at(m_image_index),
-                .depth = world ? m_swapchain.get_depth_attachment(m_image_index)->get_view() : VK_NULL_HANDLE,
-                .area = {{0, 0}, {m_framebuffer_width, m_framebuffer_height}},
+                .color = color_data->image.get_view(),
+                .depth = depth_data == nullptr
+                    ? VK_NULL_HANDLE
+                    : depth_data->image.get_view(),
+                .area = render_pass.get_render_area(),
                 .clear_color = {{clear.r, clear.g, clear.b, clear.a}},
-                .clear = world,
+                .clear_depth = {
+                    pass_config.clear_depth,
+                    pass_config.clear_stencil,
+                },
+                .color_load = attachment_load(color_config->load),
+                .color_store = attachment_store(color_config->store),
+                .depth_load = depth_config == nullptr
+                    ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                    : attachment_load(depth_config->load),
+                .depth_store = depth_config == nullptr
+                    ? VK_ATTACHMENT_STORE_OP_DONT_CARE
+                    : attachment_store(depth_config->store),
             });
             command_buffer.set_state(CommandBufferState::InRenderPass);
         } else {
+            const RenderTarget& target = pass == RenderPassKind::world
+                ? m_world_targets[m_image_index]
+                : m_ui_targets[m_image_index];
+            Assert(target.current(), "Render target attachments are stale.");
             switch (pass) {
                 case RenderPassKind::world:
                     m_world_render_pass.begin(
@@ -734,8 +815,23 @@ namespace nk {
         if (m_device.dynamic_rendering()) {
             const vk::GraphicsCommands commands{m_device, command_buffer};
             commands.end_rendering();
-            if (pass == RenderPassKind::ui) {
-                commands.transition(m_swapchain.get_image_at(m_image_index),
+            const bool world = pass == RenderPassKind::world;
+            const RenderPassConfig& pass_config = world
+                ? m_world_render_pass_config
+                : m_ui_render_pass_config;
+            RenderTarget& target = world
+                ? m_world_targets[m_image_index]
+                : m_ui_targets[m_image_index];
+            const Texture* color_texture =
+                target.attachment(RenderAttachmentRole::color);
+            const RenderAttachmentConfig* color_config = (world
+                ? m_world_render_pass
+                : m_ui_render_pass).attachment(RenderAttachmentRole::color);
+            if (!pass_config.has_next_pass && color_config != nullptr &&
+                color_config->source == RenderAttachmentSource::window_color) {
+                const TextureData* color_data = static_cast<const TextureData*>(
+                    color_texture->m_internal_data);
+                commands.transition(color_data->image.get(),
                     {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
                     vk::ImageUse::color_attachment, vk::ImageUse::present);
             }
@@ -817,6 +913,7 @@ namespace nk {
         texture.width = width;
         texture.height = height;
         texture.channel_count = channel_count;
+        texture.format = unorm_texture_format(channel_count);
         texture.generation = 0;
 
         TextureData* texture_data = m_allocator->construct_t(TextureData);
@@ -930,7 +1027,11 @@ namespace nk {
                 0,
             });
         }
-        const VkFormat format = texture_format(texture->channel_count);
+        const TextureFormat requested_format =
+            texture->format == TextureFormat::unknown
+                ? unorm_texture_format(texture->channel_count)
+                : texture->format;
+        const VkFormat format = vk::texture_format(requested_format);
         if (format == VK_FORMAT_UNDEFINED)
             return err(renderer_error{
                 renderer_error_code::texture_state_invalid,
@@ -993,6 +1094,7 @@ namespace nk {
             return err(error);
         }
 
+        texture->format = requested_format;
         texture->m_internal_data = data;
         return ok();
     }
@@ -1003,7 +1105,7 @@ namespace nk {
         const cl::slice<const u8> pixels) {
         if (!m_device_initialized || m_allocator == nullptr ||
             !texture.valid() || !texture.writable() || texture.external() ||
-            texture_format(texture.channel_count) == VK_FORMAT_UNDEFINED ||
+            vk::texture_format(texture.format) == VK_FORMAT_UNDEFINED ||
             pixels.data() == nullptr || region.width == 0 ||
             region.height == 0 || region.x >= texture.width ||
             region.y >= texture.height ||
@@ -1094,7 +1196,7 @@ namespace nk {
                 0,
             });
         }
-        const VkFormat format = texture_format(texture.channel_count);
+        const VkFormat format = vk::texture_format(texture.format);
         if (format == VK_FORMAT_UNDEFINED)
             return err(renderer_error{
                 renderer_error_code::texture_state_invalid,
@@ -1390,61 +1492,86 @@ namespace nk {
         return static_cast<bool>(vertex_released);
     }
 
-    result<void, renderer_error> VulkanRenderer::recreate_framebuffers() {
-        if (m_device.dynamic_rendering())
-            return ok();
+    result<void, renderer_error> VulkanRenderer::recreate_render_targets() {
         const u32 image_count = m_swapchain.get_image_count();
 
-        if (image_count != m_world_framebuffers.length()) {
-            if (!m_world_framebuffers.dyarr_resize(image_count) ||
-                !m_ui_framebuffers.dyarr_resize(image_count))
+        cl::dyarr<RenderTarget> world_targets;
+        cl::dyarr<RenderTarget> ui_targets;
+        if (!world_targets.dyarr_init_len(
+                m_allocator, image_count, image_count) ||
+            !ui_targets.dyarr_init_len(
+                m_allocator, image_count, image_count)) {
+            return err(renderer_error{
+                renderer_error_code::out_of_memory, 0});
+        }
+
+        for (u32 index = 0; index < image_count; ++index) {
+            Texture* world_attachments[]{
+                m_swapchain.get_render_texture_at(index),
+                m_swapchain.get_depth_texture_at(index),
+            };
+            auto world_created = world_targets[index].init(
+                m_world_render_pass_config,
+                {
+                    m_framebuffer_width,
+                    m_framebuffer_height,
+                    {world_attachments},
+                });
+            if (!world_created)
                 return err(renderer_error{
-                    .code = renderer_error_code::out_of_memory,
-                    .native_code = 0,
+                    renderer_error_code::render_target_config_invalid,
+                    static_cast<i32>(world_created.error()),
+                });
+
+            Texture* ui_attachments[]{
+                m_swapchain.get_render_texture_at(index),
+            };
+            auto ui_created = ui_targets[index].init(
+                m_ui_render_pass_config,
+                {
+                    m_framebuffer_width,
+                    m_framebuffer_height,
+                    {ui_attachments},
+                });
+            if (!ui_created)
+                return err(renderer_error{
+                    renderer_error_code::render_target_config_invalid,
+                    static_cast<i32>(ui_created.error()),
                 });
         }
 
-        for (u32 i = 0; i < m_world_framebuffers.length(); i++) {
-            cl::arr<VkImageView> world_attachments;
-            // clang-format off
-            if (!world_attachments.arr_init_list(m_allocator, {
-                m_swapchain.get_image_view_at(i),
-                m_swapchain.get_depth_attachment(i)->get_view(),
-            })) {
+        cl::dyarr<Framebuffer> world_framebuffers;
+        cl::dyarr<Framebuffer> ui_framebuffers;
+        if (!m_device.dynamic_rendering()) {
+            if (!world_framebuffers.dyarr_init_len(
+                    m_allocator, image_count, image_count) ||
+                !ui_framebuffers.dyarr_init_len(
+                    m_allocator, image_count, image_count)) {
                 return err(renderer_error{
-                    .code = renderer_error_code::out_of_memory,
-                    .native_code = 0,
-                });
+                    renderer_error_code::out_of_memory, 0});
             }
-            // clang-format on
-            auto world_renewed = m_world_framebuffers[i].renew(
-                m_framebuffer_width,
-                m_framebuffer_height,
-                world_attachments,
-                &m_device,
-                m_world_render_pass,
-                m_vulkan_allocator);
-            if (!world_renewed)
-                return err(world_renewed.error());
-
-            cl::arr<VkImageView> ui_attachments;
-            if (!ui_attachments.arr_init_list(
-                    m_allocator, {m_swapchain.get_image_view_at(i)})) {
-                return err(renderer_error{
-                    .code = renderer_error_code::out_of_memory,
-                    .native_code = 0,
-                });
+            for (u32 index = 0; index < image_count; ++index) {
+                auto world_created = world_framebuffers[index].init(
+                    world_targets[index],
+                    &m_device,
+                    m_world_render_pass,
+                    m_vulkan_allocator);
+                if (!world_created)
+                    return err(world_created.error());
+                auto ui_created = ui_framebuffers[index].init(
+                    ui_targets[index],
+                    &m_device,
+                    m_ui_render_pass,
+                    m_vulkan_allocator);
+                if (!ui_created)
+                    return err(ui_created.error());
             }
-            auto ui_renewed = m_ui_framebuffers[i].renew(
-                m_framebuffer_width,
-                m_framebuffer_height,
-                ui_attachments,
-                &m_device,
-                m_ui_render_pass,
-                m_vulkan_allocator);
-            if (!ui_renewed)
-                return err(ui_renewed.error());
         }
+
+        m_world_framebuffers = std::move(world_framebuffers);
+        m_ui_framebuffers = std::move(ui_framebuffers);
+        m_world_targets = std::move(world_targets);
+        m_ui_targets = std::move(ui_targets);
         return ok();
     }
 
@@ -1593,6 +1720,8 @@ namespace nk {
             framebuffer.shutdown();
         for (Framebuffer& framebuffer : m_world_framebuffers)
             framebuffer.shutdown();
+        m_ui_targets.dyarr_shutdown();
+        m_world_targets.dyarr_shutdown();
 
         auto swapchain_recreated = m_swapchain.recreate(
             m_cached_framebuffer_width, m_cached_framebuffer_height);
@@ -1618,10 +1747,14 @@ namespace nk {
         VkRect2D& ui_render_area = m_ui_render_pass.get_render_area();
         ui_render_area.offset = {0, 0};
         ui_render_area.extent = {m_framebuffer_width, m_framebuffer_height};
+        m_world_render_pass_config.area = {
+            0, 0, m_framebuffer_width, m_framebuffer_height};
+        m_ui_render_pass_config.area = {
+            0, 0, m_framebuffer_width, m_framebuffer_height};
 
-        auto framebuffers_created = recreate_framebuffers();
-        if (!framebuffers_created)
-            return err(framebuffers_created.error());
+        auto targets_created = recreate_render_targets();
+        if (!targets_created)
+            return err(targets_created.error());
         auto commands_created = recreate_command_buffers();
         if (!commands_created)
             return err(commands_created.error());

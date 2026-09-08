@@ -5,6 +5,7 @@
 #include "vulkan/device.h"
 #include "memory/allocator.h"
 #include "vulkan/utils.h"
+#include "vulkan/texture_format.h"
 
 namespace nk {
     VkSurfaceFormatKHR choose_swap_surface_format(const cl::dyarr<VkSurfaceFormatKHR>& available_formats);
@@ -226,6 +227,7 @@ namespace nk {
                 .width = swapchain_extent.width,
                 .height = swapchain_extent.height,
                 .channel_count = 4,
+                .format = vk::texture_format(m_image_format.format),
                 .flags = TextureFlag::writable | TextureFlag::external,
                 .generation = next_generation,
                 .m_internal_data = &m_texture_data[i],
@@ -243,16 +245,30 @@ namespace nk {
             .create_view = true,
             .view_aspect_flags = VK_IMAGE_ASPECT_DEPTH_BIT,
         };
-        if (!m_depth_attachments.arr_init(m_allocator, m_image_count)) {
+        if (!m_depth_textures.arr_init(m_allocator, m_image_count) ||
+            !m_depth_texture_data.arr_init(m_allocator, m_image_count)) {
+            m_depth_texture_data.arr_shutdown();
+            m_depth_textures.arr_shutdown();
             destroy_swapchain();
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
         }
-        for (Image& depth : m_depth_attachments) {
-            auto depth_created = depth.init(depth_create_info, m_device, m_vulkan_allocator);
+        for (u32 index = 0; index < m_image_count; ++index) {
+            auto depth_created = m_depth_texture_data[index].image.init(
+                depth_create_info, m_device, m_vulkan_allocator);
             if (!depth_created) {
                 destroy_swapchain();
                 return err(depth_created.error());
             }
+            m_depth_textures[index] = Texture{
+                .id = index,
+                .width = swapchain_extent.width,
+                .height = swapchain_extent.height,
+                .channel_count = 1,
+                .format = vk::texture_format(m_device->get_depth_format()),
+                .flags = TextureFlag::writable,
+                .generation = next_generation,
+                .m_internal_data = &m_depth_texture_data[index],
+            };
         }
 
         width = swapchain_extent.width;
@@ -266,7 +282,8 @@ namespace nk {
             return;
 
         vkDeviceWaitIdle(m_device->get());
-        m_depth_attachments.arr_shutdown();
+        m_depth_textures.arr_shutdown();
+        m_depth_texture_data.arr_shutdown();
         // TextureData destroys only each wrapper-owned view. The VkImages are
         // external and remain owned by the swapchain until vkDestroySwapchainKHR.
         m_texture_data.arr_shutdown();

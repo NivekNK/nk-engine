@@ -56,6 +56,9 @@ namespace nk {
         Texture* get_render_texture_at(u32 index) {
             return index < m_image_count ? &m_render_textures[index] : nullptr;
         }
+        Texture* get_depth_texture_at(u32 index) {
+            return index < m_image_count ? &m_depth_textures[index] : nullptr;
+        }
         const Texture* get_render_texture_at(u32 index) const {
             return index < m_image_count ? &m_render_textures[index] : nullptr;
         }
@@ -68,7 +71,9 @@ namespace nk {
             }
             return m_texture_data[index].image.get_view();
         }
-        Image* get_depth_attachment(u32 image_index) { return &m_depth_attachments[image_index]; }
+        Image* get_depth_attachment(u32 image_index) {
+            return &m_depth_texture_data[image_index].image;
+        }
         u8 get_max_frames_in_flight() const { return m_max_frames_in_flight; }
 
     private:
@@ -90,7 +95,8 @@ namespace nk {
         cl::arr<VkImage> m_images;
         cl::arr<Texture> m_render_textures;
         cl::arr<TextureData> m_texture_data;
-        cl::arr<Image> m_depth_attachments;
+        cl::arr<Texture> m_depth_textures;
+        cl::arr<TextureData> m_depth_texture_data;
         u32 m_render_texture_generation = numeric::invalid_id;
     };
 

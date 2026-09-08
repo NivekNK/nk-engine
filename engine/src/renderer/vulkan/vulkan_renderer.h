@@ -12,6 +12,7 @@
 #include "vulkan/fence.h"
 #include "vulkan/buffer.h"
 #include "vulkan/samplers.h"
+#include "renderer/render_target.h"
 
 #include "vulkan/shaders/vulkan_shader.h"
 
@@ -109,7 +110,7 @@ namespace nk {
             ShaderUniformType type,
             const void* data,
             u32 size) override;
-        [[nodiscard]] result<void, renderer_error> recreate_framebuffers();
+        [[nodiscard]] result<void, renderer_error> recreate_render_targets();
         [[nodiscard]] result<void, renderer_error> recreate_command_buffers();
         [[nodiscard]] result<void, renderer_error> recreate_sync_objects();
         [[nodiscard]] result<void, renderer_error> recreate_swapchain();
@@ -167,6 +168,12 @@ namespace nk {
         Swapchain m_swapchain;
         RenderPass m_world_render_pass;
         RenderPass m_ui_render_pass;
+        RenderAttachmentConfig m_world_attachment_configs[2]{};
+        RenderAttachmentConfig m_ui_attachment_configs[1]{};
+        RenderPassConfig m_world_render_pass_config{};
+        RenderPassConfig m_ui_render_pass_config{};
+        cl::dyarr<RenderTarget> m_world_targets;
+        cl::dyarr<RenderTarget> m_ui_targets;
         cl::dyarr<Framebuffer> m_world_framebuffers;
         cl::dyarr<Framebuffer> m_ui_framebuffers;
         cl::dyarr<CommandBuffer> m_graphics_command_buffers;

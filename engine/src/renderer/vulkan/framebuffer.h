@@ -4,6 +4,7 @@
 #include "collections/arr.h"
 #include "core/result.h"
 #include "renderer/renderer_result.h"
+#include "renderer/render_target.h"
 
 namespace nk {
     namespace mem {
@@ -25,21 +26,11 @@ namespace nk {
         Framebuffer& operator=(Framebuffer&& other);
 
         [[nodiscard]] result<void, renderer_error> init(
-            u32 width,
-            u32 height,
-            cl::arr<VkImageView>& attachments,
+            const RenderTarget& target,
             Device* device,
             RenderPass& render_pass,
             VkAllocationCallbacks* vulkan_allocator);
         void shutdown();
-
-        [[nodiscard]] result<void, renderer_error> renew(
-            u32 width,
-            u32 height,
-            cl::arr<VkImageView>& attachments,
-            Device* device,
-            RenderPass& render_pass,
-            VkAllocationCallbacks* vulkan_allocator);
 
         VkFramebuffer get() { return m_framebuffer; }
         VkFramebuffer operator()() { return m_framebuffer; }
