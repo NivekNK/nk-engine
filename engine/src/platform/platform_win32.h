@@ -17,10 +17,14 @@ namespace nk {
         HWND get_hwnd() { return m_hwnd; }
 
     private:
-        HINSTANCE m_hinstance;
-        HWND m_hwnd;
+        HINSTANCE m_hinstance = nullptr;
+        HWND m_hwnd = nullptr;
+        wchar_t m_pending_high_surrogate = 0;
 
         f64 m_clock_frequency;
         LARGE_INTEGER m_start_time;
+
+        friend LRESULT CALLBACK win32_process_message(
+            HWND hwnd, u32 msg, WPARAM wparam, LPARAM lparam);
     };
 }

@@ -5,8 +5,12 @@
 #include "core/app.h"
 #include "systems/event_system.h"
 #include "systems/input_system.h"
+#include "core/utf8.h"
 
 #include "xdg-shell-client-protocol.h"
+#include "viewporter-client-protocol.h"
+#include "fractional-scale-v1-client-protocol.h"
+#include "text-input-unstable-v3-client-protocol.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -15,6 +19,8 @@
 #include <sys/mman.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include <xkbcommon/xkbcommon.h>
+#include <xkbcommon/xkbcommon-compose.h>
+#include <cmath>
 
 namespace {
     nk::KeyCodeFlag translate_keysym(xkb_keysym_t keysym) {
@@ -131,9 +137,17 @@ namespace nk {
           m_seat{nullptr},
           m_keyboard{nullptr},
           m_pointer{nullptr},
+          m_viewporter{nullptr},
+          m_viewport{nullptr},
+          m_fractional_scale_manager{nullptr},
+          m_fractional_scale{nullptr},
+          m_text_input_manager{nullptr},
+          m_text_input{nullptr},
           m_xkb_context{nullptr},
           m_xkb_keymap{nullptr},
           m_xkb_state{nullptr},
+          m_compose_table{nullptr},
+          m_compose_state{nullptr},
           m_pending_width{config.start_width},
           m_pending_height{config.start_height},
           m_configured{false},
@@ -178,6 +192,47 @@ namespace nk {
             ErrorLog("Unable to create a Wayland surface.");
             m_running = false;
             return;
+        }
+
+        if (m_viewporter != nullptr && m_fractional_scale_manager != nullptr) {
+            m_viewport = wp_viewporter_get_viewport(m_viewporter, m_surface);
+            m_fractional_scale = wp_fractional_scale_manager_v1_get_fractional_scale(
+                m_fractional_scale_manager, m_surface);
+            if (m_viewport != nullptr && m_fractional_scale != nullptr) {
+                static const wp_fractional_scale_v1_listener scale_listener{
+                    .preferred_scale = fractional_preferred_scale,
+                };
+                wp_fractional_scale_v1_add_listener(
+                    m_fractional_scale, &scale_listener, this);
+            } else {
+                if (m_fractional_scale != nullptr) {
+                    wp_fractional_scale_v1_destroy(m_fractional_scale);
+                    m_fractional_scale = nullptr;
+                }
+                if (m_viewport != nullptr) {
+                    wp_viewport_destroy(m_viewport);
+                    m_viewport = nullptr;
+                }
+                WarnLog("Unable to create fractional-scale Wayland objects; using scale 1.");
+            }
+        }
+        if (m_text_input_manager != nullptr && m_seat != nullptr) {
+            m_text_input = zwp_text_input_manager_v3_get_text_input(m_text_input_manager, m_seat);
+            if (m_text_input != nullptr) {
+                static const zwp_text_input_v3_listener text_listener = [] {
+                    zwp_text_input_v3_listener listener{};
+                    listener.enter = text_input_enter;
+                    listener.leave = text_input_leave;
+                    listener.preedit_string = text_input_preedit;
+                    listener.commit_string = text_input_commit;
+                    listener.delete_surrounding_text = text_input_delete;
+                    listener.done = text_input_done;
+                    return listener;
+                }();
+                zwp_text_input_v3_add_listener(m_text_input, &text_listener, this);
+            } else {
+                WarnLog("Unable to create Wayland text-input-v3; IME input is unavailable.");
+            }
         }
 
         m_xdg_surface = xdg_wm_base_get_xdg_surface(m_wm_base, m_surface);
@@ -229,8 +284,19 @@ namespace nk {
         release_keyboard();
         release_pointer();
 
+        if (m_compose_state != nullptr)
+            xkb_compose_state_unref(m_compose_state);
+        if (m_compose_table != nullptr)
+            xkb_compose_table_unref(m_compose_table);
         if (m_xkb_context != nullptr)
             xkb_context_unref(m_xkb_context);
+
+        if (m_text_input != nullptr)
+            zwp_text_input_v3_destroy(m_text_input);
+        if (m_fractional_scale != nullptr)
+            wp_fractional_scale_v1_destroy(m_fractional_scale);
+        if (m_viewport != nullptr)
+            wp_viewport_destroy(m_viewport);
 
         if (m_toplevel != nullptr)
             xdg_toplevel_destroy(m_toplevel);
@@ -242,6 +308,12 @@ namespace nk {
             wl_seat_destroy(m_seat);
         if (m_wm_base != nullptr)
             xdg_wm_base_destroy(m_wm_base);
+        if (m_text_input_manager != nullptr)
+            zwp_text_input_manager_v3_destroy(m_text_input_manager);
+        if (m_fractional_scale_manager != nullptr)
+            wp_fractional_scale_manager_v1_destroy(m_fractional_scale_manager);
+        if (m_viewporter != nullptr)
+            wp_viewporter_destroy(m_viewporter);
         if (m_compositor != nullptr)
             wl_compositor_destroy(m_compositor);
         if (m_registry != nullptr)
@@ -261,6 +333,8 @@ namespace nk {
 
         if (wl_display_dispatch_pending(m_display) < 0)
             return false;
+
+        sync_text_input();
 
         while (wl_display_prepare_read(m_display) != 0) {
             if (wl_display_dispatch_pending(m_display) < 0)
@@ -284,6 +358,7 @@ namespace nk {
         }
         if (poll_result == 0) {
             wl_display_cancel_read(m_display);
+            process_repeat();
             return true;
         }
         if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
@@ -292,12 +367,16 @@ namespace nk {
         }
         if ((descriptor.revents & POLLIN) == 0) {
             wl_display_cancel_read(m_display);
+            process_repeat();
             return true;
         }
         if (wl_display_read_events(m_display) < 0)
             return false;
 
-        return wl_display_dispatch_pending(m_display) >= 0;
+        if (wl_display_dispatch_pending(m_display) < 0)
+            return false;
+        process_repeat();
+        return true;
     }
 
     f64 PlatformWayland::get_absolute_time() {
@@ -346,6 +425,23 @@ namespace nk {
                 return listener;
             }();
             wl_seat_add_listener(platform->m_seat, &seat_listener, platform);
+            return;
+        }
+        if (std::strcmp(interface, wp_viewporter_interface.name) == 0 && platform->m_viewporter == nullptr) {
+            platform->m_viewporter = static_cast<wp_viewporter*>(
+                wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
+            return;
+        }
+        if (std::strcmp(interface, wp_fractional_scale_manager_v1_interface.name) == 0 &&
+            platform->m_fractional_scale_manager == nullptr) {
+            platform->m_fractional_scale_manager = static_cast<wp_fractional_scale_manager_v1*>(
+                wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1));
+            return;
+        }
+        if (std::strcmp(interface, zwp_text_input_manager_v3_interface.name) == 0 &&
+            platform->m_text_input_manager == nullptr) {
+            platform->m_text_input_manager = static_cast<zwp_text_input_manager_v3*>(
+                wl_registry_bind(registry, name, &zwp_text_input_manager_v3_interface, 1));
         }
     }
 
@@ -465,17 +561,52 @@ namespace nk {
             xkb_keymap_unref(platform->m_xkb_keymap);
         platform->m_xkb_keymap = new_keymap;
         platform->m_xkb_state = new_state;
+        if (platform->m_compose_state != nullptr) {
+            xkb_compose_state_unref(platform->m_compose_state);
+            platform->m_compose_state = nullptr;
+        }
+        if (platform->m_compose_table == nullptr && platform->m_xkb_context != nullptr) {
+            const char* locale = std::getenv("LC_ALL");
+            if (locale == nullptr || locale[0] == '\0') locale = std::getenv("LC_CTYPE");
+            if (locale == nullptr || locale[0] == '\0') locale = std::getenv("LANG");
+            if (locale == nullptr || locale[0] == '\0') locale = "C";
+            platform->m_compose_table = xkb_compose_table_new_from_locale(
+                platform->m_xkb_context, locale != nullptr ? locale : "C",
+                XKB_COMPOSE_COMPILE_NO_FLAGS);
+        }
+        if (platform->m_compose_table != nullptr)
+            platform->m_compose_state = xkb_compose_state_new(
+                platform->m_compose_table, XKB_COMPOSE_STATE_NO_FLAGS);
     }
 
-    void PlatformWayland::keyboard_enter(void*, wl_keyboard*, u32, wl_surface*, wl_array*) {}
+    void PlatformWayland::keyboard_enter(void* data, wl_keyboard*, u32, wl_surface*, wl_array*) {
+        static_cast<PlatformWayland*>(data)->m_repeat_key = numeric::invalid_id;
+    }
 
-    void PlatformWayland::keyboard_leave(void*, wl_keyboard*, u32, wl_surface*) {}
+    void PlatformWayland::keyboard_leave(void* data, wl_keyboard*, u32, wl_surface*) {
+        auto* platform = static_cast<PlatformWayland*>(data);
+        platform->m_repeat_key = numeric::invalid_id;
+        InputSystem::clear_keyboard();
+    }
 
     void PlatformWayland::keyboard_key(void* data, wl_keyboard*, u32, u32, u32 key, u32 state) {
         PlatformWayland* platform = static_cast<PlatformWayland*>(data);
         const KeyCodeFlag keycode = translate_key(platform->m_xkb_keymap, platform->m_xkb_state, key);
-        if (keycode != 0)
-            InputSystem::process_key(keycode, state == WL_KEYBOARD_KEY_STATE_PRESSED);
+        const bool pressed = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+        if (keycode != 0) InputSystem::process_key(keycode, pressed);
+        if (pressed) {
+            platform->emit_text(key);
+            const xkb_keycode_t native_key = key + 8;
+            if (platform->m_xkb_keymap != nullptr &&
+                xkb_keymap_key_repeats(platform->m_xkb_keymap, native_key) != 0 &&
+                platform->m_repeat_rate > 0) {
+                platform->m_repeat_key = key;
+                platform->m_next_repeat = std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(platform->m_repeat_delay);
+            }
+        } else if (platform->m_repeat_key == key) {
+            platform->m_repeat_key = numeric::invalid_id;
+        }
     }
 
     void PlatformWayland::keyboard_modifiers(
@@ -499,7 +630,48 @@ namespace nk {
         }
     }
 
-    void PlatformWayland::keyboard_repeat_info(void*, wl_keyboard*, i32, i32) {}
+    void PlatformWayland::keyboard_repeat_info(void* data, wl_keyboard*, i32 rate, i32 delay) {
+        auto* platform = static_cast<PlatformWayland*>(data);
+        platform->m_repeat_rate = std::clamp(rate, 0, 1000);
+        platform->m_repeat_delay = std::max(0, delay);
+        if (rate <= 0) platform->m_repeat_key = numeric::invalid_id;
+    }
+
+    void PlatformWayland::fractional_preferred_scale(
+        void* data, wp_fractional_scale_v1*, const u32 scale) {
+        auto* platform = static_cast<PlatformWayland*>(data);
+        if (scale == 0) return;
+        platform->set_content_scale(static_cast<f32>(scale) / 120.f);
+        platform->apply_pending_configure();
+    }
+
+    void PlatformWayland::text_input_enter(void* data, zwp_text_input_v3*, wl_surface*) {
+        auto* platform = static_cast<PlatformWayland*>(data);
+        platform->m_text_input_focused = true;
+        platform->sync_text_input();
+    }
+    void PlatformWayland::text_input_leave(void* data, zwp_text_input_v3*, wl_surface*) {
+        auto* platform = static_cast<PlatformWayland*>(data);
+        platform->m_text_input_focused = false;
+        platform->m_text_input_active = false;
+        (void)InputSystem::process_preedit({}, 0, 0);
+    }
+    void PlatformWayland::text_input_preedit(
+        void*, zwp_text_input_v3*, const char* text, i32 begin, i32 end) {
+        const strview value{text != nullptr ? text : ""};
+        const u32 selection_begin = begin < 0 ? static_cast<u32>(value.length()) : static_cast<u32>(begin);
+        const u32 selection_end = end < 0 ? selection_begin : static_cast<u32>(end);
+        (void)InputSystem::process_preedit(value, selection_begin, selection_end);
+    }
+    void PlatformWayland::text_input_commit(void*, zwp_text_input_v3*, const char* text) {
+        if (text != nullptr) (void)InputSystem::process_text(text);
+        (void)InputSystem::process_preedit({}, 0, 0);
+    }
+    void PlatformWayland::text_input_delete(
+        void*, zwp_text_input_v3*, const u32 before, const u32 after) {
+        InputSystem::process_text_delete(before, after);
+    }
+    void PlatformWayland::text_input_done(void*, zwp_text_input_v3*, u32) {}
 
     void PlatformWayland::pointer_enter(
         void*,
@@ -538,19 +710,80 @@ namespace nk {
     }
 
     void PlatformWayland::apply_pending_configure() {
-        if (m_pending_width == m_width && m_pending_height == m_height)
+        const u32 physical_width = static_cast<u32>(std::ceil(m_pending_width * content_scale()));
+        const u32 physical_height = static_cast<u32>(std::ceil(m_pending_height * content_scale()));
+        if (m_viewport != nullptr && m_pending_width && m_pending_height)
+            wp_viewport_set_destination(m_viewport, m_pending_width, m_pending_height);
+        if (physical_width == m_width && physical_height == m_height)
             return;
 
         if (!m_ready_for_events) {
-            m_width = m_pending_width;
-            m_height = m_pending_height;
+            m_width = physical_width;
+            m_height = physical_height;
             return;
         }
 
         EventContext context{};
-        context.data.u32[0] = m_pending_width;
-        context.data.u32[1] = m_pending_height;
+        context.data.u32[0] = physical_width;
+        context.data.u32[1] = physical_height;
         EventSystem::fire_event(SystemEventCode::Resized, nullptr, context);
+    }
+
+    void PlatformWayland::sync_text_input() {
+        if (m_text_input == nullptr) return;
+        const bool desired = m_text_input_focused && InputSystem::text_input_enabled();
+        if (desired == m_text_input_active) return;
+        if (desired) {
+            zwp_text_input_v3_enable(m_text_input);
+            zwp_text_input_v3_set_content_type(m_text_input,
+                ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
+                ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL);
+        } else {
+            zwp_text_input_v3_disable(m_text_input);
+        }
+        zwp_text_input_v3_commit(m_text_input);
+        m_text_input_active = desired;
+    }
+
+    void PlatformWayland::emit_text(const u32 wayland_key) {
+        if (!InputSystem::text_input_enabled() || m_xkb_state == nullptr) return;
+        const xkb_keycode_t key = wayland_key + 8;
+        const xkb_keysym_t symbol = xkb_state_key_get_one_sym(m_xkb_state, key);
+        if (m_compose_state != nullptr &&
+            xkb_compose_state_feed(m_compose_state, symbol) == XKB_COMPOSE_FEED_ACCEPTED) {
+            const auto status = xkb_compose_state_get_status(m_compose_state);
+            if (status == XKB_COMPOSE_COMPOSING) return;
+            if (status == XKB_COMPOSE_COMPOSED) {
+                char text[64]{};
+                const int length = xkb_compose_state_get_utf8(m_compose_state, text, sizeof(text));
+                xkb_compose_state_reset(m_compose_state);
+                if (length > 0) (void)InputSystem::process_text({text, static_cast<u64>(length)});
+                return;
+            }
+            if (status == XKB_COMPOSE_CANCELLED) {
+                xkb_compose_state_reset(m_compose_state);
+                return;
+            }
+        }
+        char text[64]{};
+        const int length = xkb_state_key_get_utf8(m_xkb_state, key, text, sizeof(text));
+        if (length <= 0) return;
+        const strview value{text, static_cast<u64>(length)};
+        const auto first = utf8::decode(value, 0);
+        if (first && first->value >= 0x20 && first->value != 0x7f)
+            (void)InputSystem::process_text(value);
+    }
+
+    void PlatformWayland::process_repeat() {
+        if (m_repeat_key == numeric::invalid_id || m_repeat_rate <= 0) return;
+        const auto interval = std::chrono::nanoseconds(1000000000ll / m_repeat_rate);
+        const auto now = std::chrono::steady_clock::now();
+        for (u32 emitted = 0; emitted < 32 && now >= m_next_repeat; ++emitted) {
+            const KeyCodeFlag key = translate_key(m_xkb_keymap, m_xkb_state, m_repeat_key);
+            if (key != 0) InputSystem::process_key_repeat(key);
+            emit_text(m_repeat_key);
+            m_next_repeat += interval;
+        }
     }
 
     void PlatformWayland::release_keyboard() {
@@ -565,6 +798,8 @@ namespace nk {
             xkb_state_unref(m_xkb_state);
             m_xkb_state = nullptr;
         }
+        if (m_compose_state != nullptr) xkb_compose_state_reset(m_compose_state);
+        m_repeat_key = numeric::invalid_id;
         if (m_xkb_keymap != nullptr) {
             xkb_keymap_unref(m_xkb_keymap);
             m_xkb_keymap = nullptr;

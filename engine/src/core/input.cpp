@@ -44,4 +44,12 @@ namespace nk::Input {
     void get_previous_mouse_position(i16& out_x, i16& out_y) {
         InputSystem::get().get_previous_mouse_position(out_x, out_y);
     }
+
+    void set_text_input_enabled(const bool enabled) {
+        InputSystem::set_text_input_enabled(enabled);
+    }
+
+    bool text_input_enabled() { return InputSystem::text_input_enabled(); }
+
+    TextInputState text_input() { return InputSystem::text_input(); }
 }

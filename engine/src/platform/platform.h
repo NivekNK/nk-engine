@@ -28,6 +28,8 @@ namespace nk {
         u32 height() const { return m_height; }
         // Framebuffer dimensions remain physical; text/UI consumes logical units.
         f32 content_scale() const noexcept { return m_content_scale; }
+        f32 logical_width() const noexcept { return m_width / m_content_scale; }
+        f32 logical_height() const noexcept { return m_height / m_content_scale; }
 
         void close() { m_running = false; }
         void on_resized(u32 width, u32 height) {
@@ -41,6 +43,7 @@ namespace nk {
 
     protected:
         Platform(const ApplicationConfig& config);
+        void set_content_scale(f32 scale) noexcept { m_content_scale = scale; }
 
         bool m_suspended;
         bool m_running;
