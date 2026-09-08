@@ -55,6 +55,7 @@ set(SOURCES
     src/core/engine.cpp
     src/core/input.cpp
     src/core/clock.cpp
+    src/core/thread.cpp
     src/core/hash.cpp
     src/core/str.cpp
     src/core/transform.cpp
@@ -121,6 +122,7 @@ if (WIN32)
         src/platform/platform_win32.cpp
     )
 elseif (UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb xcb-keysyms)
     pkg_check_modules(WAYLAND REQUIRED IMPORTED_TARGET wayland-client)
@@ -159,12 +161,14 @@ elseif (UNIX AND NOT APPLE)
     )
 
     list(APPEND SOURCES
+        src/core/thread_linux.cpp
         src/platform/platform_linux.cpp
         src/platform/platform_wayland.cpp
         "${XDG_SHELL_PROTOCOL_HEADER}"
         "${XDG_SHELL_PROTOCOL_SOURCE}"
     )
     list(APPEND PLATFORM_LIBRARIES
+        Threads::Threads
         PkgConfig::XCB
         PkgConfig::WAYLAND
         PkgConfig::XKBCOMMON
