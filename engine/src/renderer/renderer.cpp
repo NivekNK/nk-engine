@@ -248,7 +248,11 @@ namespace nk {
             const Mesh& mesh = packet.meshes[mesh_index];
             const glm::mat4 model = mesh.transform().world_matrix();
             for (Geometry* geometry : mesh.geometries())
-                append({.model = model, .geometry = geometry});
+                append({
+                    .model = model,
+                    .geometry = geometry,
+                    .pick_id = mesh.pick_id(),
+                });
         }
 
         auto distance_squared = [this](const GeometryRenderData& data) {

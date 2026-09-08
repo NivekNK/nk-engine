@@ -30,7 +30,8 @@ namespace nk {
         return ok();
     }
     result<void, text_error> TextDrawList::append(const TextLayout& layout,
-        glm::vec2 position, glm::vec4 color, TextClip clip) {
+        glm::vec2 position, glm::vec4 color, TextClip clip,
+        const PickId pick_id) {
         if (!m_fonts || !m_width) return err(text_error::not_initialized);
         if (!m_fonts->valid(layout.font)) return err(text_error::invalid_font);
         if (layout.scale != m_scale || !std::isfinite(position.x) || !std::isfinite(position.y) ||
@@ -83,9 +84,12 @@ namespace nk {
             TextBatch* batch = m_batches.empty() ? nullptr : &m_batches[m_batches.length() - 1];
             if (!batch || batch->page != glyph.page ||
                 batch->scissor.x != scissor.x || batch->scissor.y != scissor.y ||
-                batch->scissor.width != scissor.width || batch->scissor.height != scissor.height) {
+                batch->scissor.width != scissor.width ||
+                batch->scissor.height != scissor.height ||
+                batch->pick_id != pick_id) {
                 if (!m_batches.dyarr_emplace_back(TextBatch{glyph.page,
-                    static_cast<u32>(m_vertices.length()), 0, scissor}))
+                    static_cast<u32>(m_vertices.length()), 0, scissor,
+                    pick_id}))
                     return fail(text_error::out_of_memory);
                 batch = &m_batches[m_batches.length() - 1];
             }

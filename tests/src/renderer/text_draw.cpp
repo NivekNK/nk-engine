@@ -33,6 +33,26 @@ TEST_F(TextDrawTest, BatchesAdjacentTextAndColorChangesInSubmissionOrder) {
     EXPECT_LT(list.vertices()[0].position.y, list.vertices()[18].position.y);
 }
 
+TEST_F(TextDrawTest, PreservesPickIdentityAsABatchBoundary) {
+    const PickId first{0x00010001u};
+    const PickId second{0x00010002u};
+    ASSERT_TRUE(list.append(
+        layout,
+        {10, 10},
+        {1, 1, 1, 1},
+        {0, 0, 800, 600},
+        first));
+    ASSERT_TRUE(list.append(
+        layout,
+        {10, 40},
+        {1, 1, 1, 1},
+        {0, 0, 800, 600},
+        second));
+    ASSERT_EQ(list.batches().length(), 2u);
+    EXPECT_EQ(list.batches()[0].pick_id, first);
+    EXPECT_EQ(list.batches()[1].pick_id, second);
+}
+
 TEST_F(TextDrawTest, ClipsToTheFramebufferAndPreservesBatchBoundaries) {
     ASSERT_TRUE(list.append(layout, {10, 10}, {1, 1, 1, 1}, {-20, -10, 100, 70}));
     ASSERT_TRUE(list.append(layout, {10, 10}, {1, 1, 1, 1}, {10, 5, 900, 800}));

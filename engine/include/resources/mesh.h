@@ -5,6 +5,7 @@
 #include "core/result.h"
 #include "core/transform.h"
 #include "resources/geometry.h"
+#include "renderer/picking.h"
 
 namespace nk {
     class GeometrySystem;
@@ -64,10 +65,13 @@ namespace nk {
         [[nodiscard]] const Transform& transform() const noexcept {
             return m_transform;
         }
+        void set_pick_id(const PickId id) noexcept { m_pick_id = id; }
+        [[nodiscard]] PickId pick_id() const noexcept { return m_pick_id; }
 
     private:
         GeometrySystem* m_geometry_system = nullptr;
         cl::dyarr<Geometry*> m_geometries;
         Transform m_transform;
+        PickId m_pick_id{};
     };
 }

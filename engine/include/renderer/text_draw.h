@@ -1,6 +1,7 @@
 #pragma once
 
 #include "systems/font_system.h"
+#include "renderer/picking.h"
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
@@ -12,6 +13,7 @@ namespace nk {
     struct TextBatch {
         u32 page = 0, first_vertex = 0, vertex_count = 0;
         TextureRegion scissor{}; // Physical pixels, already intersected.
+        PickId pick_id{};
     };
 
     // Owned CPU geometry, borrowed font service. No UI or Vulkan dependency.
@@ -23,7 +25,8 @@ namespace nk {
         void shutdown() noexcept;
         [[nodiscard]] result<void, text_error> begin(u32 width, u32 height, f32 scale = 1);
         [[nodiscard]] result<void, text_error> append(const TextLayout& layout,
-            glm::vec2 position, glm::vec4 color, TextClip clip);
+            glm::vec2 position, glm::vec4 color, TextClip clip,
+            PickId pick_id = {});
         [[nodiscard]] result<void, text_error> append(const TextLayout& layout,
             glm::vec2 position, glm::vec4 color = glm::vec4{1}) {
             return append(layout, position, color, {0, 0, m_width / m_scale, m_height / m_scale});

@@ -16,8 +16,10 @@ namespace nk {
     Mesh::Mesh(Mesh&& other) noexcept
         : m_geometry_system{other.m_geometry_system},
           m_geometries{std::move(other.m_geometries)},
-          m_transform{std::move(other.m_transform)} {
+          m_transform{std::move(other.m_transform)},
+          m_pick_id{other.m_pick_id} {
         other.m_geometry_system = nullptr;
+        other.m_pick_id = {};
     }
 
     Mesh& Mesh::operator=(Mesh&& other) noexcept {
@@ -28,7 +30,9 @@ namespace nk {
         m_geometry_system = other.m_geometry_system;
         m_geometries = std::move(other.m_geometries);
         m_transform = std::move(other.m_transform);
+        m_pick_id = other.m_pick_id;
         other.m_geometry_system = nullptr;
+        other.m_pick_id = {};
         return *this;
     }
 
@@ -112,6 +116,7 @@ namespace nk {
             (void)m_geometries.dyarr_shutdown();
         m_geometry_system = nullptr;
         m_transform = Transform{};
+        m_pick_id = {};
     }
 
     Geometry* Mesh::geometry(const u64 index) const noexcept {

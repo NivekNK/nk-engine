@@ -118,6 +118,9 @@ namespace {
         nk::Geometry* drawn_geometry(nk::u32 index) const {
             return m_drawn_geometries[index];
         }
+        nk::PickId drawn_pick_id(nk::u32 index) const {
+            return m_drawn_pick_ids[index];
+        }
         nk::u32 blend_mode_count() const { return m_blend_mode_count; }
         nk::MaterialBlendMode blend_mode(nk::u32 index) const {
             return m_blend_modes[index];
@@ -511,7 +514,9 @@ namespace {
             else
                 ++m_ui_object_updates;
             ASSERT_LT(m_drawn_geometry_count, std::size(m_drawn_geometries));
-            m_drawn_geometries[m_drawn_geometry_count++] = data.geometry;
+            m_drawn_geometries[m_drawn_geometry_count] = data.geometry;
+            m_drawn_pick_ids[m_drawn_geometry_count] = data.pick_id;
+            ++m_drawn_geometry_count;
         }
 
         nk::result<void, nk::renderer_error> set_material_blend_mode(
@@ -601,6 +606,7 @@ namespace {
         nk::u8 m_shader_trace[64]{};
         nk::u32 m_shader_trace_length = 0;
         nk::Geometry* m_drawn_geometries[16]{};
+        nk::PickId m_drawn_pick_ids[16]{};
         nk::u32 m_drawn_geometry_count = 0;
         nk::MaterialBlendMode m_blend_modes[16]{};
         nk::u32 m_blend_mode_count = 0;
@@ -2906,6 +2912,7 @@ TEST(RendererResult, ExpandsMeshGeometryWithoutRepeatedMaterialUpdates) {
         };
         auto mesh = nk::Mesh::create(allocator, *geometries, configs);
         ASSERT_TRUE(mesh);
+        mesh->set_pick_id({0x00010001u});
         nk::Transform parent{{3.0f, 0.0f, 0.0f}};
         mesh->transform().set_position({0.0f, 4.0f, 0.0f});
         ASSERT_TRUE(mesh->transform().set_parent(&parent));
@@ -2922,6 +2929,8 @@ TEST(RendererResult, ExpandsMeshGeometryWithoutRepeatedMaterialUpdates) {
         EXPECT_EQ(renderer.ui_object_updates(), 0u);
         EXPECT_EQ(renderer.instance_apply_count(), 1u);
         EXPECT_EQ(renderer.instance_update_count(), 1u);
+        EXPECT_EQ(renderer.drawn_pick_id(0), mesh->pick_id());
+        EXPECT_EQ(renderer.drawn_pick_id(1), mesh->pick_id());
         EXPECT_EQ(renderer.frame_number(), 1u);
         EXPECT_EQ(
             renderer.model(),
