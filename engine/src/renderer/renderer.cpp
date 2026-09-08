@@ -14,6 +14,7 @@
 
 namespace nk {
     Renderer::~Renderer() {
+        m_pick_registry.shutdown();
         release_world_draw_scratch();
     }
 
@@ -109,10 +110,25 @@ namespace nk {
             });
         }
 
+        auto picking_initialized = renderer->m_pick_registry.init(
+            *renderer->m_allocator);
+        if (!picking_initialized) {
+            renderer->m_render_views.shutdown();
+            renderer->release_world_draw_scratch();
+            native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
+            renderer->m_allocator = nullptr;
+            allocator->deconstruct_t(VulkanRenderer, renderer);
+            return err(renderer_error{
+                .code = renderer_error_code::out_of_memory,
+                .native_code = static_cast<i32>(picking_initialized.error()),
+            });
+        }
+
         auto initialized = renderer->init();
         if (!initialized) {
             const renderer_error error = initialized.error();
             renderer->shutdown();
+            renderer->m_pick_registry.shutdown();
             renderer->m_render_views.shutdown();
             renderer->release_world_draw_scratch();
             native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
@@ -128,6 +144,7 @@ namespace nk {
         if (allocator == nullptr || renderer == nullptr)
             return;
         renderer->shutdown();
+        renderer->m_pick_registry.shutdown();
         renderer->m_render_views.shutdown();
         renderer->release_world_draw_scratch();
         native_deconstruct(mem::MallocAllocator, renderer->m_allocator);
@@ -180,7 +197,63 @@ namespace nk {
                 return err(drawn.error());
         }
 
+
+        PickRequest pick_request{};
+        if (picking_enabled() && m_pick_queue.consume(pick_request)) {
+            const RenderViewPacket* world = nullptr;
+            const RenderViewPacket* ui = nullptr;
+            for (u32 index = 0; index < *built; ++index) {
+                if (view_packets[index].type == RenderViewType::world)
+                    world = &view_packets[index];
+                else if (view_packets[index].type == RenderViewType::ui)
+                    ui = &view_packets[index];
+            }
+            if (world != nullptr && ui != nullptr) {
+                auto picked = draw_pick_frame(
+                    *world, *ui, packet.text, pick_request);
+                if (!picked)
+                    return err(picked.error());
+            }
+        }
+
         return end_frame_impl(packet.delta_time);
+    }
+
+    result<u64, pick_error> Renderer::request_pick(
+        const f32 logical_x,
+        const f32 logical_y,
+        const f32 content_scale,
+        const u64 scene_revision,
+        const PickRequestKind kind) noexcept {
+        auto position = physical_pick_position(
+            logical_x,
+            logical_y,
+            content_scale,
+            m_render_views.width(),
+            m_render_views.height());
+        if (!position)
+            return err(position.error());
+        m_pick_queue.discard_scene(scene_revision);
+        return m_pick_queue.submit(*position, scene_revision, kind);
+    }
+
+    void Renderer::publish_pick_sample(
+        const PickRequest& request,
+        const PickId id,
+        const u64 retired_frame) noexcept {
+        PickObject object{};
+        if (id.valid()) {
+            auto resolved = m_pick_registry.resolve(id);
+            if (!resolved)
+                return;
+            object = *resolved;
+        }
+        m_pick_queue.publish({
+            .request = request,
+            .id = id,
+            .object = object,
+            .retired_frame = retired_frame,
+        });
     }
 
     result<void, renderer_error> Renderer::prepare_world_draws(

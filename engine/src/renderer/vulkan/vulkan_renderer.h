@@ -114,6 +114,14 @@ namespace nk {
     private:
         [[nodiscard]] result<void, renderer_error> prepare_text_frame(const TextFrame&) override;
         [[nodiscard]] result<void, renderer_error> draw_text_frame(const TextFrame&) override;
+        [[nodiscard]] result<void, renderer_error> draw_pick_frame(
+            const RenderViewPacket& world,
+            const RenderViewPacket& ui,
+            const TextFrame* text,
+            const PickRequest& request) override;
+        [[nodiscard]] bool picking_enabled() const noexcept override {
+            return m_picking_enabled;
+        }
         struct TextGpuFrame { Buffer vertices, staging; };
         cl::arr<TextGpuFrame> m_text_frames;
         [[nodiscard]] result<void, renderer_error> set_material_blend_mode(
@@ -131,6 +139,24 @@ namespace nk {
         [[nodiscard]] result<void, renderer_error> recreate_sync_objects();
         [[nodiscard]] result<void, renderer_error> recreate_swapchain();
         [[nodiscard]] result<void, renderer_error> create_buffers();
+        [[nodiscard]] result<void, renderer_error> init_picking();
+        [[nodiscard]] result<void, renderer_error> init_pick_shader(
+            VulkanShader& shader,
+            strview resource_name);
+        [[nodiscard]] result<void, renderer_error> recreate_pick_target();
+        void shutdown_picking() noexcept;
+        [[nodiscard]] result<void, renderer_error> retire_pick_readback();
+        [[nodiscard]] result<void, renderer_error> bind_pick_globals(
+            VulkanShader& shader,
+            const glm::mat4& projection,
+            const glm::mat4& view);
+        [[nodiscard]] result<void, renderer_error> draw_pick_geometry(
+            VulkanShader& shader,
+            u32* material_instances,
+            RenderPassKind pass,
+            const GeometryRenderData& data);
+        [[nodiscard]] result<void, renderer_error> draw_pick_text(
+            const TextFrame& text);
         [[nodiscard]] result<void, renderer_error> create_geometry_internal(
             Geometry& geometry,
             u64 vertex_stride,
@@ -171,6 +197,8 @@ namespace nk {
 
         static constexpr u32 max_geometry_count = 4096;
         static constexpr u16 max_shader_count = 16;
+        static constexpr u32 max_pick_material_count = 1024;
+        static constexpr u32 max_pick_text_page_count = 64;
         static constexpr u64 geometry_range_capacity =
             static_cast<u64>(max_geometry_count) + 2;
 
@@ -185,11 +213,35 @@ namespace nk {
         Swapchain m_swapchain;
         RenderPass m_world_render_pass;
         RenderPass m_ui_render_pass;
+        RenderPass m_pick_render_pass;
         WindowRenderPasses m_window_render_passes;
         cl::dyarr<RenderTarget> m_world_targets;
         cl::dyarr<RenderTarget> m_ui_targets;
         cl::dyarr<Framebuffer> m_world_framebuffers;
         cl::dyarr<Framebuffer> m_ui_framebuffers;
+        Texture m_pick_color;
+        Texture m_pick_depth;
+        RenderAttachmentConfig m_pick_attachments[2]{};
+        RenderPassConfig m_pick_pass_config{};
+        RenderTarget m_pick_target;
+        Framebuffer m_pick_framebuffer;
+        VulkanShader m_pick_world_shader;
+        VulkanShader m_pick_ui_shader;
+        VulkanShader m_pick_text_shader;
+        u32 m_pick_world_material_instances[max_pick_material_count]{};
+        u32 m_pick_ui_material_instances[max_pick_material_count]{};
+        u32 m_pick_text_instances[max_pick_text_page_count]{};
+        struct PickReadback {
+            Buffer buffer;
+            PickRequest request{};
+            u64 submitted_frame = 0;
+            bool pending = false;
+        };
+        cl::arr<PickReadback> m_pick_readbacks;
+        i32 m_recorded_pick_slot = -1;
+        bool m_pick_color_in_transfer = false;
+        bool m_pick_render_pass_initialized = false;
+        bool m_picking_enabled = false;
         cl::dyarr<CommandBuffer> m_graphics_command_buffers;
         VkQueryPool m_timestamp_pool = VK_NULL_HANDLE;
         cl::arr<bool> m_timestamp_pending;

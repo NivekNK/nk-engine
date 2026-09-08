@@ -656,7 +656,11 @@ namespace nk {
         if (!pipeline_initialized)
             return fail(pipeline_initialized.error());
         pipeline_create_info.depth_write_enabled = false;
-        pipeline_create_info.blend_enabled = true;
+        // Integer attachments do not support fixed-function color blending.
+        // The transparent variant remains available for a common shader API,
+        // but behaves as an unblended identity write in picking passes.
+        pipeline_create_info.blend_enabled =
+            render_pass->signature().color_format != TextureFormat::r32_uint;
         pipeline_initialized = m_transparent_pipeline.init(
             pipeline_create_info);
         if (!pipeline_initialized)

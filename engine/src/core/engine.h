@@ -64,6 +64,10 @@ namespace nk {
         void cycle_debug_texture();
         bool set_debug_sampler(u8 preset);
         void cycle_debug_sampler();
+        [[nodiscard]] bool assign_pick_id(
+            Mesh& mesh,
+            PickObjectKind kind = PickObjectKind::geometry);
+        void release_pick_ids() noexcept;
 
         mem::Allocator* m_allocator = nullptr;
         App* m_app = nullptr;
@@ -79,6 +83,7 @@ namespace nk {
         TextOverlay* m_text_overlay = nullptr;
         cl::dyarr<Mesh> m_test_meshes;
         Geometry* m_test_ui_geometry = nullptr;
+        PickId m_test_ui_pick_id{};
         Geometry* m_skybox_geometry = nullptr;
         Material* m_test_material = nullptr;
         u8 m_debug_texture_index = 0;
@@ -86,6 +91,10 @@ namespace nk {
         bool m_sampler_demo = false;
         bool m_accept_mesh_publication = false;
         u32 m_pending_mesh_loads = 0;
+        u64 m_next_pick_owner = 1;
+        u64 m_scene_revision = 1;
+        PickId m_last_hover_pick{};
+        bool m_pick_pointer_initialized = false;
         bool m_initialized = false;
 
         Clock m_clock;

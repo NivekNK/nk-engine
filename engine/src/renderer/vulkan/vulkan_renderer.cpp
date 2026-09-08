@@ -398,6 +398,9 @@ namespace nk {
             if (slot.shader != nullptr)
                 slot.shader->set_default_texture(texture);
         }
+        m_pick_world_shader.set_default_texture(texture);
+        m_pick_ui_shader.set_default_texture(texture);
+        m_pick_text_shader.set_default_texture(texture);
     }
 
     result<void, renderer_error> VulkanRenderer::init() {
@@ -543,6 +546,10 @@ namespace nk {
         for (VulkanGeometryData& geometry : m_geometries)
             geometry.id = numeric::invalid_id;
 
+        auto picking_initialized = init_picking();
+        if (!picking_initialized)
+            return err(picking_initialized.error());
+
         return ok();
     }
 
@@ -555,6 +562,8 @@ namespace nk {
             m_timestamp_pool = VK_NULL_HANDLE;
         }
         m_timestamp_pending.arr_shutdown();
+
+        shutdown_picking();
 
         m_geometry_upload_buffer.shutdown();
         if (m_text_frames.allocator()) (void)m_text_frames.arr_shutdown();
@@ -667,6 +676,9 @@ namespace nk {
         auto waited = m_in_flight_fences[m_current_frame].wait(numeric::u64_max);
         if (!waited)
             return err(waited.error());
+        auto pick_retired = retire_pick_readback();
+        if (!pick_retired)
+            return err(pick_retired.error());
 
         // Acquire the next image from the swap chain.
         // Pass along the semaphore that should signaled when this completes.
@@ -770,6 +782,13 @@ namespace nk {
             m_queue_complete_semaphores[m_image_index], m_in_flight_fences[m_current_frame]);
         if (!submitted)
             return err(submitted.error());
+
+        if (m_recorded_pick_slot >= 0) {
+            PickReadback& readback =
+                m_pick_readbacks[static_cast<u32>(m_recorded_pick_slot)];
+            readback.pending = true;
+            m_recorded_pick_slot = -1;
+        }
 
         command_buffer.set_state(CommandBufferState::Submitted);
         // > End queue submission
@@ -2124,6 +2143,25 @@ namespace nk {
                 renderer_error_code::render_target_config_invalid,
                 static_cast<i32>(pass_configs_resized.error()),
             });
+        }
+
+        if (m_picking_enabled) {
+            m_pick_pass_config.area.width = m_framebuffer_width;
+            m_pick_pass_config.area.height = m_framebuffer_height;
+            VkRect2D& pick_area = m_pick_render_pass.get_render_area();
+            pick_area.offset = {0, 0};
+            pick_area.extent = {
+                m_framebuffer_width,
+                m_framebuffer_height,
+            };
+            auto pick_target_created = recreate_pick_target();
+            if (!pick_target_created)
+                return err(pick_target_created.error());
+            for (PickReadback& readback : m_pick_readbacks) {
+                readback.request = {};
+                readback.submitted_frame = 0;
+                readback.pending = false;
+            }
         }
 
         auto targets_created = recreate_render_targets();

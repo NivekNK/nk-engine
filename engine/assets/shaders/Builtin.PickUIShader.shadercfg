@@ -1,0 +1,24 @@
+# Integer identity pass for selectable UI geometry.
+version=1
+name=Builtin.PickUIShader
+render_pass=ui
+max_instances=1024
+wireframe=false
+depth_test=false
+depth_write=false
+cull_mode=none
+
+stage=vertex,vertex,main
+stage=fragment,fragment,main
+
+attribute=f32_2,position
+attribute=f32_2,texcoord
+
+uniform=mat4,global,projection
+uniform=mat4,global,view
+uniform=f32_4,instance,diffuse_color
+uniform=sampler_2d,instance,diffuse_texture
+uniform=u32,instance,blend_mode
+uniform=f32,instance,alpha_cutoff
+uniform=mat4,local,model
+uniform=u32,local,pick_id

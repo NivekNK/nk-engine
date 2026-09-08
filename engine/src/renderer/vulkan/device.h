@@ -101,6 +101,9 @@ namespace nk {
         bool sampler_anisotropy() const noexcept { return m_anisotropy_enabled; }
         u32 max_sampler_count() const noexcept { return m_properties.limits.maxSamplerAllocationCount; }
         bool supports_linear_blit(VkFormat format) const noexcept;
+        bool supports_optimal_format(
+            VkFormat format,
+            VkFormatFeatureFlags features) const noexcept;
         f32 timestamp_period() const noexcept { return m_properties.limits.timestampPeriod; }
         u32 timestamp_valid_bits() const noexcept { return m_timestamp_valid_bits; }
         bool dynamic_rendering() const noexcept { return m_commands.begin_rendering != nullptr; }

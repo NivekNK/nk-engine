@@ -39,10 +39,89 @@ namespace nk {
         not_initialized,
         invalid_capacity,
         invalid_object,
+        invalid_position,
         capacity_exceeded,
+        queue_full,
         invalid_id,
         stale_id,
         out_of_memory,
+    };
+
+    enum class PickRequestKind : u8 {
+        hover,
+        click,
+    };
+
+    struct PickPosition {
+        u32 x = 0;
+        u32 y = 0;
+
+        bool operator==(const PickPosition&) const noexcept = default;
+    };
+
+    struct PickRequest {
+        u64 sequence = 0;
+        u64 scene_revision = 0;
+        PickPosition position{};
+        PickRequestKind kind = PickRequestKind::hover;
+
+        [[nodiscard]] bool valid() const noexcept { return sequence != 0; }
+        bool operator==(const PickRequest&) const noexcept = default;
+    };
+
+    struct PickResult {
+        PickRequest request{};
+        PickId id{};
+        PickObject object{};
+        u64 retired_frame = 0;
+
+        [[nodiscard]] bool hit() const noexcept {
+            return id.valid() && object.valid();
+        }
+    };
+
+    // Input coordinates are logical and top-left based on both native
+    // backends. Vulkan uses a negative-height viewport, so image texel Y has
+    // the same orientation and does not need an additional flip.
+    [[nodiscard]] result<PickPosition, pick_error> physical_pick_position(
+        f32 logical_x,
+        f32 logical_y,
+        f32 content_scale,
+        u32 framebuffer_width,
+        u32 framebuffer_height) noexcept;
+
+    // Allocation-free request coordinator. Hover work is coalesced while
+    // clicks retain FIFO order so an input edge cannot be replaced by motion.
+    class PickQueue final {
+    public:
+        static constexpr u32 click_capacity = 8;
+
+        [[nodiscard]] result<u64, pick_error> submit(
+            PickPosition position,
+            u64 scene_revision,
+            PickRequestKind kind) noexcept;
+        [[nodiscard]] bool consume(PickRequest& out_request) noexcept;
+        void publish(PickResult result) noexcept;
+        [[nodiscard]] bool poll(PickResult& out_result) noexcept;
+        void discard_scene(u64 current_scene_revision) noexcept;
+
+        [[nodiscard]] u32 pending_click_count() const noexcept {
+            return m_click_count;
+        }
+        [[nodiscard]] bool hover_pending() const noexcept {
+            return m_hover_pending;
+        }
+
+    private:
+        PickRequest m_clicks[click_capacity]{};
+        PickRequest m_hover{};
+        PickResult m_result{};
+        u64 m_next_sequence = 1;
+        u64 m_current_scene_revision = 0;
+        u32 m_click_head = 0;
+        u32 m_click_count = 0;
+        bool m_hover_pending = false;
+        bool m_result_pending = false;
     };
 
     class PickRegistry final {

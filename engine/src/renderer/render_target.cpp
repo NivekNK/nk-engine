@@ -86,7 +86,7 @@ namespace nk {
                 (!color && !is_depth_format(attachment.format))) {
                 return err(render_target_error::incompatible_format);
             }
-            if ((attachment.source == RenderAttachmentSource::window_color) != color ||
+            if ((attachment.source == RenderAttachmentSource::window_color && !color) ||
                 (attachment.source == RenderAttachmentSource::window_depth && color)) {
                 return err(render_target_error::incompatible_source);
             }

@@ -8,6 +8,7 @@
 #include "renderer/sampler.h"
 #include "renderer/geometry_render_data.h"
 #include "renderer/lighting.h"
+#include "renderer/picking.h"
 #include "renderer/renderer_result.h"
 #include "renderer/render_view.h"
 #include "renderer/shader.h"
@@ -55,6 +56,27 @@ namespace nk {
         [[nodiscard]] virtual result<frame_outcome, renderer_error> draw_frame(
             MaterialSystem& materials,
             const RenderPacket& packet);
+
+        [[nodiscard]] result<PickId, pick_error> register_pick_object(
+            PickObject object) noexcept {
+            return m_pick_registry.acquire(object);
+        }
+        [[nodiscard]] result<void, pick_error> release_pick_object(
+            PickId id) noexcept {
+            return m_pick_registry.release(id);
+        }
+        [[nodiscard]] result<u64, pick_error> request_pick(
+            f32 logical_x,
+            f32 logical_y,
+            f32 content_scale,
+            u64 scene_revision,
+            PickRequestKind kind = PickRequestKind::hover) noexcept;
+        [[nodiscard]] bool poll_pick_result(PickResult& result) noexcept {
+            return m_pick_queue.poll(result);
+        }
+        void discard_pick_scene(const u64 scene_revision) noexcept {
+            m_pick_queue.discard_scene(scene_revision);
+        }
 
         void resize(u32 width, u32 height);
         // Most recently retired GPU sample; negative when profiling is disabled
@@ -199,6 +221,20 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> draw_text_frame(const TextFrame&) {
             return err(renderer_error{renderer_error_code::initialization_failed, 0});
         }
+        [[nodiscard]] virtual result<void, renderer_error> draw_pick_frame(
+            const RenderViewPacket&,
+            const RenderViewPacket&,
+            const TextFrame*,
+            const PickRequest&) {
+            return ok();
+        }
+        [[nodiscard]] virtual bool picking_enabled() const noexcept {
+            return false;
+        }
+        void publish_pick_sample(
+            const PickRequest& request,
+            PickId id,
+            u64 retired_frame) noexcept;
         [[nodiscard]] virtual result<void, renderer_error>
         set_shader_uniform_raw(
             ShaderHandle shader,
@@ -237,6 +273,8 @@ namespace nk {
         glm::vec3 m_view_position{};
         RenderViewSystem m_render_views;
         cl::dyarr<GeometryRenderData> m_world_draw_scratch;
+        PickRegistry m_pick_registry;
+        PickQueue m_pick_queue;
 
         Texture* m_default_texture = nullptr;
         RenderViewMode m_render_view_mode = RenderViewMode::default_lit;

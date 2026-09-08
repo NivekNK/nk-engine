@@ -109,6 +109,16 @@ TEST(RenderPassConfig, ExposesStablePipelineSignature) {
     EXPECT_TRUE(signature->valid());
 }
 
+TEST(RenderPassConfig, AcceptsOffscreenColorAttachments) {
+    nk::RenderAttachmentConfig offscreen = color_attachment;
+    offscreen.source = nk::RenderAttachmentSource::texture;
+    offscreen.format = nk::TextureFormat::r32_uint;
+    offscreen.final_use = nk::RenderAttachmentUse::transfer_source;
+    auto validated = nk::validate_render_pass_config(
+        pass_with({&offscreen, 1}));
+    EXPECT_TRUE(validated);
+}
+
 TEST(RenderPassConfig, OwnsBuiltinWindowPassDescriptionsOutsideBackend) {
     nk::WindowRenderPasses passes;
     ASSERT_TRUE(passes.init(

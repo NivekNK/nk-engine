@@ -58,6 +58,12 @@ namespace {
             return nk::ok();
         }
 
+        nk::result<void, nk::renderer_error> invalidate_backend(
+            nk::u64,
+            nk::u64) noexcept override {
+            return nk::ok();
+        }
+
         nk::result<void, nk::renderer_error> upload_backend(
             const nk::u64 offset,
             const nk::u64 size,

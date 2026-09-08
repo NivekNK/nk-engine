@@ -47,6 +47,12 @@ namespace nk {
         return m_owner->flush(*this);
     }
 
+    result<void, renderer_error> MappedBufferRange::invalidate() noexcept {
+        if (m_owner == nullptr)
+            return err(RenderBuffer::range_error());
+        return m_owner->invalidate(*this);
+    }
+
     void MappedBufferRange::reset() noexcept {
         if (m_owner != nullptr)
             (void)m_owner->unmap(*this);
@@ -266,6 +272,16 @@ namespace nk {
             });
         }
         return flush_backend(mapping.m_view.offset, mapping.m_view.size);
+    }
+
+    result<void, renderer_error> RenderBuffer::invalidate(
+        const MappedBufferRange& mapping) noexcept {
+        if (!m_initialized || mapping.m_owner != this ||
+            !valid(mapping.m_view)) {
+            return err(range_error());
+        }
+        return invalidate_backend(
+            mapping.m_view.offset, mapping.m_view.size);
     }
 
     renderer_error RenderBuffer::range_error() noexcept {

@@ -52,6 +52,9 @@ namespace nk {
         [[nodiscard]] result<void, renderer_error> flush_backend(
             u64 offset,
             u64 size) noexcept override;
+        [[nodiscard]] result<void, renderer_error> invalidate_backend(
+            u64 offset,
+            u64 size) noexcept override;
         [[nodiscard]] result<void, renderer_error> upload_backend(
             u64 offset,
             u64 size,

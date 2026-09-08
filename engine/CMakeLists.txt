@@ -88,6 +88,7 @@ set(SOURCES
     src/renderer/text_draw.cpp
     src/renderer/text_renderer.cpp
     src/renderer/vulkan/text.cpp
+    src/renderer/vulkan/picking.cpp
     src/core/transform.cpp
     src/memory/allocator.cpp
     src/memory/malloc_allocator.cpp

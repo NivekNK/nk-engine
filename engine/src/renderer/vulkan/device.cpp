@@ -539,6 +539,15 @@ namespace nk {
         return vk::supports_linear_mip_blit(properties.optimalTilingFeatures);
     }
 
+    bool Device::supports_optimal_format(
+        const VkFormat format,
+        const VkFormatFeatureFlags features) const noexcept {
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(
+            m_physical_device, format, &properties);
+        return (properties.optimalTilingFeatures & features) == features;
+    }
+
     result<void, renderer_error> Device::submit(
         const VkCommandBuffer command_buffer, const VkSemaphore acquired,
         const VkSemaphore rendered, const VkFence completion) {

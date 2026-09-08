@@ -323,6 +323,44 @@ namespace nk {
         return ok();
     }
 
+    result<void, renderer_error> Buffer::invalidate_backend(
+        const u64 offset,
+        const u64 size) noexcept {
+        if ((m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0)
+            return err(buffer_error(renderer_error_code::buffer_map_failed));
+        if ((m_memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0)
+            return ok();
+
+        const u64 atom = m_device->non_coherent_atom_size();
+        const u64 aligned_offset = offset & ~(atom - 1);
+        if (size > numeric::u64_max - offset)
+            return err(buffer_error(renderer_error_code::buffer_range_invalid));
+        const u64 end = offset + size;
+        const u64 remainder = end & (atom - 1);
+        u64 aligned_end = end;
+        if (remainder != 0) {
+            const u64 padding = atom - remainder;
+            aligned_end = padding > numeric::u64_max - end
+                ? m_memory_size
+                : end + padding;
+        }
+        if (aligned_end > m_memory_size)
+            aligned_end = m_memory_size;
+
+        const VkMappedMemoryRange range{
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = m_memory,
+            .offset = aligned_offset,
+            .size = aligned_end - aligned_offset,
+        };
+        const VkResult invalidated = vkInvalidateMappedMemoryRanges(
+            m_device->get(), 1, &range);
+        if (invalidated != VK_SUCCESS)
+            return err(buffer_error(
+                renderer_error_code::buffer_memory_failed, invalidated));
+        return ok();
+    }
+
     result<void, renderer_error> Buffer::upload_backend(
         const u64 offset,
         const u64 size,

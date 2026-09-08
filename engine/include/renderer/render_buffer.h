@@ -72,6 +72,7 @@ namespace nk {
             return m_view;
         }
         [[nodiscard]] result<void, renderer_error> flush() noexcept;
+        [[nodiscard]] result<void, renderer_error> invalidate() noexcept;
         void reset() noexcept;
 
     private:
@@ -164,6 +165,9 @@ namespace nk {
         [[nodiscard]] virtual result<void, renderer_error> flush_backend(
             u64 offset,
             u64 size) noexcept = 0;
+        [[nodiscard]] virtual result<void, renderer_error> invalidate_backend(
+            u64 offset,
+            u64 size) noexcept = 0;
         [[nodiscard]] virtual result<void, renderer_error> upload_backend(
             u64 offset,
             u64 size,
@@ -180,6 +184,8 @@ namespace nk {
         [[nodiscard]] result<void, renderer_error> unmap(
             MappedBufferRange& mapping) noexcept;
         [[nodiscard]] result<void, renderer_error> flush(
+            const MappedBufferRange& mapping) noexcept;
+        [[nodiscard]] result<void, renderer_error> invalidate(
             const MappedBufferRange& mapping) noexcept;
         [[nodiscard]] static renderer_error range_error() noexcept;
 

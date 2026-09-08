@@ -415,6 +415,10 @@ namespace nk {
             shutdown_impl();
             return false;
         }
+        if (!assign_pick_id(m_test_meshes.dyarr_last())) {
+            shutdown_impl();
+            return false;
+        }
 
         auto second_cube = GeometrySystem::generate_cube(
             *m_allocator,
@@ -453,6 +457,10 @@ namespace nk {
             shutdown_impl();
             return false;
         }
+        if (!assign_pick_id(m_test_meshes.dyarr_last())) {
+            shutdown_impl();
+            return false;
+        }
 
         auto third_cube = GeometrySystem::generate_cube(
             *m_allocator,
@@ -488,6 +496,10 @@ namespace nk {
         if (!third_added) {
             ErrorLog("Unable to store the third test mesh.");
             third_mesh->reset();
+            shutdown_impl();
+            return false;
+        }
+        if (!assign_pick_id(m_test_meshes.dyarr_last())) {
             shutdown_impl();
             return false;
         }
@@ -574,6 +586,17 @@ namespace nk {
             return false;
         }
         m_test_ui_geometry = *test_ui_geometry;
+        auto ui_pick = m_renderer->register_pick_object({
+            .kind = PickObjectKind::ui,
+            .owner = m_next_pick_owner++,
+        });
+        if (!ui_pick) {
+            ErrorLog("Unable to register the test UI pick identity: {}.",
+                static_cast<u32>(ui_pick.error()));
+            shutdown_impl();
+            return false;
+        }
+        m_test_ui_pick_id = *ui_pick;
         if (m_sampler_demo && !set_debug_sampler(0)) {
             shutdown_impl();
             return false;
@@ -620,6 +643,7 @@ namespace nk {
                 on_render_view_mode);
         }
 
+        release_pick_ids();
         if (m_test_meshes.allocator() != nullptr)
             (void)m_test_meshes.dyarr_shutdown();
         m_test_material = nullptr;
@@ -756,6 +780,15 @@ namespace nk {
                 auto added = engine->m_test_meshes.dyarr_emplace_back(
                     std::move(*mesh));
                 if (added) {
+                    if (!engine->assign_pick_id(
+                            engine->m_test_meshes.dyarr_last())) {
+                        ErrorLog(
+                            "Static mesh '{}' has no pick identity.",
+                            load.name.view());
+                    }
+                    ++engine->m_scene_revision;
+                    engine->m_renderer->discard_pick_scene(
+                        engine->m_scene_revision);
                     InfoLog(
                         "Static mesh '{}' published with {} material group(s).",
                         load.name.view(),
@@ -794,6 +827,41 @@ namespace nk {
                     static_cast<u32>(unloaded.error().code));
             }
         }
+    }
+
+    bool Engine::assign_pick_id(
+        Mesh& mesh,
+        const PickObjectKind kind) {
+        if (m_renderer == nullptr)
+            return false;
+        auto registered = m_renderer->register_pick_object({
+            .kind = kind,
+            .owner = m_next_pick_owner++,
+        });
+        if (!registered) {
+            ErrorLog(
+                "Unable to register mesh pick identity: {}.",
+                static_cast<u32>(registered.error()));
+            return false;
+        }
+        mesh.set_pick_id(*registered);
+        return true;
+    }
+
+    void Engine::release_pick_ids() noexcept {
+        if (m_renderer != nullptr) {
+            for (u64 index = 0; index < m_test_meshes.length(); ++index) {
+                const PickId id = m_test_meshes[index].pick_id();
+                if (id.valid())
+                    (void)m_renderer->release_pick_object(id);
+                m_test_meshes[index].set_pick_id({});
+            }
+            if (m_test_ui_pick_id.valid())
+                (void)m_renderer->release_pick_object(m_test_ui_pick_id);
+        }
+        m_test_ui_pick_id = {};
+        m_last_hover_pick = {};
+        m_pick_pointer_initialized = false;
     }
 
     void Engine::cycle_debug_texture() {
@@ -1073,6 +1141,7 @@ namespace nk {
                 GeometryRenderData ui_geometry{
                     .model = glm::mat4{1.0f},
                     .geometry = m_test_ui_geometry,
+                    .pick_id = m_test_ui_pick_id,
                 };
                 if (m_sampler_demo) {
                     const f32 scale = glm::min(1.0f, glm::min(
@@ -1089,6 +1158,38 @@ namespace nk {
                         m_platform->close(); break;
                     }
                     text_frame = *prepared;
+                }
+
+                i16 mouse_x = 0;
+                i16 mouse_y = 0;
+                i16 previous_mouse_x = 0;
+                i16 previous_mouse_y = 0;
+                Input::get_mouse_position(mouse_x, mouse_y);
+                Input::get_previous_mouse_position(
+                    previous_mouse_x,
+                    previous_mouse_y);
+                const bool mouse_moved = !m_pick_pointer_initialized ||
+                    mouse_x != previous_mouse_x ||
+                    mouse_y != previous_mouse_y;
+                const bool mouse_clicked =
+                    Input::is_mouse_button_down(MouseButton::Left) &&
+                    Input::was_mouse_button_up(MouseButton::Left);
+                if (mouse_moved || mouse_clicked) {
+                    auto requested = m_renderer->request_pick(
+                        static_cast<f32>(mouse_x),
+                        static_cast<f32>(mouse_y),
+                        m_platform->content_scale(),
+                        m_scene_revision,
+                        mouse_clicked
+                            ? PickRequestKind::click
+                            : PickRequestKind::hover);
+                    if (!requested &&
+                        requested.error() != pick_error::queue_full) {
+                        WarnLog(
+                            "Pick request rejected: {}.",
+                            static_cast<u32>(requested.error()));
+                    }
+                    m_pick_pointer_initialized = true;
                 }
                 auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
@@ -1115,6 +1216,24 @@ namespace nk {
                 }
                 if (m_text_overlay && *frame == frame_outcome::rendered)
                     m_text_overlay->acknowledge_frame();
+
+                PickResult pick_result{};
+                if (m_renderer->poll_pick_result(pick_result)) {
+                    if (pick_result.request.kind == PickRequestKind::click) {
+                        InfoLog(
+                            "Pick click {}: kind={}, owner={}, retired frame={}.",
+                            pick_result.request.sequence,
+                            static_cast<u32>(pick_result.object.kind),
+                            pick_result.object.owner,
+                            pick_result.retired_frame);
+                    } else if (pick_result.id != m_last_hover_pick) {
+                        m_last_hover_pick = pick_result.id;
+                        DebugLog(
+                            "Pick hover changed: kind={}, owner={}.",
+                            static_cast<u32>(pick_result.object.kind),
+                            pick_result.object.owner);
+                    }
+                }
 
                 // Figure out how long the frame took
                 f64 frame_end_time = m_platform->get_absolute_time();
