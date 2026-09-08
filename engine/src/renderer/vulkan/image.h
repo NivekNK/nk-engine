@@ -83,6 +83,8 @@ namespace nk {
 
         VkImage m_image = nullptr;
         VkDeviceMemory m_memory = nullptr;
+        u64 m_memory_size = 0;
+        u32 m_memory_index = 0;
         VkImageView m_view = nullptr;
         VkExtent2D m_extent{};
         VkFormat m_format = VK_FORMAT_UNDEFINED;

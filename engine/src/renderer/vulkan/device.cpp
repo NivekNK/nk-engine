@@ -66,11 +66,29 @@ namespace nk {
         m_present_queue = nullptr;
         m_transfer_queue = nullptr;
 
+        const vk::DeviceMemoryStatistics memory =
+            m_device_memory.statistics();
+        if (memory.active_allocations != 0) {
+            ErrorLog(
+                "Vulkan device shutdown with {} live allocations ({} bytes).",
+                memory.active_allocations,
+                memory.allocated_bytes);
+        }
+        if (memory.peak_allocated_bytes != 0) {
+            DebugLog(
+                "Vulkan device-memory peak: {} bytes (local={}, host-visible={}).",
+                memory.peak_allocated_bytes,
+                memory.peak_device_local_bytes,
+                memory.peak_host_visible_bytes);
+        }
+
         if (m_logical_device != nullptr) {
             vkDestroyDevice(m_logical_device, m_vulkan_allocator);
             m_logical_device = nullptr;
             InfoLog("Vulkan Logical Device destroyed.");
         }
+        if (memory.active_allocations == 0)
+            (void)m_device_memory.reset();
 
         m_physical_device = nullptr;
         m_commands = {};
@@ -115,6 +133,49 @@ namespace nk {
 
         *out_memory_index = numeric::u32_max;
         return false;
+    }
+
+    VkResult Device::allocate_memory(
+        const VkMemoryAllocateInfo& info,
+        VkDeviceMemory* out_memory) noexcept {
+        if (m_logical_device == VK_NULL_HANDLE || out_memory == nullptr ||
+            info.allocationSize == 0 ||
+            info.memoryTypeIndex >= m_memory.memoryTypeCount) {
+            return VK_ERROR_INITIALIZATION_FAILED;
+        }
+        *out_memory = VK_NULL_HANDLE;
+        const VkResult allocated = vkAllocateMemory(
+            m_logical_device, &info, m_vulkan_allocator, out_memory);
+        if (allocated != VK_SUCCESS)
+            return allocated;
+
+        const VkMemoryPropertyFlags properties =
+            m_memory.memoryTypes[info.memoryTypeIndex].propertyFlags;
+        if (!m_device_memory.record_allocation(
+                static_cast<u64>(info.allocationSize), properties)) {
+            vkFreeMemory(m_logical_device, *out_memory, m_vulkan_allocator);
+            *out_memory = VK_NULL_HANDLE;
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        }
+        return VK_SUCCESS;
+    }
+
+    void Device::free_memory(
+        const VkDeviceMemory memory,
+        const u64 allocation_size,
+        const u32 memory_type_index) noexcept {
+        if (memory == VK_NULL_HANDLE || m_logical_device == VK_NULL_HANDLE)
+            return;
+        vkFreeMemory(m_logical_device, memory, m_vulkan_allocator);
+        if (memory_type_index >= m_memory.memoryTypeCount ||
+            !m_device_memory.record_release(
+                allocation_size,
+                memory_type_index < m_memory.memoryTypeCount
+                    ? m_memory.memoryTypes[memory_type_index].propertyFlags
+                    : 0)) {
+            ErrorLog("Vulkan device-memory accounting mismatch (size={}, type={}).",
+                allocation_size, memory_type_index);
+        }
     }
 
     bool Device::select_physical_device() {

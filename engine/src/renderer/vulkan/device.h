@@ -4,6 +4,7 @@
 #include "collections/dyarr.h"
 #include "core/result.h"
 #include "renderer/renderer_result.h"
+#include "vulkan/device_memory_tracker.h"
 
 namespace nk {
     class Platform;
@@ -59,6 +60,16 @@ namespace nk {
             const u32 type_filter,
             VkMemoryPropertyFlags property_flags,
             u32* out_memory_index) const;
+        [[nodiscard]] VkResult allocate_memory(
+            const VkMemoryAllocateInfo& info,
+            VkDeviceMemory* out_memory) noexcept;
+        void free_memory(
+            VkDeviceMemory memory,
+            u64 allocation_size,
+            u32 memory_type_index) noexcept;
+        [[nodiscard]] vk::DeviceMemoryStatistics memory_statistics() const noexcept {
+            return m_device_memory.statistics();
+        }
 
         VkSurfaceKHR get_surface() { return m_surface; }
         const PhysicalDeviceQueueFamilyInfo& get_queue_family_info() const { return m_queue_family_info; }
@@ -116,6 +127,7 @@ namespace nk {
         VkPhysicalDeviceFeatures m_features{};
         bool m_anisotropy_enabled = false;
         VkPhysicalDeviceMemoryProperties m_memory{};
+        vk::DeviceMemoryTracker m_device_memory;
         u32 m_timestamp_valid_bits = 0;
         bool m_supports_device_local_host_visible = false;
         SwapchainSupportInfo m_swapchain_support_info{};

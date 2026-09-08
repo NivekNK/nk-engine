@@ -70,8 +70,7 @@ namespace nk {
         memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         memory_allocate_info.allocationSize = memory_requirements.size;
         memory_allocate_info.memoryTypeIndex = memory_type;
-        result = vkAllocateMemory(
-            m_device->get(), &memory_allocate_info, m_vulkan_allocator, &m_memory);
+        result = m_device->allocate_memory(memory_allocate_info, &m_memory);
         if (result != VK_SUCCESS) {
             shutdown();
             return err(renderer_error{
@@ -79,6 +78,8 @@ namespace nk {
                 .native_code = static_cast<i32>(result),
             });
         }
+        m_memory_size = memory_requirements.size;
+        m_memory_index = memory_type;
 
         // Bind the memory
         result = vkBindImageMemory(m_device->get(), m_image, m_memory, 0);
@@ -148,9 +149,11 @@ namespace nk {
         }
         m_image = nullptr;
         if (m_memory != nullptr) {
-            vkFreeMemory(m_device->get(), m_memory, m_vulkan_allocator);
+            m_device->free_memory(m_memory, m_memory_size, m_memory_index);
             m_memory = nullptr;
         }
+        m_memory_size = 0;
+        m_memory_index = 0;
         m_device = nullptr;
         m_vulkan_allocator = nullptr;
         m_extent = {};

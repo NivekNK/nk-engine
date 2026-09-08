@@ -91,6 +91,7 @@ namespace nk {
         bool m_is_bound = false;
         void* m_mapped_data = nullptr;
         VkDeviceMemory m_memory = nullptr;
+        u64 m_memory_size = 0;
         u32 m_memory_index = 0;
         u32 m_memory_property_flags = 0;
         BufferSuballocator m_suballocator;

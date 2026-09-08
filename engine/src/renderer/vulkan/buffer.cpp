@@ -20,11 +20,13 @@ namespace nk {
             Device& device,
             VkAllocationCallbacks* allocator,
             const VkBuffer buffer,
-            const VkDeviceMemory memory) noexcept {
+            const VkDeviceMemory memory,
+            const u64 memory_size,
+            const u32 memory_index) noexcept {
             if (buffer != nullptr)
                 vkDestroyBuffer(device.get(), buffer, allocator);
             if (memory != nullptr)
-                vkFreeMemory(device.get(), memory, allocator);
+                device.free_memory(memory, memory_size, memory_index);
         }
     }
 
@@ -102,11 +104,8 @@ namespace nk {
         memory_allocate_info.allocationSize = memory_requirements.size;
         memory_allocate_info.memoryTypeIndex = m_memory_index;
 
-        native_result = vkAllocateMemory(
-            m_device->get(),
-            &memory_allocate_info,
-            m_vulkan_allocator,
-            &m_memory);
+        native_result = m_device->allocate_memory(
+            memory_allocate_info, &m_memory);
         if (native_result != VK_SUCCESS) {
             const renderer_error error = buffer_error(
                 renderer_error_code::buffer_memory_failed,
@@ -114,6 +113,7 @@ namespace nk {
             shutdown();
             return err(error);
         }
+        m_memory_size = memory_requirements.size;
 
         if (bind_on_create) {
             native_result = vkBindBufferMemory(
@@ -139,7 +139,9 @@ namespace nk {
                 *m_device,
                 m_vulkan_allocator,
                 m_buffer,
-                m_memory);
+                m_memory,
+                m_memory_size,
+                m_memory_index);
         }
 
         m_suballocator.shutdown();
@@ -152,6 +154,7 @@ namespace nk {
         m_mapped_data = nullptr;
         m_is_bound = false;
         m_memory = nullptr;
+        m_memory_size = 0;
         m_memory_index = 0;
         m_memory_property_flags = 0;
     }
@@ -206,11 +209,8 @@ namespace nk {
         memory_allocate_info.memoryTypeIndex = new_memory_index;
 
         VkDeviceMemory new_memory = nullptr;
-        native_result = vkAllocateMemory(
-            m_device->get(),
-            &memory_allocate_info,
-            m_vulkan_allocator,
-            &new_memory);
+        native_result = m_device->allocate_memory(
+            memory_allocate_info, &new_memory);
         if (native_result != VK_SUCCESS) {
             vkDestroyBuffer(
                 m_device->get(), new_buffer, m_vulkan_allocator);
@@ -223,7 +223,8 @@ namespace nk {
             m_device->get(), new_buffer, new_memory, 0);
         if (native_result != VK_SUCCESS) {
             destroy_buffer_storage(
-                *m_device, m_vulkan_allocator, new_buffer, new_memory);
+                *m_device, m_vulkan_allocator, new_buffer, new_memory,
+                memory_requirements.size, new_memory_index);
             return err(buffer_error(
                 renderer_error_code::buffer_memory_failed,
                 native_result));
@@ -242,14 +243,16 @@ namespace nk {
         });
         if (!copied) {
             destroy_buffer_storage(
-                *m_device, m_vulkan_allocator, new_buffer, new_memory);
+                *m_device, m_vulkan_allocator, new_buffer, new_memory,
+                memory_requirements.size, new_memory_index);
             return err(copied.error());
         }
 
         native_result = vkDeviceWaitIdle(m_device->get());
         if (native_result != VK_SUCCESS) {
             destroy_buffer_storage(
-                *m_device, m_vulkan_allocator, new_buffer, new_memory);
+                *m_device, m_vulkan_allocator, new_buffer, new_memory,
+                memory_requirements.size, new_memory_index);
             return err(buffer_error(
                 renderer_error_code::device_wait_failed,
                 native_result));
@@ -259,7 +262,8 @@ namespace nk {
             auto ranges_resized = m_suballocator.resize(size);
             if (!ranges_resized) {
                 destroy_buffer_storage(
-                    *m_device, m_vulkan_allocator, new_buffer, new_memory);
+                    *m_device, m_vulkan_allocator, new_buffer, new_memory,
+                    memory_requirements.size, new_memory_index);
                 return err(ranges_resized.error());
             }
         }
@@ -269,10 +273,12 @@ namespace nk {
             m_mapped_data = nullptr;
         }
         destroy_buffer_storage(
-            *m_device, m_vulkan_allocator, m_buffer, m_memory);
+            *m_device, m_vulkan_allocator, m_buffer, m_memory,
+            m_memory_size, m_memory_index);
         m_total_size = size;
         m_buffer = new_buffer;
         m_memory = new_memory;
+        m_memory_size = memory_requirements.size;
         m_memory_index = new_memory_index;
         return ok();
     }
