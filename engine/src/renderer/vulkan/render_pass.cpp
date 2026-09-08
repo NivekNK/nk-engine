@@ -29,6 +29,16 @@ namespace nk {
         m_clear_color = config.clear_color;
         m_depth = config.clear_depth;
         m_stencil = config.clear_stencil;
+        auto signature = render_pass_signature(config);
+        if (!signature) {
+            m_device = nullptr;
+            m_vulkan_allocator = nullptr;
+            return err(renderer_error{
+                renderer_error_code::render_target_config_invalid,
+                static_cast<i32>(signature.error()),
+            });
+        }
+        m_signature = *signature;
         m_attachment_count = static_cast<u32>(config.attachments.length());
         for (u32 index = 0; index < m_attachment_count; ++index) {
             m_attachments[index] = config.attachments[index];
@@ -72,13 +82,27 @@ namespace nk {
                         ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
                         : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
                     : VK_IMAGE_LAYOUT_UNDEFINED;
-            description.finalLayout =
-                attachment.role == RenderAttachmentRole::color
-                    ? attachment.source == RenderAttachmentSource::window_color &&
-                            !config.has_next_pass
-                        ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-                        : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-                    : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            switch (attachment.final_use) {
+                case RenderAttachmentUse::color_attachment:
+                    description.finalLayout =
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    break;
+                case RenderAttachmentUse::depth_stencil_attachment:
+                    description.finalLayout =
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    break;
+                case RenderAttachmentUse::present:
+                    description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+                    break;
+                case RenderAttachmentUse::sampled:
+                    description.finalLayout =
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    break;
+                case RenderAttachmentUse::transfer_source:
+                    description.finalLayout =
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                    break;
+            }
 
             if (attachment.role == RenderAttachmentRole::color) {
                 color_reference = {
@@ -144,6 +168,7 @@ namespace nk {
             m_vulkan_allocator = nullptr;
             m_color_format = VK_FORMAT_UNDEFINED;
             m_depth_format = VK_FORMAT_UNDEFINED;
+            m_signature = {};
             m_attachment_count = 0;
             return err(renderer_error{
                 .code = renderer_error_code::render_pass_creation_failed,
@@ -163,6 +188,7 @@ namespace nk {
         m_vulkan_allocator = nullptr;
         m_color_format = VK_FORMAT_UNDEFINED;
         m_depth_format = VK_FORMAT_UNDEFINED;
+        m_signature = {};
         m_attachment_count = 0;
         TraceLog("nk::RenderPass shutdown.");
     }

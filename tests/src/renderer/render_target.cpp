@@ -9,6 +9,8 @@ namespace {
         .format = nk::TextureFormat::bgra8_unorm,
         .load = nk::RenderLoadOperation::clear,
         .store = nk::RenderStoreOperation::store,
+        .final_use = nk::RenderAttachmentUse::present,
+        .resize = nk::RenderAttachmentResize::window,
     };
     constexpr nk::RenderAttachmentConfig depth_attachment{
         .role = nk::RenderAttachmentRole::depth,
@@ -16,6 +18,8 @@ namespace {
         .format = nk::TextureFormat::depth32_float,
         .load = nk::RenderLoadOperation::clear,
         .store = nk::RenderStoreOperation::discard,
+        .final_use = nk::RenderAttachmentUse::depth_stencil_attachment,
+        .resize = nk::RenderAttachmentResize::window,
     };
 
     nk::RenderPassConfig pass_with(
@@ -88,6 +92,95 @@ TEST(RenderPassConfig, RejectsRoleFormatAndSourceMismatches) {
     EXPECT_EQ(
         samples.error(),
         nk::render_target_error::incompatible_sample_count);
+}
+
+TEST(RenderPassConfig, ExposesStablePipelineSignature) {
+    const nk::RenderAttachmentConfig configs[]{
+        color_attachment,
+        depth_attachment,
+    };
+    auto signature = nk::render_pass_signature(pass_with({configs}));
+    ASSERT_TRUE(signature);
+    EXPECT_EQ(signature->color_format, nk::TextureFormat::bgra8_unorm);
+    EXPECT_EQ(
+        signature->depth_stencil_format,
+        nk::TextureFormat::depth32_float);
+    EXPECT_EQ(signature->sample_count, nk::TextureSampleCount::one);
+    EXPECT_TRUE(signature->valid());
+}
+
+TEST(RenderPassConfig, OwnsBuiltinWindowPassDescriptionsOutsideBackend) {
+    nk::WindowRenderPasses passes;
+    ASSERT_TRUE(passes.init(
+        1280,
+        720,
+        nk::TextureFormat::bgra8_unorm,
+        nk::TextureFormat::depth32_float));
+    EXPECT_EQ(passes.world().area.width, 1280u);
+    EXPECT_EQ(passes.world().attachments.length(), 2u);
+    EXPECT_EQ(
+        passes.world().attachments[0].final_use,
+        nk::RenderAttachmentUse::color_attachment);
+    EXPECT_EQ(passes.ui().attachments.length(), 1u);
+    EXPECT_EQ(
+        passes.ui().attachments[0].final_use,
+        nk::RenderAttachmentUse::present);
+
+    EXPECT_FALSE(passes.resize(0, 720));
+    EXPECT_EQ(passes.world().area.width, 1280u);
+    ASSERT_TRUE(passes.resize(800, 600));
+    EXPECT_EQ(passes.world().area.width, 800u);
+    EXPECT_EQ(passes.ui().area.height, 600u);
+}
+
+TEST(TextureFormat, DescribesIntegerPickingTexels) {
+    EXPECT_TRUE(nk::is_color_format(nk::TextureFormat::r32_uint));
+    EXPECT_FALSE(nk::is_depth_format(nk::TextureFormat::r32_uint));
+    EXPECT_EQ(
+        nk::texture_format_texel_size(nk::TextureFormat::r32_uint),
+        4u);
+    constexpr auto usage = nk::TextureUsage::color_attachment |
+        nk::TextureUsage::transfer_source;
+    EXPECT_TRUE(nk::has_usage(usage, nk::TextureUsage::color_attachment));
+    EXPECT_TRUE(nk::has_usage(usage, nk::TextureUsage::transfer_source));
+    EXPECT_FALSE(nk::has_usage(usage, nk::TextureUsage::sampled));
+}
+
+TEST(RenderPassConfig, RejectsInvalidFinalUsesAndResizePolicies) {
+    nk::RenderAttachmentConfig attachment = color_attachment;
+    attachment.final_use =
+        nk::RenderAttachmentUse::depth_stencil_attachment;
+    auto final_use = nk::validate_render_pass_config(
+        pass_with({&attachment, 1}));
+    ASSERT_FALSE(final_use);
+    EXPECT_EQ(
+        final_use.error(),
+        nk::render_target_error::incompatible_final_use);
+
+    attachment = color_attachment;
+    attachment.resize = nk::RenderAttachmentResize::fixed;
+    auto resize = nk::validate_render_pass_config(
+        pass_with({&attachment, 1}));
+    ASSERT_FALSE(resize);
+    EXPECT_EQ(resize.error(), nk::render_target_error::incompatible_source);
+}
+
+TEST(RenderTarget, RequiresDeclaredTextureUsages) {
+    const nk::RenderAttachmentConfig configs[]{color_attachment};
+    auto pass = pass_with({configs});
+    nk::Texture color = texture(
+        nk::TextureFormat::bgra8_unorm,
+        nk::TextureFlag::writable | nk::TextureFlag::external);
+    color.usage = nk::TextureUsage::sampled;
+    nk::Texture* attachments[]{&color};
+
+    auto initialized = nk::RenderTarget{}.init(
+        pass,
+        {1280, 720, {attachments}});
+    ASSERT_FALSE(initialized);
+    EXPECT_EQ(
+        initialized.error(),
+        nk::render_target_error::incompatible_usage);
 }
 
 TEST(RenderTarget, ValidatesResourcesAndDetectsStaleGenerations) {

@@ -162,6 +162,7 @@ namespace nk {
             VulkanShader* shader = nullptr;
             u16 generation = 0;
             RenderPassKind render_pass = RenderPassKind::world;
+            RenderPassSignature signature{};
         };
 
         [[nodiscard]] VulkanShader* resolve_shader(
@@ -184,10 +185,7 @@ namespace nk {
         Swapchain m_swapchain;
         RenderPass m_world_render_pass;
         RenderPass m_ui_render_pass;
-        RenderAttachmentConfig m_world_attachment_configs[2]{};
-        RenderAttachmentConfig m_ui_attachment_configs[1]{};
-        RenderPassConfig m_world_render_pass_config{};
-        RenderPassConfig m_ui_render_pass_config{};
+        WindowRenderPasses m_window_render_passes;
         cl::dyarr<RenderTarget> m_world_targets;
         cl::dyarr<RenderTarget> m_ui_targets;
         cl::dyarr<Framebuffer> m_world_framebuffers;
@@ -222,6 +220,7 @@ namespace nk {
         VulkanShaderSlot m_shaders[max_shader_count]{};
         ShaderHandle m_active_shader;
         RenderPassKind m_active_render_pass = RenderPassKind::world;
+        RenderPassSignature m_active_render_pass_signature{};
         bool m_render_pass_active = false;
 
         // Buffers

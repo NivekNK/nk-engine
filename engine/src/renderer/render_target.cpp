@@ -4,6 +4,47 @@
 
 namespace nk {
     namespace {
+        TextureUsage required_usage(
+            const RenderAttachmentRole role) noexcept {
+            return role == RenderAttachmentRole::color
+                ? TextureUsage::color_attachment
+                : TextureUsage::depth_stencil_attachment;
+        }
+
+        TextureUsage required_usage(
+            const RenderAttachmentUse use) noexcept {
+            switch (use) {
+                case RenderAttachmentUse::color_attachment:
+                    return TextureUsage::color_attachment;
+                case RenderAttachmentUse::depth_stencil_attachment:
+                    return TextureUsage::depth_stencil_attachment;
+                case RenderAttachmentUse::sampled:
+                    return TextureUsage::sampled;
+                case RenderAttachmentUse::transfer_source:
+                    return TextureUsage::transfer_source;
+                case RenderAttachmentUse::present:
+                    return TextureUsage::none;
+            }
+            return TextureUsage::none;
+        }
+
+        bool compatible_final_use(
+            const RenderAttachmentConfig& config) noexcept {
+            switch (config.final_use) {
+                case RenderAttachmentUse::color_attachment:
+                    return config.role == RenderAttachmentRole::color;
+                case RenderAttachmentUse::depth_stencil_attachment:
+                    return config.role == RenderAttachmentRole::depth;
+                case RenderAttachmentUse::present:
+                    return config.role == RenderAttachmentRole::color &&
+                        config.source == RenderAttachmentSource::window_color;
+                case RenderAttachmentUse::sampled:
+                case RenderAttachmentUse::transfer_source:
+                    return config.store == RenderStoreOperation::store;
+            }
+            return false;
+        }
+
         bool compatible_source(
             const RenderAttachmentConfig& config,
             const Texture& texture) noexcept {
@@ -53,11 +94,109 @@ namespace nk {
                 return err(render_target_error::duplicate_attachment_role);
             if (attachment.sample_count != sample_count)
                 return err(render_target_error::incompatible_sample_count);
+            if (!compatible_final_use(attachment))
+                return err(render_target_error::incompatible_final_use);
+            if ((attachment.source == RenderAttachmentSource::window_color ||
+                 attachment.source == RenderAttachmentSource::window_depth) &&
+                attachment.resize != RenderAttachmentResize::window) {
+                return err(render_target_error::incompatible_source);
+            }
             has_color |= color;
             has_depth |= !color;
         }
         if (!has_color)
             return err(render_target_error::invalid_attachment);
+        return ok();
+    }
+
+    result<RenderPassSignature, render_target_error> render_pass_signature(
+        const RenderPassConfig& config) noexcept {
+        auto valid = validate_render_pass_config(config);
+        if (!valid)
+            return err(valid.error());
+
+        RenderPassSignature signature{
+            .sample_count = config.attachments[0].sample_count,
+        };
+        for (const RenderAttachmentConfig& attachment : config.attachments) {
+            if (attachment.role == RenderAttachmentRole::color)
+                signature.color_format = attachment.format;
+            else
+                signature.depth_stencil_format = attachment.format;
+        }
+        return ok(signature);
+    }
+
+    result<void, render_target_error> WindowRenderPasses::init(
+        const u32 width,
+        const u32 height,
+        const TextureFormat color_format,
+        const TextureFormat depth_format) noexcept {
+        if (width == 0 || height == 0)
+            return err(render_target_error::invalid_area);
+
+        m_world_attachments[0] = {
+            .role = RenderAttachmentRole::color,
+            .source = RenderAttachmentSource::window_color,
+            .format = color_format,
+            .load = RenderLoadOperation::clear,
+            .store = RenderStoreOperation::store,
+            .final_use = RenderAttachmentUse::color_attachment,
+            .resize = RenderAttachmentResize::window,
+        };
+        m_world_attachments[1] = {
+            .role = RenderAttachmentRole::depth,
+            .source = RenderAttachmentSource::window_depth,
+            .format = depth_format,
+            .load = RenderLoadOperation::clear,
+            .store = RenderStoreOperation::discard,
+            .final_use = RenderAttachmentUse::depth_stencil_attachment,
+            .resize = RenderAttachmentResize::window,
+        };
+        m_ui_attachments[0] = {
+            .role = RenderAttachmentRole::color,
+            .source = RenderAttachmentSource::window_color,
+            .format = color_format,
+            .load = RenderLoadOperation::load,
+            .store = RenderStoreOperation::store,
+            .final_use = RenderAttachmentUse::present,
+            .resize = RenderAttachmentResize::window,
+        };
+        m_world = {
+            .name = "world",
+            .kind = RenderPassKind::world,
+            .area = {0, 0, width, height},
+            .clear_color = {0.0f, 0.0f, 0.45f, 1.0f},
+            .clear_depth = 1.0f,
+            .attachments = {m_world_attachments},
+            .has_next_pass = true,
+        };
+        m_ui = {
+            .name = "ui",
+            .kind = RenderPassKind::ui,
+            .area = {0, 0, width, height},
+            .attachments = {m_ui_attachments},
+            .has_previous_pass = true,
+        };
+
+        auto world_valid = validate_render_pass_config(m_world);
+        if (!world_valid)
+            return err(world_valid.error());
+        auto ui_valid = validate_render_pass_config(m_ui);
+        if (!ui_valid)
+            return err(ui_valid.error());
+        return ok();
+    }
+
+    result<void, render_target_error> WindowRenderPasses::resize(
+        const u32 width,
+        const u32 height) noexcept {
+        if (width == 0 || height == 0)
+            return err(render_target_error::invalid_area);
+        m_world.area.width = width;
+        m_world.area.height = height;
+        m_ui.area.width = width;
+        m_ui.area.height = height;
         return ok();
     }
 
@@ -87,6 +226,17 @@ namespace nk {
                 return err(render_target_error::invalid_attachment);
             if (!compatible_source(expected, *texture))
                 return err(render_target_error::incompatible_source);
+            if (texture->usage != TextureUsage::none) {
+                const TextureUsage final_usage =
+                    required_usage(expected.final_use);
+                if (!has_usage(
+                        texture->usage,
+                        required_usage(expected.role)) ||
+                    (final_usage != TextureUsage::none &&
+                     !has_usage(texture->usage, final_usage))) {
+                    return err(render_target_error::incompatible_usage);
+                }
+            }
             if (texture->format != expected.format)
                 return err(render_target_error::incompatible_format);
             if (texture->sample_count != expected.sample_count)
@@ -109,6 +259,7 @@ namespace nk {
             m_generations[index] = generations[index];
             m_formats[index] = formats[index];
             m_sample_counts[index] = sample_counts[index];
+            m_usages[index] = attachments[index]->usage;
             m_roles[index] = roles[index];
             m_sources[index] = sources[index];
         }
@@ -125,6 +276,7 @@ namespace nk {
             m_generations[index] = numeric::invalid_id;
             m_formats[index] = TextureFormat::unknown;
             m_sample_counts[index] = TextureSampleCount::one;
+            m_usages[index] = TextureUsage::none;
             m_roles[index] = RenderAttachmentRole::color;
             m_sources[index] = RenderAttachmentSource::texture;
         }
@@ -148,6 +300,7 @@ namespace nk {
                 texture->generation != m_generations[index] ||
                 texture->format != m_formats[index] ||
                 texture->sample_count != m_sample_counts[index] ||
+                texture->usage != m_usages[index] ||
                 texture->width != m_width || texture->height != m_height) {
                 return false;
             }

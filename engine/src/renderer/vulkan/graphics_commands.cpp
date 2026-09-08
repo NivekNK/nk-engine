@@ -115,6 +115,45 @@ namespace nk::vk {
         }
     }
 
+    void GraphicsCommands::set_viewport(const VkViewport viewport) const {
+        vkCmdSetViewport(m_commands, 0, 1, &viewport);
+    }
+
+    void GraphicsCommands::set_scissor(const VkRect2D scissor) const {
+        vkCmdSetScissor(m_commands, 0, 1, &scissor);
+    }
+
+    void GraphicsCommands::copy_image_to_buffer(
+        const ImageBufferCopy& copy) const {
+        Assert(copy.image != VK_NULL_HANDLE,
+            "Image-to-buffer copy requires an image.");
+        Assert(copy.destination.buffer != VK_NULL_HANDLE,
+            "Image-to-buffer copy requires a destination buffer.");
+        Assert(copy.width != 0 && copy.height != 0,
+            "Image-to-buffer copy requires a non-empty region.");
+
+        const VkBufferImageCopy region{
+            .bufferOffset = copy.destination.offset,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = {
+                .aspectMask = copy.aspect,
+                .mipLevel = copy.mip_level,
+                .baseArrayLayer = copy.array_layer,
+                .layerCount = 1,
+            },
+            .imageOffset = {copy.x, copy.y, 0},
+            .imageExtent = {copy.width, copy.height, 1},
+        };
+        vkCmdCopyImageToBuffer(
+            m_commands,
+            copy.image,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            copy.destination.buffer,
+            1,
+            &region);
+    }
+
     void GraphicsCommands::begin_rendering(const RenderingTarget& target) const {
         VkRenderingAttachmentInfo color{};
         color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;

@@ -76,6 +76,18 @@ namespace nk::vk {
         VkAttachmentStoreOp depth_store;
     };
 
+    struct ImageBufferCopy {
+        VkImage image = VK_NULL_HANDLE;
+        BufferView destination{};
+        VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        i32 x = 0;
+        i32 y = 0;
+        u32 width = 1;
+        u32 height = 1;
+        u32 mip_level = 0;
+        u32 array_layer = 0;
+    };
+
     // Small command surface inspired by NoGraphicsAPI: borrowed ranges, root
     // bytes, attachment descriptions and producer/consumer hazards. WSI/layout
     // details remain inside this backend; no newer GPU floor is imposed.
@@ -91,6 +103,9 @@ namespace nk::vk {
             AccessScope after) const;
         void transition(VkImage image, VkImageSubresourceRange range,
             ImageUse before, ImageUse after) const;
+        void set_viewport(VkViewport viewport) const;
+        void set_scissor(VkRect2D scissor) const;
+        void copy_image_to_buffer(const ImageBufferCopy& copy) const;
         void begin_rendering(const RenderingTarget& target) const;
         void end_rendering() const;
         void draw_indexed(BufferView vertices, BufferView indices, u32 index_count) const;

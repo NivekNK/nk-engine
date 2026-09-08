@@ -14,6 +14,7 @@ namespace nk::vk {
             case TextureFormat::rgba8_srgb: return VK_FORMAT_R8G8B8A8_SRGB;
             case TextureFormat::bgra8_unorm: return VK_FORMAT_B8G8R8A8_UNORM;
             case TextureFormat::bgra8_srgb: return VK_FORMAT_B8G8R8A8_SRGB;
+            case TextureFormat::r32_uint: return VK_FORMAT_R32_UINT;
             case TextureFormat::depth32_float: return VK_FORMAT_D32_SFLOAT;
             case TextureFormat::depth32_float_stencil8:
                 return VK_FORMAT_D32_SFLOAT_S8_UINT;
@@ -34,6 +35,7 @@ namespace nk::vk {
             case VK_FORMAT_R8G8B8A8_SRGB: return TextureFormat::rgba8_srgb;
             case VK_FORMAT_B8G8R8A8_UNORM: return TextureFormat::bgra8_unorm;
             case VK_FORMAT_B8G8R8A8_SRGB: return TextureFormat::bgra8_srgb;
+            case VK_FORMAT_R32_UINT: return TextureFormat::r32_uint;
             case VK_FORMAT_D32_SFLOAT: return TextureFormat::depth32_float;
             case VK_FORMAT_D32_SFLOAT_S8_UINT:
                 return TextureFormat::depth32_float_stencil8;

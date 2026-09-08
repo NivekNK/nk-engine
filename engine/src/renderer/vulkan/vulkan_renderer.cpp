@@ -15,10 +15,6 @@
 
 namespace nk {
     namespace {
-        VkFormat texture_format(const u8 channel_count) noexcept {
-            return vk::texture_format(unorm_texture_format(channel_count));
-        }
-
         VkAttachmentLoadOp attachment_load(
             const RenderLoadOperation operation) noexcept {
             switch (operation) {
@@ -37,6 +33,49 @@ namespace nk {
             return operation == RenderStoreOperation::store
                 ? VK_ATTACHMENT_STORE_OP_STORE
                 : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        }
+
+        VkImageUsageFlags texture_usage_flags(
+            const TextureUsage usages) noexcept {
+            VkImageUsageFlags result = 0;
+            if (has_usage(usages, TextureUsage::sampled))
+                result |= VK_IMAGE_USAGE_SAMPLED_BIT;
+            if (has_usage(usages, TextureUsage::color_attachment))
+                result |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            if (has_usage(usages, TextureUsage::depth_stencil_attachment))
+                result |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            if (has_usage(usages, TextureUsage::transfer_source))
+                result |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            if (has_usage(usages, TextureUsage::transfer_destination))
+                result |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            return result;
+        }
+
+        vk::ImageUse resting_image_use(
+            const TextureUsage usages,
+            const bool depth) noexcept {
+            if (depth)
+                return vk::ImageUse::depth_attachment;
+            return has_usage(usages, TextureUsage::sampled)
+                ? vk::ImageUse::sampled
+                : vk::ImageUse::color_attachment;
+        }
+
+        vk::ImageUse attachment_image_use(
+            const RenderAttachmentUse use) noexcept {
+            switch (use) {
+                case RenderAttachmentUse::color_attachment:
+                    return vk::ImageUse::color_attachment;
+                case RenderAttachmentUse::depth_stencil_attachment:
+                    return vk::ImageUse::depth_attachment;
+                case RenderAttachmentUse::present:
+                    return vk::ImageUse::present;
+                case RenderAttachmentUse::sampled:
+                    return vk::ImageUse::sampled;
+                case RenderAttachmentUse::transfer_source:
+                    return vk::ImageUse::transfer_source;
+            }
+            return vk::ImageUse::discard;
         }
     }
 
@@ -116,6 +155,7 @@ namespace nk {
         VulkanShaderSlot& slot = m_shaders[slot_index];
         slot.shader = shader;
         slot.render_pass = render_pass;
+        slot.signature = compatible_render_pass->signature();
         return ok(ShaderHandle{slot_index, slot.generation});
     }
 
@@ -144,6 +184,7 @@ namespace nk {
         VulkanShaderSlot& slot = m_shaders[handle.index];
         (void)m_allocator->deconstruct_t(VulkanShader, shader);
         slot.shader = nullptr;
+        slot.signature = {};
         slot.generation = slot.generation + 1 == numeric::u16_max
             ? 0
             : static_cast<u16>(slot.generation + 1);
@@ -158,6 +199,7 @@ namespace nk {
                 continue;
             (void)m_allocator->deconstruct_t(VulkanShader, slot.shader);
             slot.shader = nullptr;
+            slot.signature = {};
             slot.generation = slot.generation + 1 == numeric::u16_max
                 ? 0
                 : static_cast<u16>(slot.generation + 1);
@@ -174,7 +216,8 @@ namespace nk {
                 0,
             });
         if (!m_render_pass_active ||
-            m_shaders[handle.index].render_pass != m_active_render_pass ||
+            m_shaders[handle.index].signature !=
+                m_active_render_pass_signature ||
             m_image_index >= m_graphics_command_buffers.length()) {
             return err(renderer_error{
                 renderer_error_code::shader_state_invalid,
@@ -430,59 +473,27 @@ namespace nk {
             return err(renderer_error{
                 renderer_error_code::render_target_config_invalid, 0});
         }
-        m_world_attachment_configs[0] = {
-            .role = RenderAttachmentRole::color,
-            .source = RenderAttachmentSource::window_color,
-            .format = color_format,
-            .load = RenderLoadOperation::clear,
-            .store = RenderStoreOperation::store,
-        };
-        m_world_attachment_configs[1] = {
-            .role = RenderAttachmentRole::depth,
-            .source = RenderAttachmentSource::window_depth,
-            .format = depth_format,
-            .load = RenderLoadOperation::clear,
-            .store = RenderStoreOperation::discard,
-        };
-        m_ui_attachment_configs[0] = {
-            .role = RenderAttachmentRole::color,
-            .source = RenderAttachmentSource::window_color,
-            .format = color_format,
-            .load = RenderLoadOperation::load,
-            .store = RenderStoreOperation::store,
-        };
-        m_world_render_pass_config = {
-            .name = "world",
-            .kind = RenderPassKind::world,
-            .area = {0, 0, m_framebuffer_width, m_framebuffer_height},
-            .clear_color = {0.0f, 0.0f, 0.45f, 1.0f},
-            .clear_depth = 1.0f,
-            .clear_stencil = 0,
-            .attachments = {m_world_attachment_configs},
-            .has_previous_pass = false,
-            .has_next_pass = true,
-        };
-        m_ui_render_pass_config = {
-            .name = "ui",
-            .kind = RenderPassKind::ui,
-            .area = {0, 0, m_framebuffer_width, m_framebuffer_height},
-            .clear_color = glm::vec4(0.0f),
-            .clear_depth = 1.0f,
-            .clear_stencil = 0,
-            .attachments = {m_ui_attachment_configs},
-            .has_previous_pass = true,
-            .has_next_pass = false,
-        };
+        auto pass_configs_initialized = m_window_render_passes.init(
+            m_framebuffer_width,
+            m_framebuffer_height,
+            color_format,
+            depth_format);
+        if (!pass_configs_initialized) {
+            return err(renderer_error{
+                renderer_error_code::render_target_config_invalid,
+                static_cast<i32>(pass_configs_initialized.error()),
+            });
+        }
 
         auto world_render_pass_initialized = m_world_render_pass.init(
-            m_world_render_pass_config, &m_device, m_vulkan_allocator
+            m_window_render_passes.world(), &m_device, m_vulkan_allocator
         );
         m_world_render_pass_initialized = true;
         if (!world_render_pass_initialized)
             return err(world_render_pass_initialized.error());
 
         auto ui_render_pass_initialized = m_ui_render_pass.init(
-            m_ui_render_pass_config, &m_device, m_vulkan_allocator
+            m_window_render_passes.ui(), &m_device, m_vulkan_allocator
         );
         m_ui_render_pass_initialized = true;
         if (!ui_render_pass_initialized)
@@ -726,8 +737,9 @@ namespace nk {
         scissor.extent.width = m_framebuffer_width;
         scissor.extent.height = m_framebuffer_height;
 
-        vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-        vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+        const vk::GraphicsCommands graphics{m_device, command_buffer};
+        graphics.set_viewport(viewport);
+        graphics.set_scissor(scissor);
 
         return ok(frame_outcome::rendered);
     }
@@ -799,8 +811,8 @@ namespace nk {
                 ? m_world_render_pass
                 : m_ui_render_pass;
             const RenderPassConfig& pass_config = world
-                ? m_world_render_pass_config
-                : m_ui_render_pass_config;
+                ? m_window_render_passes.world()
+                : m_window_render_passes.ui();
             const RenderAttachmentConfig* color_config =
                 render_pass.attachment(RenderAttachmentRole::color);
             const RenderAttachmentConfig* depth_config =
@@ -869,6 +881,10 @@ namespace nk {
         }
         m_active_shader = {};
         m_active_render_pass = pass;
+        m_active_render_pass_signature =
+            (pass == RenderPassKind::world
+                ? m_world_render_pass
+                : m_ui_render_pass).signature();
         m_render_pass_active = true;
     }
 
@@ -879,9 +895,6 @@ namespace nk {
             const vk::GraphicsCommands commands{m_device, command_buffer};
             commands.end_rendering();
             const bool world = pass == RenderPassKind::world;
-            const RenderPassConfig& pass_config = world
-                ? m_world_render_pass_config
-                : m_ui_render_pass_config;
             RenderTarget& target = world
                 ? m_world_targets[m_image_index]
                 : m_ui_targets[m_image_index];
@@ -890,13 +903,15 @@ namespace nk {
             const RenderAttachmentConfig* color_config = (world
                 ? m_world_render_pass
                 : m_ui_render_pass).attachment(RenderAttachmentRole::color);
-            if (!pass_config.has_next_pass && color_config != nullptr &&
-                color_config->source == RenderAttachmentSource::window_color) {
+            if (color_config != nullptr &&
+                color_config->final_use !=
+                    RenderAttachmentUse::color_attachment) {
                 const TextureData* color_data = static_cast<const TextureData*>(
                     color_texture->m_internal_data);
                 commands.transition(color_data->image.get(),
                     {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-                    vk::ImageUse::color_attachment, vk::ImageUse::present);
+                    vk::ImageUse::color_attachment,
+                    attachment_image_use(color_config->final_use));
             }
             command_buffer.set_state(CommandBufferState::Recording);
         } else {
@@ -910,6 +925,7 @@ namespace nk {
             }
         }
         m_active_shader = {};
+        m_active_render_pass_signature = {};
         m_render_pass_active = false;
     }
 
@@ -1082,6 +1098,11 @@ namespace nk {
         texture.flags = has_transparency
             ? TextureFlag::has_transparency
             : TextureFlag::none;
+        texture.usage = TextureUsage::sampled |
+            TextureUsage::transfer_destination |
+            (mip_levels > 1
+                ? TextureUsage::transfer_source
+                : TextureUsage::none);
         DebugLog("Texture '{}' uploaded with {} mip level(s).", name, mip_levels);
         *out_texture = texture;
         return ok();
@@ -1215,6 +1236,9 @@ namespace nk {
             .dimension = TextureDimension::cube,
             .layer_count = face_count,
             .format = TextureFormat::rgba8_unorm,
+            .usage = TextureUsage::sampled |
+                TextureUsage::transfer_destination |
+                TextureUsage::transfer_source,
             .generation = 0,
             .state = TextureState::ready,
             .m_internal_data = texture_data,
@@ -1257,6 +1281,24 @@ namespace nk {
             });
         }
 
+        TextureUsage usages = texture->usage;
+        if (usages == TextureUsage::none) {
+            usages = TextureUsage::sampled |
+                TextureUsage::color_attachment |
+                TextureUsage::transfer_destination;
+        }
+        const VkImageUsageFlags image_usage = texture_usage_flags(usages);
+        const bool depth = is_depth_format(requested_format);
+        if (image_usage == 0 ||
+            (depth && has_usage(usages, TextureUsage::color_attachment)) ||
+            (!depth && has_usage(
+                usages, TextureUsage::depth_stencil_attachment))) {
+            return err(renderer_error{
+                renderer_error_code::texture_state_invalid,
+                0,
+            });
+        }
+
         TextureData* data = m_allocator->construct_t(TextureData);
         if (data == nullptr)
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
@@ -1266,12 +1308,12 @@ namespace nk {
                 .extent = {texture->width, texture->height},
                 .format = format,
                 .tiling = VK_IMAGE_TILING_OPTIMAL,
-                .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                    VK_IMAGE_USAGE_SAMPLED_BIT |
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                .usage = image_usage,
                 .memory_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 .create_view = true,
-                .view_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT,
+                .view_aspect_flags = depth
+                    ? VK_IMAGE_ASPECT_DEPTH_BIT
+                    : VK_IMAGE_ASPECT_COLOR_BIT,
                 .mip_levels = 1,
             },
             &m_device,
@@ -1296,9 +1338,10 @@ namespace nk {
         const vk::GraphicsCommands graphics{m_device, commands};
         graphics.transition(
             data->image.get(),
-            {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            {depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                0, 1, 0, 1},
             vk::ImageUse::discard,
-            vk::ImageUse::sampled);
+            resting_image_use(usages, depth));
         auto completed = commands.end_single_use(m_device.get_graphics_queue());
         if (!completed) {
             const renderer_error error = completed.error();
@@ -1307,6 +1350,7 @@ namespace nk {
         }
 
         texture->format = requested_format;
+        texture->usage = usages;
         texture->m_internal_data = data;
         return ok();
     }
@@ -1317,6 +1361,7 @@ namespace nk {
         const cl::slice<const u8> pixels) {
         if (!m_device_initialized || m_allocator == nullptr ||
             !texture.valid() || !texture.writable() || texture.external() ||
+            !has_usage(texture.usage, TextureUsage::transfer_destination) ||
             vk::texture_format(texture.format) == VK_FORMAT_UNDEFINED ||
             pixels.data() == nullptr || region.width == 0 ||
             region.height == 0 || region.x >= texture.width ||
@@ -1329,7 +1374,7 @@ namespace nk {
             });
         }
         const u64 size = static_cast<u64>(region.width) * region.height *
-            texture.channel_count;
+            texture_format_texel_size(texture.format);
         if (pixels.length() != size)
             return err(renderer_error{
                 renderer_error_code::texture_region_invalid,
@@ -1373,7 +1418,9 @@ namespace nk {
         graphics.transition(
             data->image.get(),
             whole,
-            vk::ImageUse::sampled,
+            resting_image_use(
+                texture.usage,
+                is_depth_format(texture.format)),
             vk::ImageUse::transfer_destination);
         data->image.copy_from_buffer(
             &commands,
@@ -1386,7 +1433,9 @@ namespace nk {
             data->image.get(),
             whole,
             vk::ImageUse::transfer_destination,
-            vk::ImageUse::sampled);
+            resting_image_use(
+                texture.usage,
+                is_depth_format(texture.format)));
         return commands.end_single_use(m_device.get_graphics_queue());
     }
 
@@ -1416,6 +1465,15 @@ namespace nk {
                 0,
             });
 
+        const bool depth = is_depth_format(texture.format);
+        const VkImageUsageFlags image_usage =
+            texture_usage_flags(texture.usage);
+        if (image_usage == 0)
+            return err(renderer_error{
+                renderer_error_code::texture_state_invalid,
+                0,
+            });
+
         TextureData* replacement = m_allocator->construct_t(TextureData);
         if (replacement == nullptr)
             return err(renderer_error{renderer_error_code::out_of_memory, 0});
@@ -1425,12 +1483,12 @@ namespace nk {
                 .extent = {width, height},
                 .format = format,
                 .tiling = VK_IMAGE_TILING_OPTIMAL,
-                .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                    VK_IMAGE_USAGE_SAMPLED_BIT |
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                .usage = image_usage,
                 .memory_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 .create_view = true,
-                .view_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT,
+                .view_aspect_flags = depth
+                    ? VK_IMAGE_ASPECT_DEPTH_BIT
+                    : VK_IMAGE_ASPECT_COLOR_BIT,
                 .mip_levels = 1,
             },
             &m_device,
@@ -1455,9 +1513,10 @@ namespace nk {
         const vk::GraphicsCommands graphics{m_device, commands};
         graphics.transition(
             replacement->image.get(),
-            {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            {depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                0, 1, 0, 1},
             vk::ImageUse::discard,
-            vk::ImageUse::sampled);
+            resting_image_use(texture.usage, depth));
         auto completed = commands.end_single_use(m_device.get_graphics_queue());
         if (!completed) {
             const renderer_error error = completed.error();
@@ -1821,7 +1880,7 @@ namespace nk {
                 m_swapchain.get_depth_texture_at(index),
             };
             auto world_created = world_targets[index].init(
-                m_world_render_pass_config,
+                m_window_render_passes.world(),
                 {
                     m_framebuffer_width,
                     m_framebuffer_height,
@@ -1837,7 +1896,7 @@ namespace nk {
                 m_swapchain.get_render_texture_at(index),
             };
             auto ui_created = ui_targets[index].init(
-                m_ui_render_pass_config,
+                m_window_render_passes.ui(),
                 {
                     m_framebuffer_width,
                     m_framebuffer_height,
@@ -2057,10 +2116,15 @@ namespace nk {
         VkRect2D& ui_render_area = m_ui_render_pass.get_render_area();
         ui_render_area.offset = {0, 0};
         ui_render_area.extent = {m_framebuffer_width, m_framebuffer_height};
-        m_world_render_pass_config.area = {
-            0, 0, m_framebuffer_width, m_framebuffer_height};
-        m_ui_render_pass_config.area = {
-            0, 0, m_framebuffer_width, m_framebuffer_height};
+        auto pass_configs_resized = m_window_render_passes.resize(
+            m_framebuffer_width,
+            m_framebuffer_height);
+        if (!pass_configs_resized) {
+            return err(renderer_error{
+                renderer_error_code::render_target_config_invalid,
+                static_cast<i32>(pass_configs_resized.error()),
+            });
+        }
 
         auto targets_created = recreate_render_targets();
         if (!targets_created)

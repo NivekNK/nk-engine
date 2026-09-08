@@ -562,6 +562,9 @@ namespace nk {
                 (has_transparency
                     ? TextureFlag::has_transparency
                     : TextureFlag::none),
+            .usage = TextureUsage::sampled |
+                TextureUsage::color_attachment |
+                TextureUsage::transfer_destination,
         };
         auto created = m_renderer->create_writable_texture(&texture);
         if (!created)

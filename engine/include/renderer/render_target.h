@@ -33,6 +33,19 @@ namespace nk {
         store,
     };
 
+    enum class RenderAttachmentUse : u8 {
+        color_attachment,
+        depth_stencil_attachment,
+        present,
+        sampled,
+        transfer_source,
+    };
+
+    enum class RenderAttachmentResize : u8 {
+        fixed,
+        window,
+    };
+
     enum class render_target_error : u8 {
         invalid_name,
         invalid_area,
@@ -43,6 +56,8 @@ namespace nk {
         incompatible_format,
         incompatible_dimensions,
         incompatible_sample_count,
+        incompatible_usage,
+        incompatible_final_use,
         stale_attachment,
     };
 
@@ -60,6 +75,22 @@ namespace nk {
         TextureSampleCount sample_count = TextureSampleCount::one;
         RenderLoadOperation load = RenderLoadOperation::discard;
         RenderStoreOperation store = RenderStoreOperation::store;
+        RenderAttachmentUse final_use = RenderAttachmentUse::color_attachment;
+        RenderAttachmentResize resize = RenderAttachmentResize::fixed;
+    };
+
+    struct RenderPassSignature {
+        TextureFormat color_format = TextureFormat::unknown;
+        TextureFormat depth_stencil_format = TextureFormat::unknown;
+        TextureSampleCount sample_count = TextureSampleCount::one;
+
+        [[nodiscard]] bool valid() const noexcept {
+            return is_color_format(color_format) &&
+                (depth_stencil_format == TextureFormat::unknown ||
+                 is_depth_format(depth_stencil_format));
+        }
+
+        bool operator==(const RenderPassSignature&) const noexcept = default;
     };
 
     struct RenderPassConfig {
@@ -82,6 +113,36 @@ namespace nk {
 
     [[nodiscard]] result<void, render_target_error>
     validate_render_pass_config(const RenderPassConfig& config) noexcept;
+    [[nodiscard]] result<RenderPassSignature, render_target_error>
+    render_pass_signature(const RenderPassConfig& config) noexcept;
+
+    // Owns the built-in window pass descriptions. Vulkan resolves these
+    // renderer-neutral descriptions into dynamic rendering or legacy render
+    // passes; the backend does not define their attachment policy.
+    class WindowRenderPasses final {
+    public:
+        [[nodiscard]] result<void, render_target_error> init(
+            u32 width,
+            u32 height,
+            TextureFormat color_format,
+            TextureFormat depth_format) noexcept;
+        [[nodiscard]] result<void, render_target_error> resize(
+            u32 width,
+            u32 height) noexcept;
+
+        [[nodiscard]] const RenderPassConfig& world() const noexcept {
+            return m_world;
+        }
+        [[nodiscard]] const RenderPassConfig& ui() const noexcept {
+            return m_ui;
+        }
+
+    private:
+        RenderAttachmentConfig m_world_attachments[2]{};
+        RenderAttachmentConfig m_ui_attachments[1]{};
+        RenderPassConfig m_world{};
+        RenderPassConfig m_ui{};
+    };
 
     class RenderTarget final {
     public:
@@ -108,6 +169,7 @@ namespace nk {
         u32 m_generations[max_render_target_attachments]{};
         TextureFormat m_formats[max_render_target_attachments]{};
         TextureSampleCount m_sample_counts[max_render_target_attachments]{};
+        TextureUsage m_usages[max_render_target_attachments]{};
         RenderAttachmentRole m_roles[max_render_target_attachments]{};
         RenderAttachmentSource m_sources[max_render_target_attachments]{};
         u32 m_width = 0;
