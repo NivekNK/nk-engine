@@ -166,9 +166,11 @@ namespace nk {
         auto bytes = file.read_all_bytes(64 * 1024 * 1024);
         if (!bytes) return err(text_error::file_failed);
         auto& face = m_state->faces[slot];
+        m_state->memory_context.failed = false;
         const FT_Error loaded = FT_New_Memory_Face(m_state->library,
             bytes->data(), static_cast<FT_Long>(bytes->length()), face_index, &face.ft);
-        if (loaded != 0) return err(text_error::font_failed);
+        if (loaded != 0) return err(m_state->memory_context.failed
+            ? text_error::out_of_memory : text_error::font_failed);
         if (!FT_IS_SCALABLE(face.ft) || FT_Select_Charmap(face.ft, FT_ENCODING_UNICODE) != 0) {
             face.reset(); return err(text_error::font_failed);
         }
