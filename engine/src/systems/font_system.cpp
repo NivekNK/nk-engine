@@ -10,7 +10,7 @@
 #include FT_FREETYPE_H
 #include FT_MODULE_H
 #include <hb.h>
-#include <hb-ft.h>
+#include <hb-ot.h>
 #include <cmath>
 
 namespace nk {
@@ -173,13 +173,20 @@ namespace nk {
             face.reset(); return err(text_error::font_failed);
         }
         face.bytes = std::move(*bytes);
-        face.hb = hb_ft_font_create_referenced(face.ft);
+        hb_blob_t* blob = hb_blob_create(
+            reinterpret_cast<const char*>(face.bytes.data()),
+            static_cast<unsigned>(face.bytes.length()),
+            HB_MEMORY_MODE_READONLY, nullptr, nullptr);
+        hb_face_t* hb_face = hb_face_create(blob, face_index);
+        hb_blob_destroy(blob);
+        face.hb = hb_font_create(hb_face);
+        hb_face_destroy(hb_face);
         if (face.hb == hb_font_get_empty() ||
             !face.glyphs.map_init(m_allocator, 256, hash_seed::deterministic) ||
             !face.extents.map_init(m_allocator, 256, hash_seed::deterministic)) {
             face.reset(); return err(text_error::out_of_memory);
         }
-        hb_ft_font_set_load_flags(face.hb, glyph_load_flags);
+        hb_ot_font_set_funcs(face.hb);
         if (++m_generation == 0) ++m_generation;
         face.generation = m_generation;
         ++m_state->stats.fonts;
@@ -206,7 +213,7 @@ namespace nk {
         auto& scratch = m_state->scratch;
         if (!scratch.glyphs.allocator() && !scratch.glyphs.dyarr_init(m_allocator, 256))
             return err(text_error::out_of_memory);
-        (void)scratch.glyphs.dyarr_clear();
+        (void)scratch.glyphs.dyarr_reset();
         scratch.font = font;
         scratch.pixel_size_64 = static_cast<u32>(std::round(options.size * options.scale * 64));
         scratch.scale = options.scale;
@@ -214,9 +221,12 @@ namespace nk {
         auto& face = m_state->faces[font.index];
         m_state->memory_context.failed = false;
         if (!face.set_size(scratch.pixel_size_64))
-            return err(text_error::font_failed);
+            return err(m_state->memory_context.failed
+                ? text_error::out_of_memory : text_error::font_failed);
         if (face.shape_size != scratch.pixel_size_64) {
-            hb_ft_font_changed(face.hb);
+            hb_font_set_scale(face.hb, scratch.pixel_size_64, scratch.pixel_size_64);
+            const u32 pixels = (scratch.pixel_size_64 + 63) / 64;
+            hb_font_set_ppem(face.hb, pixels, pixels);
             face.shape_size = scratch.pixel_size_64;
         }
         auto& metrics = scratch.metrics;
@@ -331,10 +341,13 @@ namespace nk {
         if (face.glyphs.length() >= m_state->config.max_glyphs_per_font)
             return err(text_error::atlas_full);
         if (!face.glyphs.reserve(face.glyphs.length() + 1)) return err(text_error::out_of_memory);
-        if (!face.set_size(layout.pixel_size_64) ||
-            FT_Load_Glyph(face.ft, glyph_id, glyph_load_flags) ||
+        if (!face.set_size(layout.pixel_size_64))
+            return err(m_state->memory_context.failed
+                ? text_error::out_of_memory : text_error::raster_failed);
+        if (FT_Load_Glyph(face.ft, glyph_id, glyph_load_flags) ||
             FT_Render_Glyph(face.ft->glyph, FT_RENDER_MODE_NORMAL))
-            return err(text_error::raster_failed);
+            return err(m_state->memory_context.failed
+                ? text_error::out_of_memory : text_error::raster_failed);
         const auto& bitmap = face.ft->glyph->bitmap;
         RasterGlyph glyph{numeric::invalid_id, 0, 0, bitmap.width, bitmap.rows,
             face.ft->glyph->bitmap_left, face.ft->glyph->bitmap_top};

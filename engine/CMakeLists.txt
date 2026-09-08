@@ -26,13 +26,12 @@ set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
 set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
 add_subdirectory(vendor/freetype EXCLUDE_FROM_ALL)
 
-# HarfBuzz ships this amalgamation for embedded builds. Only CPU shaping and
-# the FreeType metric bridge are needed, not its tools or GPU/raster backends.
+# HarfBuzz ships this amalgamation for embedded builds. Only CPU OpenType
+# shaping is needed, not its tools, FreeType bridge or GPU/raster backends.
 add_library(nk_harfbuzz STATIC vendor/harfbuzz/src/harfbuzz.cc)
 target_include_directories(nk_harfbuzz PUBLIC vendor/harfbuzz/src)
-target_link_libraries(nk_harfbuzz PRIVATE freetype)
 target_compile_definitions(nk_harfbuzz PRIVATE
-    HAVE_FREETYPE=1 HAVE_ATEXIT=1 HB_CUSTOM_MALLOC=1 HB_NO_DRAW=1 HB_NO_PAINT=1)
+    HAVE_ATEXIT=1 HB_CUSTOM_MALLOC=1 HB_NO_DRAW=1 HB_NO_PAINT=1)
 if(MSVC)
     target_compile_options(nk_harfbuzz PRIVATE /W0 /bigobj)
     target_compile_options(freetype PRIVATE /W0)

@@ -25,7 +25,7 @@ namespace nk {
         if (!width || !height || width > 65536 || height > 65536 ||
             !std::isfinite(scale) || scale < .25f || scale > 8)
             return err(text_error::invalid_configuration);
-        (void)m_vertices.dyarr_clear(); (void)m_batches.dyarr_clear();
+        (void)m_vertices.dyarr_reset(); (void)m_batches.dyarr_reset();
         m_width = width; m_height = height; m_scale = scale;
         return ok();
     }

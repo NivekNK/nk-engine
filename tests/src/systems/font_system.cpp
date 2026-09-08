@@ -199,14 +199,17 @@ TEST_F(FontTest, RejectsMissingAndNonFontAssets) {
 }
 
 TEST(Fonts, ReusesWarmMetricsAndLayoutStorageForDynamicText) {
-    BudgetAllocator allocator;
+    mem::MallocAllocator allocator{mem::untracked};
     FontSystem fonts;
     ASSERT_TRUE(fonts.init(allocator));
     auto font = fonts.load(font_path); ASSERT_TRUE(font);
     TextLayout layout;
     ASSERT_TRUE(fonts.layout(*font, "FPS 0123456789", {}, layout));
     ASSERT_TRUE(fonts.layout(*font, "FPS 0123456789", {}, layout));
-    allocator.budget = 0;
-    for (u32 i = 0; i < 100; ++i)
-        ASSERT_TRUE(fonts.layout(*font, i % 2 ? "FPS 60" : "FPS 144", {}, layout));
+    const u64 allocations = allocator.get_active_allocation_count();
+    for (u32 i = 0; i < 100; ++i) {
+        auto shaped = fonts.layout(*font, i % 2 ? "FPS 60" : "FPS 144", {}, layout);
+        ASSERT_TRUE(shaped) << static_cast<u32>(shaped.error()) << " at " << i;
+    }
+    EXPECT_EQ(allocator.get_active_allocation_count(), allocations);
 }

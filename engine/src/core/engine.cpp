@@ -1058,7 +1058,6 @@ namespace nk {
                     m_platform->close();
                     break;
                 }
-
                 if (!benchmark && !m_test_meshes.empty()) {
                     const glm::quat rotation = glm::angleAxis(
                         static_cast<f32>(0.5 * delta),
@@ -1114,7 +1113,6 @@ namespace nk {
                     m_platform->close();
                     break;
                 }
-
                 if (m_text_overlay && *frame == frame_outcome::rendered)
                     m_text_overlay->acknowledge_frame();
 
@@ -1147,11 +1145,12 @@ namespace nk {
                 }
 
                 InputSystem::update(delta);
-
                 ++frame_count;
 #if NK_MEMORY_TRACKING_ENABLED
-                if (smoke_test_frames > 1 &&
-                    *frame == frame_outcome::rendered) {
+                const bool stable_scene_ready = m_pending_mesh_loads == 0 &&
+                    (m_job_system == nullptr || m_job_system->pending_count() == 0);
+                if (smoke_test_frames > 1 && *frame == frame_outcome::rendered &&
+                    stable_scene_ready) {
                     if (stable_frame_warmed_up) {
                         stable_frame_allocation_events +=
                             mem::MemorySystem::get().allocation_event_count() -
@@ -1160,6 +1159,11 @@ namespace nk {
                     } else {
                         stable_frame_warmed_up = true;
                     }
+                } else if (!stable_scene_ready) {
+                    // The frame that publishes the final asynchronous result
+                    // can allocate before pending_count reaches zero. Exclude
+                    // it, and warm the now-stable scene on the next frame.
+                    stable_frame_warmed_up = false;
                 }
 #endif
                 if (smoke_test_frames != 0 && frame_count >= smoke_test_frames)

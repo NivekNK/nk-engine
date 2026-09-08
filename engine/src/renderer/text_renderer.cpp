@@ -47,7 +47,7 @@ namespace nk {
         if (!m_fonts) return err(text_error::not_initialized);
         if (list.fonts() != m_fonts || !list.width() || !list.height())
             return err(text_error::invalid_configuration);
-        (void)m_uploads.dyarr_clear();
+        (void)m_uploads.dyarr_reset();
         for (u32 index = 0; index < m_fonts->page_count(); ++index) {
             auto page = m_fonts->page(index);
             auto& texture = m_textures[index];
