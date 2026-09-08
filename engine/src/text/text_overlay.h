@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/frame_metrics.h"
 #include "renderer/text_renderer.h"
 
 namespace nk {
@@ -9,7 +10,7 @@ namespace nk {
         [[nodiscard]] result<void, text_error> init(mem::Allocator& allocator,
             Renderer& renderer, ShaderSystem& shaders, strview assets, f32 scale);
         [[nodiscard]] result<const TextFrame*, text_error> frame(u32 width, u32 height,
-            f32 scale, f64 delta, f64 gpu_ms);
+            f32 scale, f64 delta, const FrameMetricsSnapshot& metrics);
         void acknowledge_frame() { m_renderer.acknowledge_frame(); }
         FontStatistics statistics() const noexcept { return m_fonts.statistics(); }
     private:
@@ -20,7 +21,6 @@ namespace nk {
         TextLayout m_title, m_sample, m_help, m_status;
         FontHandle m_font;
         f32 m_scale = 0;
-        f64 m_elapsed = 1, m_sum = 0;
-        u32 m_samples = 0;
+        f64 m_elapsed = 1;
     };
 }

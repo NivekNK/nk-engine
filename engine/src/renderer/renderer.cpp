@@ -9,6 +9,7 @@
 #include "systems/event_system.h"
 #include "systems/material_system.h"
 #include "resources/mesh.h"
+#include "renderer/text_renderer.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -155,6 +156,7 @@ namespace nk {
     result<frame_outcome, renderer_error> Renderer::draw_frame(
         MaterialSystem& materials,
         const RenderPacket& packet) {
+        m_frame_draw_counters = {};
         auto prepared = prepare_world_draws(packet);
         if (!prepared)
             return err(prepared.error());
@@ -200,6 +202,7 @@ namespace nk {
 
         PickRequest pick_request{};
         if (picking_enabled() && m_pick_queue.consume(pick_request)) {
+            pick_request.submitted_frame = m_frame_number;
             const RenderViewPacket* world = nullptr;
             const RenderViewPacket* ui = nullptr;
             for (u32 index = 0; index < *built; ++index) {
@@ -277,6 +280,8 @@ namespace nk {
             }
             total += count;
         }
+        m_frame_draw_counters.candidates = static_cast<u32>(total);
+        m_frame_draw_counters.visible = static_cast<u32>(total);
         if (m_world_draw_scratch.allocator() == nullptr &&
             !m_world_draw_scratch.dyarr_init(m_allocator, total)) {
             return err(renderer_error{
@@ -443,6 +448,8 @@ namespace nk {
         if (text && packet.type == RenderViewType::ui) {
             auto drawn = draw_text_frame(*text);
             if (!drawn) return fail(drawn.error());
+            m_frame_draw_counters.draws +=
+                static_cast<u32>(text->batches.length());
         }
         end_render_pass(pass);
         return ok();
@@ -494,6 +501,7 @@ namespace nk {
             });
         }
         draw_geometry(pass, data);
+        ++m_frame_draw_counters.draws;
         return ok();
     }
 

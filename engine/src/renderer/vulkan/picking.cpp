@@ -277,7 +277,7 @@ namespace nk {
         publish_pick_sample(
             readback.request,
             PickId{encoded},
-            readback.submitted_frame);
+            m_frame_number);
         readback.request = {};
         readback.submitted_frame = 0;
         readback.pending = false;

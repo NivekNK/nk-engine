@@ -62,6 +62,7 @@ namespace nk {
     struct PickRequest {
         u64 sequence = 0;
         u64 scene_revision = 0;
+        u64 submitted_frame = 0;
         PickPosition position{};
         PickRequestKind kind = PickRequestKind::hover;
 

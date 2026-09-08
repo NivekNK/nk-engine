@@ -2,6 +2,7 @@
 
 #include "systems/event_system.h"
 #include "core/clock.h"
+#include "core/frame_metrics.h"
 #include "collections/dyarr.h"
 #include "resources/mesh.h"
 #include "systems/job_system.h"
@@ -98,6 +99,7 @@ namespace nk {
         bool m_initialized = false;
 
         Clock m_clock;
+        FrameMetrics m_frame_metrics;
         f64 m_last_time = 0.0;
 
         friend bool on_resized(SystemEventCode, void*, void*, EventContext);

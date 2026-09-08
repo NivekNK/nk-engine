@@ -1015,7 +1015,6 @@ namespace nk {
         m_clock.update();
         m_last_time = m_clock.elapsed();
 
-        f64 running_time = 0;
         u64 frame_count = 0;
         f64 target_frame_seconds = 1.0f / 60;
         u64 smoke_test_frames = 0;
@@ -1032,6 +1031,7 @@ namespace nk {
         f64 benchmark_seconds = 0.0;
         f64 benchmark_gpu_ms = 0.0;
         f64 benchmark_max_ms = 0.0;
+        m_frame_metrics.reset();
 #if NK_MEMORY_TRACKING_ENABLED
         u64 stable_frame_allocation_events = 0;
         u64 stable_frames_checked = 0;
@@ -1120,6 +1120,8 @@ namespace nk {
                     m_platform->close();
                     break;
                 }
+                const f64 update_end_time =
+                    m_platform->get_absolute_time();
 
                 if (!render(delta)) {
                     FatalLog("nk::App::run render failed. shutting douwn.");
@@ -1152,7 +1154,7 @@ namespace nk {
                 const TextFrame* text_frame = nullptr;
                 if (m_text_overlay) {
                     auto prepared = m_text_overlay->frame(m_platform->width(), m_platform->height(),
-                        m_platform->content_scale(), delta, m_renderer->gpu_frame_ms());
+                        m_platform->content_scale(), delta, m_frame_metrics.snapshot());
                     if (!prepared) {
                         ErrorLog("Text overlay failed: {}", static_cast<u32>(prepared.error()));
                         m_platform->close(); break;
@@ -1191,6 +1193,8 @@ namespace nk {
                     }
                     m_pick_pointer_initialized = true;
                 }
+                const f64 render_start_time =
+                    m_platform->get_absolute_time();
                 auto frame = m_renderer->draw_frame(*m_material_system, {
                     .delta_time = delta,
                     .lighting = scene_lighting,
@@ -1214,11 +1218,21 @@ namespace nk {
                     m_platform->close();
                     break;
                 }
+                const f64 render_end_time =
+                    m_platform->get_absolute_time();
                 if (m_text_overlay && *frame == frame_outcome::rendered)
                     m_text_overlay->acknowledge_frame();
 
                 PickResult pick_result{};
+                PickingFrameLatency picking_timing{};
                 if (m_renderer->poll_pick_result(pick_result)) {
+                    picking_timing = {
+                        .request_frame = pick_result.request.submitted_frame,
+                        .retired_frame = pick_result.retired_frame,
+                        .frames = static_cast<f64>(
+                            pick_result.retired_frame -
+                            pick_result.request.submitted_frame),
+                    };
                     if (pick_result.request.kind == PickRequestKind::click) {
                         InfoLog(
                             "Pick click {}: kind={}, owner={}, retired frame={}.",
@@ -1238,18 +1252,31 @@ namespace nk {
                 // Figure out how long the frame took
                 f64 frame_end_time = m_platform->get_absolute_time();
                 f64 frame_elapsed_time = frame_end_time - frame_start_time;
+                m_frame_metrics.push({
+                    .frame_number = frame_count,
+                    .frame_ms = delta * 1000.0,
+                    .cpu_ms = frame_elapsed_time * 1000.0,
+                    .update_ms = (update_end_time - frame_start_time) * 1000.0,
+                    .build_ms = (render_start_time - update_end_time) * 1000.0,
+                    .render_ms = (render_end_time - render_start_time) * 1000.0,
+                    .gpu = m_renderer->gpu_frame_timing(),
+                    .picking = picking_timing,
+                    .draw = m_renderer->frame_draw_counters(),
+                });
+                const FrameMetricsSnapshot metrics =
+                    m_frame_metrics.snapshot();
                 if (benchmark && frame_count >= benchmark_warmup &&
                     *frame == frame_outcome::rendered) {
                     ++benchmark_frames;
-                    benchmark_seconds += delta;
-                    if (delta * 1000.0 > benchmark_max_ms)
-                        benchmark_max_ms = delta * 1000.0;
-                    if (m_renderer->gpu_frame_ms() >= 0.0) {
+                    benchmark_seconds += metrics.latest.frame_ms / 1000.0;
+                    if (metrics.latest.frame_ms > benchmark_max_ms)
+                        benchmark_max_ms = metrics.latest.frame_ms;
+                    if (metrics.latest.gpu.valid()) {
                         ++benchmark_gpu_samples;
-                        benchmark_gpu_ms += m_renderer->gpu_frame_ms();
+                        benchmark_gpu_ms +=
+                            metrics.latest.gpu.milliseconds;
                     }
                 }
-                running_time += frame_elapsed_time;
                 f64 remaining_seconds = target_frame_seconds - frame_elapsed_time;
 
                 if (remaining_seconds > 0) {

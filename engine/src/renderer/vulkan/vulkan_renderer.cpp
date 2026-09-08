@@ -562,6 +562,7 @@ namespace nk {
             m_timestamp_pool = VK_NULL_HANDLE;
         }
         m_timestamp_pending.arr_shutdown();
+        m_timestamp_frames.arr_shutdown();
 
         shutdown_picking();
 
@@ -713,6 +714,7 @@ namespace nk {
             return err(command_begun.error());
 
         m_gpu_frame_ms = -1.0;
+        m_gpu_frame_number = 0;
         if (m_timestamp_pool != VK_NULL_HANDLE) {
             const u32 query = m_image_index * 2;
             if (m_timestamp_pending[m_image_index]) {
@@ -726,6 +728,7 @@ namespace nk {
                     const u64 mask = bits == 64 ? numeric::u64_max : (u64{1} << bits) - 1;
                     m_gpu_frame_ms = static_cast<f64>((samples[2] - samples[0]) & mask) *
                         m_device.timestamp_period() / 1000000.0;
+                    m_gpu_frame_number = m_timestamp_frames[m_image_index];
                 }
             }
             vkCmdResetQueryPool(command_buffer, m_timestamp_pool, query, 2);
@@ -763,6 +766,7 @@ namespace nk {
             vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 m_timestamp_pool, m_image_index * 2 + 1);
             m_timestamp_pending[m_image_index] = true;
+            m_timestamp_frames[m_image_index] = m_frame_number;
         }
 
         auto command_ended = command_buffer.end();
@@ -1971,10 +1975,12 @@ namespace nk {
             m_timestamp_pool = VK_NULL_HANDLE;
         }
         m_timestamp_pending.arr_shutdown();
-        const cstr benchmark = std::getenv("NK_BENCHMARK");
-        if (benchmark != nullptr && std::strcmp(benchmark, "1") == 0 &&
+        m_timestamp_frames.arr_shutdown();
+        const cstr timestamp_option = std::getenv("NK_GPU_TIMESTAMPS");
+        if ((timestamp_option == nullptr || std::strcmp(timestamp_option, "0") != 0) &&
             m_device.timestamp_valid_bits() != 0) {
-            if (!m_timestamp_pending.arr_init(m_allocator, image_count))
+            if (!m_timestamp_pending.arr_init(m_allocator, image_count) ||
+                !m_timestamp_frames.arr_init(m_allocator, image_count))
                 return err(renderer_error{renderer_error_code::out_of_memory, 0});
             VkQueryPoolCreateInfo query_info{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
             query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;

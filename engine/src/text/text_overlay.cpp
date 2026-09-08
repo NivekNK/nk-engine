@@ -45,22 +45,28 @@ namespace nk {
         return ok();
     }
     result<const TextFrame*, text_error> TextOverlay::frame(u32 width, u32 height,
-        f32 scale, f64 delta, f64 gpu_ms) {
+        f32 scale, f64 delta, const FrameMetricsSnapshot& metrics) {
         if (m_scale != scale) {
             auto rebuilt = rebuild(scale);
             if (!rebuilt) return err(rebuilt.error());
         }
-        m_elapsed += delta; m_sum += delta; ++m_samples;
+        m_elapsed += delta;
         if (m_elapsed >= .25) {
             const auto stats = m_fonts.statistics();
             strbuf<255> status;
-            const f64 milliseconds = m_samples ? m_sum * 1000 / m_samples : 0;
-            (void)format_to(status, "{:.1f} ms | {:.0f} FPS | GPU {:.2f} ms | {} atlas | {} glyphs",
-                milliseconds, milliseconds > 0 ? 1000 / milliseconds : 0,
-                gpu_ms, stats.pages, stats.rasterized_glyphs);
+            (void)format_to(
+                status,
+                "{:.1f} ms | {:.0f} FPS | GPU {:.2f} ms | draws {}/{} | {} atlas | {} glyphs",
+                metrics.average_frame_ms,
+                metrics.average_fps,
+                metrics.average_gpu_ms,
+                metrics.latest.draw.draws,
+                metrics.latest.draw.candidates,
+                stats.pages,
+                stats.rasterized_glyphs);
             auto shaped = m_fonts.layout(m_font, status.view(), {.size=18, .scale=scale}, m_status);
             if (!shaped) return err(shaped.error());
-            m_elapsed = m_sum = 0; m_samples = 0;
+            m_elapsed = 0;
         }
         auto begun = m_list.begin(width, height, scale);
         if (!begun) return err(begun.error());

@@ -15,6 +15,7 @@
 #include "collections/slice.h"
 #include "collections/dyarr.h"
 #include "core/result.h"
+#include "core/frame_metrics.h"
 #include "core/str.h"
 
 namespace nk {
@@ -81,7 +82,18 @@ namespace nk {
         void resize(u32 width, u32 height);
         // Most recently retired GPU sample; negative when profiling is disabled
         // or this frame has no completed timestamp pair. Never waits for the GPU.
-        [[nodiscard]] virtual f64 gpu_frame_ms() const noexcept { return -1.0; }
+        [[nodiscard]] virtual DelayedFrameTiming gpu_frame_timing() const noexcept {
+            return {};
+        }
+        [[nodiscard]] f64 gpu_frame_ms() const noexcept {
+            return gpu_frame_timing().milliseconds;
+        }
+        [[nodiscard]] u64 frame_number() const noexcept {
+            return m_frame_number;
+        }
+        [[nodiscard]] FrameDrawCounters frame_draw_counters() const noexcept {
+            return m_frame_draw_counters;
+        }
 
         [[nodiscard]] virtual result<ShaderHandle, renderer_error> create_shader(
             const ShaderConfig& config,
@@ -275,6 +287,7 @@ namespace nk {
         cl::dyarr<GeometryRenderData> m_world_draw_scratch;
         PickRegistry m_pick_registry;
         PickQueue m_pick_queue;
+        FrameDrawCounters m_frame_draw_counters{};
 
         Texture* m_default_texture = nullptr;
         RenderViewMode m_render_view_mode = RenderViewMode::default_lit;

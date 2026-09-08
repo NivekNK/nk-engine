@@ -79,6 +79,7 @@ set(SOURCES
     src/core/engine.cpp
     src/core/input.cpp
     src/core/clock.cpp
+    src/core/frame_metrics.cpp
     src/core/thread.cpp
     src/core/hash.cpp
     src/core/str.cpp
