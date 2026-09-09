@@ -148,6 +148,11 @@ Win32 uses per-monitor-v2 DPI and IMM32. The renderer, ownership contracts,
 input lifetime and the future Clay adapter boundary are described in
 [`docs/text-rendering-implementation.md`](docs/text-rendering-implementation.md).
 
+The proposed shared game/editor UI, Clay integration, component language and
+hot-reload milestones are tracked in the
+[Clay and UI language implementation plan](docs/clay-ui-language-implementation-plan.md).
+This is a roadmap, not functionality already available in the engine.
+
 The PowerShell library-management scripts also have Bash equivalents:
 
 ```bash
