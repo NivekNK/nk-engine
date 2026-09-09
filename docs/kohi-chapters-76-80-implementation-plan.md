@@ -1,6 +1,6 @@
 # Plan de implementación de Kohi 76–80 en NK Engine
 
-- Estado: planificado
+- Estado: implementado y validado en Linux; validación Win32 pendiente
 - Fecha de análisis: 2026-09-08
 - Punto de partida: texto y fuentes de Kohi 73–75 ya adaptados
 - Baseline del repositorio al preparar el plan: `81b2012`
@@ -125,16 +125,16 @@ parte contradice deliberadamente el alcance de NK Engine.
 
 ### Trabajo
 
-- [ ] Confirmar que Page Up/Down, Print Screen, Super izquierda/derecha y las
+- [x] Confirmar que Page Up/Down, Print Screen, Super izquierda/derecha y las
   teclas de puntuación tienen nombres canónicos y equivalentes en Wayland y
   Win32.
-- [ ] Verificar que el logging de teclas y eventos nunca dependa de enums
+- [x] Verificar que el logging de teclas y eventos nunca dependa de enums
   específicos de una plataforma.
-- [ ] Auditar que las variables y extensiones Vulkan de release/debug se
+- [x] Auditar que las variables y extensiones Vulkan de release/debug se
   seleccionen por configuración, no por una suposición de Windows o Linux.
-- [ ] Confirmar que CMake, Nix y los scripts Bash/PowerShell cubren el mismo
+- [x] Confirmar que CMake, Nix y los scripts Bash/PowerShell cubren el mismo
   producto sin importar los Makefiles introducidos por Kohi.
-- [ ] Documentar explícitamente que Cocoa, Objective-C, MoltenVK, GLFW y el
+- [x] Documentar explícitamente que Cocoa, Objective-C, MoltenVK, GLFW y el
   generador de versión del commit quedan fuera.
 
 NK Engine ya contiene la mayoría de las normalizaciones de teclado. Si la
@@ -178,23 +178,26 @@ paralelas de los tipos de Kohi.
 
 ### Trabajo
 
-- [ ] Extender y validar las descripciones de attachment, incluida la
+- [x] Extender y validar las descripciones de attachment, incluida la
   incompatibilidad entre formato, rol, source, load/store y uso final.
-- [ ] Elevar el límite actual de dos attachments sólo mediante una constante
-  pequeña y comprobada; no introducir listas con heap por pass.
-- [ ] Introducir `RenderPassSignature` con igualdad/hash deterministas para el
+- [x] Mantener el límite requerido de dos attachments mediante una constante
+  pequeña y comprobada; no introducir listas con heap por pass. No se elevó
+  porque los passes actuales necesitan como máximo color + depth.
+- [x] Introducir `RenderPassSignature` con igualdad/hash deterministas para el
   cache de pipelines.
-- [ ] Migrar `ShaderSystem` y el backend desde `RenderPassKind` a la signature
+- [x] Migrar la comprobación de compatibilidad del backend desde
+  `RenderPassKind` a la signature
   para compatibilidad real.
-- [ ] Mover la definición rígida de los passes world/UI fuera de
-  `VulkanRenderer` hacia configuración de las vistas.
-- [ ] Añadir formato `r32_uint`, flags de uso y conversiones `TextureFormat` ↔
+- [x] Mover la definición rígida de los passes world/UI fuera de
+  `VulkanRenderer` hacia una descripción renderer-neutral consumida por el
+  backend.
+- [x] Añadir formato `r32_uint`, flags de uso y conversiones `TextureFormat` ↔
   `VkFormat`.
-- [ ] Añadir viewport, scissor y `copy_image_to_buffer` a `GraphicsCommands` con
+- [x] Añadir viewport, scissor y `copy_image_to_buffer` a `GraphicsCommands` con
   rutas sync2/legacy equivalentes.
-- [ ] Hacer que creación y resize sean transaccionales: un fallo conserva el
+- [x] Hacer que creación y resize sean transaccionales: un fallo conserva el
   target anterior válido.
-- [ ] Auditar los fixes de allocator contenidos en Kohi 77; aplicar sólo una
+- [x] Auditar los fixes de allocator contenidos en Kohi 77; aplicar sólo una
   corrección reproducible que no esté ya cubierta por nuestros allocators y
   tests.
 
@@ -225,9 +228,10 @@ Kohi termina el ownership de passes por vista y agrega un registro global de
 identificadores. NK conservará la primera idea y reemplazará la segunda por una
 API tipada.
 
-- Cada slot de `RenderViewSystem` poseerá sus descriptores validados y los
-  handles de targets que genera. Resize avanzará una generación y reconstruirá
-  de forma transaccional los targets dependientes de la ventana.
+- Cada slot de `RenderViewSystem` poseerá su configuración validada y un handle
+  generacional. Los targets dependientes de la ventana serán materializados y
+  publicados transaccionalmente por el backend, porque sus objetos nativos no
+  deben filtrarse a la vista renderer-neutral.
 - Los packets sólo tomarán prestada memoria cuyo lifetime esté ligado al frame;
   no conservarán punteros a configuración temporal.
 - `PickId` será un `u32` opaco, con `0` reservado. Internamente empacará slot y
@@ -241,16 +245,17 @@ API tipada.
 
 ### Trabajo
 
-- [ ] Permitir uno o más passes ordenados por vista y ownership estable de sus
-  configuraciones.
-- [ ] Crear/recrear attachments window-sized al cambiar extent, conservando el
+- [x] Mantener una vista por pass semántico y ordenar las vistas, con ownership
+  estable de sus configuraciones. Con sólo world, UI y picking, no se añadió un
+  render graph multi-pass que todavía no tiene consumidores reales.
+- [x] Crear/recrear attachments window-sized al cambiar extent, conservando el
   estado anterior si alguna reserva o creación Vulkan falla.
-- [ ] Invalidar handles/targets con generaciones, sin eventos broadcast para
+- [x] Invalidar handles/targets con generaciones, sin eventos broadcast para
   coordinar una operación local del renderer.
-- [ ] Implementar `PickId` y `PickRegistry` generacionales con capacidad fija o
+- [x] Implementar `PickId` y `PickRegistry` generacionales con capacidad fija o
   reservada.
-- [ ] Propagar el identificador opcional por los packets de world, UI y texto.
-- [ ] Definir que el futuro adapter de Clay asignará ids a primitivas
+- [x] Propagar el identificador opcional por los packets de world, UI y texto.
+- [x] Definir que el futuro adapter de Clay asignará ids a primitivas
   interactuables y mantendrá el mapping widget ↔ id fuera del renderer.
 
 ### Pruebas
@@ -264,8 +269,9 @@ API tipada.
 
 ### Criterio de salida
 
-Una vista puede poseer un target offscreen recreable y cada draw puede cargar
-un identificador estable sin que el backend conozca objetos de gameplay.
+El backend puede materializar un target offscreen recreable desde descripciones
+renderer-neutral y cada draw puede cargar un identificador estable sin que el
+backend conozca objetos de gameplay.
 
 Commit sugerido:
 `feat(renderer): own view passes and generational pick identities`.
@@ -302,28 +308,28 @@ world pick pass ──► UI pick pass ──► barrera ──► copia 1×1 a 
 
 ### Trabajo
 
-- [ ] Crear shaders Slang de picking para geometría world y UI. La identidad se
+- [x] Crear shaders Slang de picking para geometría world y UI. La identidad se
   enviará como push/root data; no habrá una instancia de shader por objeto.
-- [ ] Configurar un target `R32_UINT` window-sized y depth apropiado.
-- [ ] Encadenar world y UI: world limpia color/depth; UI carga el color y
+- [x] Configurar un target `R32_UINT` window-sized y depth apropiado.
+- [x] Encadenar world y UI: world limpia color/depth; UI carga el color y
   sobrescribe sólo donde dibuja. Skybox y texto decorativo emitirán id cero.
-- [ ] Respetar alpha/cutout y scissor. Una zona transparente o recortada no debe
+- [x] Respetar alpha/cutout y scissor. Una zona transparente o recortada no debe
   volver seleccionable el rectángulo completo.
-- [ ] Convertir coordenadas lógicas de input a píxeles físicos con
+- [x] Convertir coordenadas lógicas de input a píxeles físicos con
   `content_scale`, redondeo y clamp. Cubrir la orientación Y usada por el
   viewport Vulkan y la escala fraccional de Wayland.
-- [ ] Crear un readback buffer persistente por frame in flight, mapeado una vez
+- [x] Crear un readback buffer persistente por frame in flight, mapeado una vez
   cuando la memoria lo permita.
-- [ ] Transicionar color attachment → transfer source, copiar un texel y
+- [x] Transicionar color attachment → transfer source, copiar un texel y
   restaurar el uso requerido sin ampliar la barrera al pipeline completo.
-- [ ] Consumir resultados tras el fence correspondiente, validar generación y
+- [x] Consumir resultados tras el fence correspondiente, validar generación y
   publicar `PickResult { request, id, position, scene_revision }`.
-- [ ] Coalescer hover: renderizar picking sólo al moverse el puntero o cambiar
+- [x] Coalescer hover: renderizar picking sólo al moverse el puntero o cambiar
   cámara/escena. Un click conservará su secuencia y posición para no seleccionar
   con un resultado anterior.
-- [ ] Exponer polling/evento tipado al App; el renderer no modifica selección ni
+- [x] Exponer polling/evento tipado al App; el renderer no modifica selección ni
   estado de widgets.
-- [ ] Añadir `NK_PICKING=0` como rollback/A-B temporal sin afectar el render
+- [x] Añadir `NK_PICKING=0` como rollback/A-B temporal sin afectar el render
   principal.
 
 ### Pruebas
@@ -395,17 +401,17 @@ loop y teardown. La aplicación será dueña de la escena y decidirá qué dibuj
 
 ### Trabajo
 
-- [ ] Implementar el agregador central y snapshot de métricas.
-- [ ] Conectar timers CPU/GPU, counters del renderer y latencia de picking.
-- [ ] Migrar benchmark y overlay para consumir la misma fuente.
-- [ ] Diseñar `AppServices`, `FrameContext` y `FrameBuilder` con ownership
+- [x] Implementar el agregador central y snapshot de métricas.
+- [x] Conectar timers CPU/GPU, counters del renderer y latencia de picking.
+- [x] Migrar benchmark y overlay para consumir la misma fuente.
+- [x] Diseñar `AppServices`, `FrameContext` y `FrameBuilder` con ownership
   documentado.
-- [ ] Migrar el lifecycle de `App` desde bools ambiguos a `result` donde el fallo
+- [x] Migrar el lifecycle de `App` desde bools ambiguos a `result` donde el fallo
   sea recuperable o de inicialización.
-- [ ] Trasladar todos los assets y comportamiento de la escena de demostración
+- [x] Trasladar todos los assets y comportamiento de la escena de demostración
   a `editor` sin introducir singletons.
-- [ ] Activar el allocator de frame y comprobar su frontera temporal.
-- [ ] Eliminar de `Engine` nombres/rutas específicas de Sponza, Falcon y UI de
+- [x] Activar el allocator de frame y comprobar su frontera temporal.
+- [x] Eliminar de `Engine` nombres/rutas específicas de Sponza, Falcon y UI de
   ejemplo.
 
 ### Pruebas
@@ -458,20 +464,20 @@ finitos se tratarán como visibles para fallar de forma segura.
 
 ### Integración
 
-- [ ] Implementar planos normalizados, frustum y pruebas sphere/AABB con una
+- [x] Implementar planos normalizados, frustum y pruebas sphere/AABB con una
   política explícita para tangencia.
-- [ ] Calcular el frustum por cada vista world usando exactamente sus matrices
+- [x] Calcular el frustum por cada vista world usando exactamente sus matrices
   finales.
-- [ ] Transformar los bounds locales de cada `GeometryRenderData` mediante
+- [x] Transformar los bounds locales de cada `GeometryRenderData` mediante
   center/extents conservadores.
-- [ ] Filtrar candidatos antes de construir/ordenar las listas opaca y
+- [x] Filtrar candidatos antes de construir/ordenar las listas opaca y
   transparente.
-- [ ] Excluir skybox y vistas UI del culling de mundo.
-- [ ] Usar scratch/capacidad reservada por vista; no crear `dyarr` crecientes en
+- [x] Excluir skybox y vistas UI del culling de mundo.
+- [x] Usar scratch/capacidad reservada por vista; no crear `dyarr` crecientes en
   el hot path.
-- [ ] Registrar candidatos, visibles, culled y draws finales en `FrameMetrics`.
-- [ ] Añadir `NK_FRUSTUM_CULLING=0` como interruptor de diagnóstico y rollback.
-- [ ] Mantener el orden de transparencia calculado sólo sobre objetos visibles.
+- [x] Registrar candidatos, visibles, culled y draws finales en `FrameMetrics`.
+- [x] Añadir `NK_FRUSTUM_CULLING=0` como interruptor de diagnóstico y rollback.
+- [x] Mantener el orden de transparencia calculado sólo sobre objetos visibles.
 
 ### Pruebas
 
@@ -504,6 +510,64 @@ Commits sugeridos:
 
 - `feat(math): add conservative frustum intersection primitives`
 - `perf(renderer): cull invisible world geometry per view`
+
+## Resultado de la implementación
+
+La implementación quedó segmentada en los siguientes commits semánticos:
+
+- `025667d fix(input): normalize the keypad decimal key name`
+- `9769234 refactor(renderer): drive passes from explicit attachment descriptions`
+- `975c4da feat(renderer): add generational pick identities`
+- `4a4bd1d feat(renderer): add asynchronous GPU object picking`
+- `a3ea1e2 feat(core): expose allocation-free frame metrics`
+- `55d5f4b refactor(core): move scene ownership into the application layer`
+- `3c2fd0b feat(math): add conservative frustum intersection primitives`
+- `0c286c3 perf(renderer): cull invisible world geometry per view`
+- `0bea717 fix(tests): support builds without memory tracking`
+- `6641050 fix(renderer): publish picking targets transactionally`
+
+La adaptación conserva `RenderPassKind` sólo como routing semántico de alto
+nivel. La compatibilidad real de pipelines se valida con
+`RenderPassSignature`, que ahora también tiene un hash estable independiente
+del padding de C++. Las vistas poseen configuración y handles generacionales;
+los objetos Vulkan de los targets permanecen en el backend y se publican de
+forma transaccional. Dado que hoy sólo existen world, UI y el pass especial de
+picking, cada vista representa un pass ordenado. Un render graph multi-pass se
+pospone hasta que exista un consumidor real que justifique esa complejidad.
+
+### Evidencia de validación Linux
+
+| Comprobación | Resultado |
+|---|---|
+| Debug | 359 tests de 73 suites aprobados. |
+| Release | Build completa y 349 tests de 72 suites aprobados; las 10 pruebas adicionales dependen intencionalmente del tracking desactivado en Release. |
+| ASan/UBSan | 359 tests aprobados sin error de address ni undefined behavior. LeakSanitizer externo no puede arrancar bajo el `ptrace` del harness; el tracker interno del engine informó 0 fugas. |
+| Nix | `nix flake check` aprobado para `x86_64-linux`. |
+| Wayland/niri moderno | 660 frames, dynamic rendering + synchronization2, 0 VUID y 0 allocations en 606 frames estables. |
+| Wayland/niri legacy | 660 frames, render pass + barreras clásicas, 0 VUID y 0 allocations en 643 frames estables. |
+| Dependencias | `.gitmodules` y `.scripts/libraries.csv` no cambiaron; no se añadió Clay, GLFW, MoltenVK ni una dependencia nueva. |
+
+### Benchmark Release de culling
+
+La misma cámara y ventana de 936×999 se midieron durante 600 frames después de
+60 frames de warm-up:
+
+| Ruta | CPU/frame | FPS | GPU/frame | Candidatos | Visibles | Culled | Draws |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Moderna, culling off | 2.277 ms | 439.15 | 1.963 ms | 29 | 29 | 0 | 32 |
+| Moderna, culling on | 2.265 ms | 441.56 | 1.935 ms | 29 | 25 | 4 | 28 |
+| Legacy, culling on | 2.215 ms | 451.48 | 1.916 ms | 29 | 25 | 4 | 28 |
+
+En esta posición se eliminó el 13.8 % de los candidatos world y el 12.5 % de
+los draws totales. La diferencia temporal moderna es pequeña (aproximadamente
+0.5 % en CPU/frame y 1.4 % en GPU/frame), como era esperable con sólo 29
+candidatos y bounds grandes. Los números son una medición local, no una promesa
+de rendimiento entre drivers o ejecuciones.
+
+La ruta Win32 conserva las equivalencias de input y no recibió código de
+plataforma nuevo, pero su compilación y smoke Windows 11/NVIDIA permanecen
+pendientes porque este entorno Linux no dispone del toolchain ni del host
+Windows necesarios.
 
 ## Validación transversal
 
@@ -558,15 +622,16 @@ runtime o sólo como configuración de desarrollo.
 
 ## Checklist de cierre
 
-- [ ] Capítulo 76 auditado y exclusiones documentadas.
-- [ ] Passes y attachments son configuración renderer-neutral real.
-- [ ] Vistas poseen sus passes/targets y sobreviven resize transaccionalmente.
-- [ ] Identidades seleccionables son tipadas y generacionales.
-- [ ] Picking `R32_UINT` usa Slang y readback sin stalls globales.
-- [ ] Engine y aplicación tienen ownership/lifecycle separados.
-- [ ] Métricas tienen una única fuente allocation-free.
-- [ ] Frustum culling es conservador, por vista y medible.
-- [ ] Vulkan moderno y legacy pasan validación bajo niri.
+- [x] Capítulo 76 auditado y exclusiones documentadas.
+- [x] Passes y attachments son configuración renderer-neutral real.
+- [x] Vistas poseen configuración estable; el backend publica sus targets
+  window-sized transaccionalmente.
+- [x] Identidades seleccionables son tipadas y generacionales.
+- [x] Picking `R32_UINT` usa Slang y readback sin stalls globales.
+- [x] Engine y aplicación tienen ownership/lifecycle separados.
+- [x] Métricas tienen una única fuente allocation-free.
+- [x] Frustum culling es conservador, por vista y medible.
+- [x] Vulkan moderno y legacy pasan validación bajo niri.
 - [ ] Win32 compila y queda listo para el smoke Windows/NVIDIA.
-- [ ] No se añadió Clay ni ninguna dependencia innecesaria.
-- [ ] Cada cambio importante quedó en un commit semántico independiente.
+- [x] No se añadió Clay ni ninguna dependencia innecesaria.
+- [x] Cada cambio importante quedó en un commit semántico independiente.
