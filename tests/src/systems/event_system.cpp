@@ -34,7 +34,7 @@ namespace {
 
 TEST(EventSystem, DistinguishesCallbacksOwnedByTheSameListener) {
     nk::EventSystem::shutdown();
-    nk::mem::MemorySystem::init();
+    NK_MEMORY_SYSTEM_INIT();
     nk::EventSystem::init();
 
     ListenerProbe listener{};
@@ -70,5 +70,5 @@ TEST(EventSystem, DistinguishesCallbacksOwnedByTheSameListener) {
         second_callback));
 
     nk::EventSystem::shutdown();
-    nk::mem::MemorySystem::shutdown();
+    NK_MEMORY_SYSTEM_SHUTDOWN();
 }

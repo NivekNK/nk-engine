@@ -1018,7 +1018,7 @@ TEST(RendererLighting, PreservesTheLastValidRenderViewMode) {
 
 TEST(RendererLighting, RoutesPortableNumberKeysThroughEvents) {
     nk::EventSystem::shutdown();
-    nk::mem::MemorySystem::init();
+    NK_MEMORY_SYSTEM_INIT();
     nk::EventSystem::init();
 
     nk::mem::MallocAllocator allocator{nk::mem::untracked};
@@ -1054,7 +1054,7 @@ TEST(RendererLighting, RoutesPortableNumberKeysThroughEvents) {
         &renderer,
         nk::on_render_view_mode));
     nk::EventSystem::shutdown();
-    nk::mem::MemorySystem::shutdown();
+    NK_MEMORY_SYSTEM_SHUTDOWN();
 }
 
 TEST(MaterialSystem, RejectsInvalidPointLightConfiguration) {
