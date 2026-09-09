@@ -107,6 +107,12 @@ TEST(RenderPassConfig, ExposesStablePipelineSignature) {
         nk::TextureFormat::depth32_float);
     EXPECT_EQ(signature->sample_count, nk::TextureSampleCount::one);
     EXPECT_TRUE(signature->valid());
+
+    const nk::RenderPassSignature equal = *signature;
+    nk::RenderPassSignature different = *signature;
+    different.color_format = nk::TextureFormat::rgba8_unorm;
+    EXPECT_EQ(nk::hash64(*signature), nk::hash64(equal));
+    EXPECT_NE(nk::hash64(*signature), nk::hash64(different));
 }
 
 TEST(RenderPassConfig, AcceptsOffscreenColorAttachments) {

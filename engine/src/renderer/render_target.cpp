@@ -64,6 +64,17 @@ namespace nk {
         }
     }
 
+    u64 hash64(
+        const RenderPassSignature& signature,
+        const u64 seed) noexcept {
+        const u8 fields[]{
+            static_cast<u8>(signature.color_format),
+            static_cast<u8>(signature.depth_stencil_format),
+            static_cast<u8>(signature.sample_count),
+        };
+        return hash64_bytes(fields, sizeof(fields), seed);
+    }
+
     result<void, render_target_error> validate_render_pass_config(
         const RenderPassConfig& config) noexcept {
         if (config.name.empty())

@@ -24,6 +24,9 @@ namespace nk {
     }
 
     Framebuffer& Framebuffer::operator=(Framebuffer&& other) {
+        if (this == &other)
+            return *this;
+        shutdown();
         m_vulkan_allocator = other.m_vulkan_allocator;
         m_device = other.m_device;
         m_allocator = other.m_allocator;

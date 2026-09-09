@@ -169,14 +169,7 @@ namespace nk {
     }
 
     result<void, renderer_error> VulkanRenderer::recreate_pick_target() {
-        m_pick_framebuffer.shutdown();
-        m_pick_target.reset();
-        if (m_pick_color.m_internal_data != nullptr)
-            destroy_texture(&m_pick_color);
-        if (m_pick_depth.m_internal_data != nullptr)
-            destroy_texture(&m_pick_depth);
-
-        m_pick_color = {
+        Texture next_color{
             .width = m_framebuffer_width,
             .height = m_framebuffer_height,
             .channel_count = 1,
@@ -187,11 +180,7 @@ namespace nk {
             .generation = 0,
             .state = TextureState::ready,
         };
-        auto color_created = create_writable_texture(&m_pick_color);
-        if (!color_created)
-            return err(color_created.error());
-
-        m_pick_depth = {
+        Texture next_depth{
             .width = m_framebuffer_width,
             .height = m_framebuffer_height,
             .channel_count = 1,
@@ -201,33 +190,82 @@ namespace nk {
             .generation = 0,
             .state = TextureState::ready,
         };
-        auto depth_created = create_writable_texture(&m_pick_depth);
-        if (!depth_created)
-            return err(depth_created.error());
+        const auto destroy_temporary_textures = [&]() noexcept {
+            if (next_depth.m_internal_data != nullptr)
+                destroy_texture(&next_depth);
+            if (next_color.m_internal_data != nullptr)
+                destroy_texture(&next_color);
+        };
 
-        Texture* attachments[]{&m_pick_color, &m_pick_depth};
-        auto target_created = m_pick_target.init(
+        auto color_created = create_writable_texture(&next_color);
+        if (!color_created)
+            return err(color_created.error());
+        auto depth_created = create_writable_texture(&next_depth);
+        if (!depth_created) {
+            destroy_temporary_textures();
+            return err(depth_created.error());
+        }
+
+        Texture* next_attachments[]{&next_color, &next_depth};
+        RenderTarget next_target;
+        auto target_created = next_target.init(
             m_pick_pass_config,
             {
                 m_framebuffer_width,
                 m_framebuffer_height,
-                {attachments},
+                {next_attachments},
             });
         if (!target_created) {
+            destroy_temporary_textures();
             return err(renderer_error{
                 renderer_error_code::render_target_config_invalid,
                 static_cast<i32>(target_created.error()),
             });
         }
+
+        Framebuffer next_framebuffer;
         if (!m_device.dynamic_rendering()) {
-            auto framebuffer_created = m_pick_framebuffer.init(
-                m_pick_target,
+            auto framebuffer_created = next_framebuffer.init(
+                next_target,
                 &m_device,
                 m_pick_render_pass,
                 m_vulkan_allocator);
-            if (!framebuffer_created)
+            if (!framebuffer_created) {
+                destroy_temporary_textures();
                 return err(framebuffer_created.error());
+            }
         }
+
+        // Publish only after every Vulkan object has been created. Swapping the
+        // texture metadata keeps their member addresses stable for RenderTarget.
+        std::swap(m_pick_color, next_color);
+        std::swap(m_pick_depth, next_depth);
+        Texture* published_attachments[]{&m_pick_color, &m_pick_depth};
+        RenderTarget published_target;
+        auto published = published_target.init(
+            m_pick_pass_config,
+            {
+                m_framebuffer_width,
+                m_framebuffer_height,
+                {published_attachments},
+            });
+        if (!published) {
+            std::swap(m_pick_depth, next_depth);
+            std::swap(m_pick_color, next_color);
+            next_framebuffer.shutdown();
+            destroy_temporary_textures();
+            return err(renderer_error{
+                renderer_error_code::render_target_config_invalid,
+                static_cast<i32>(published.error()),
+            });
+        }
+
+        m_pick_framebuffer.shutdown();
+        m_pick_target.reset();
+        destroy_temporary_textures();
+        m_pick_target = published_target;
+        if (!m_device.dynamic_rendering())
+            m_pick_framebuffer = std::move(next_framebuffer);
         m_pick_color_in_transfer = false;
         return ok();
     }

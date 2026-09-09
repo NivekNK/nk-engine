@@ -3,6 +3,7 @@
 #include <glm/ext/vector_float4.hpp>
 
 #include "collections/slice.h"
+#include "core/hash.h"
 #include "core/result.h"
 #include "core/strview.h"
 #include "renderer/shader_config.h"
@@ -92,6 +93,10 @@ namespace nk {
 
         bool operator==(const RenderPassSignature&) const noexcept = default;
     };
+
+    [[nodiscard]] u64 hash64(
+        const RenderPassSignature& signature,
+        u64 seed = hash_seed::deterministic) noexcept;
 
     struct RenderPassConfig {
         strview name;
