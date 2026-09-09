@@ -522,6 +522,10 @@ namespace nk {
         f64 benchmark_seconds = 0.0;
         f64 benchmark_gpu_ms = 0.0;
         f64 benchmark_max_ms = 0.0;
+        u64 benchmark_candidates = 0;
+        u64 benchmark_visible = 0;
+        u64 benchmark_culled = 0;
+        u64 benchmark_draws = 0;
         m_frame_metrics.reset();
 #if NK_MEMORY_TRACKING_ENABLED
         u64 stable_frame_allocation_events = 0;
@@ -682,6 +686,10 @@ namespace nk {
                         benchmark_gpu_ms +=
                             metrics.latest.gpu.milliseconds;
                     }
+                    benchmark_candidates += metrics.latest.draw.candidates;
+                    benchmark_visible += metrics.latest.draw.visible;
+                    benchmark_culled += metrics.latest.draw.culled;
+                    benchmark_draws += metrics.latest.draw.draws;
                 }
                 f64 remaining_seconds = target_frame_seconds - frame_elapsed_time;
 
@@ -747,12 +755,16 @@ namespace nk {
 #endif
 
         if (benchmark && benchmark_frames != 0) {
-            InfoLog("Benchmark: {}x{}, frames={}, warmup={}, avg_ms={:.3f}, fps={:.2f}, max_ms={:.3f}, gpu_ms={:.3f}, gpu_samples={}",
+            InfoLog("Benchmark: {}x{}, frames={}, warmup={}, avg_ms={:.3f}, fps={:.2f}, max_ms={:.3f}, gpu_ms={:.3f}, gpu_samples={}, avg_candidates={:.2f}, avg_visible={:.2f}, avg_culled={:.2f}, avg_draws={:.2f}",
                 m_platform->width(), m_platform->height(), benchmark_frames,
                 benchmark_warmup, benchmark_seconds * 1000.0 / benchmark_frames,
                 benchmark_frames / benchmark_seconds, benchmark_max_ms,
                 benchmark_gpu_samples ? benchmark_gpu_ms / benchmark_gpu_samples : -1.0,
-                benchmark_gpu_samples);
+                benchmark_gpu_samples,
+                static_cast<f64>(benchmark_candidates) / benchmark_frames,
+                static_cast<f64>(benchmark_visible) / benchmark_frames,
+                static_cast<f64>(benchmark_culled) / benchmark_frames,
+                static_cast<f64>(benchmark_draws) / benchmark_frames);
         }
         m_platform->close();
     }

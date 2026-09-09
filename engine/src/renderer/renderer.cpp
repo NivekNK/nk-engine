@@ -10,6 +10,7 @@
 #include "systems/material_system.h"
 #include "resources/mesh.h"
 #include "renderer/text_renderer.h"
+#include "renderer/world_draw_list.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -81,6 +82,9 @@ namespace nk {
         }
 
         renderer->m_frame_number = 0;
+        const cstr culling = std::getenv("NK_FRUSTUM_CULLING");
+        renderer->m_frustum_culling_enabled =
+            culling == nullptr || std::strcmp(culling, "0") != 0;
 
         if (!renderer->initialize_world_draw_scratch(
                 *renderer->m_allocator)) {
@@ -138,6 +142,10 @@ namespace nk {
             return err(error);
         }
 
+        InfoLog(
+            "World frustum culling {}.",
+            renderer->m_frustum_culling_enabled ? "enabled" : "disabled");
+
         return ok(static_cast<Renderer*>(renderer));
     }
 
@@ -192,6 +200,16 @@ namespace nk {
                 renderer_error_code::initialization_failed,
                 static_cast<i32>(built.error()),
             });
+        }
+        u32 world_view_index = 0;
+        for (u32 index = 0; index < *built; ++index) {
+            if (view_packets[index].type != RenderViewType::world)
+                continue;
+            auto prepared_view = prepare_world_view_draws(
+                view_packets[index],
+                world_view_index++);
+            if (!prepared_view)
+                return err(prepared_view.error());
         }
         for (u32 index = 0; index < *built; ++index) {
             auto drawn = draw_render_pass(materials, view_packets[index], packet.text);
@@ -289,8 +307,6 @@ namespace nk {
             }
             total += count;
         }
-        m_frame_draw_counters.candidates = static_cast<u32>(total);
-        m_frame_draw_counters.visible = static_cast<u32>(total);
         if (m_world_draw_scratch.allocator() == nullptr &&
             !m_world_draw_scratch.dyarr_init(m_allocator, total)) {
             return err(renderer_error{
@@ -306,66 +322,55 @@ namespace nk {
             });
         }
 
-        auto transparent = [](const Geometry* geometry) noexcept {
-            return geometry != nullptr && geometry->material != nullptr &&
-                   geometry->material->valid() &&
-                   geometry->material->type == MaterialType::world &&
-                   geometry->material->blend_mode ==
-                       MaterialBlendMode::transparent;
-        };
-        u64 opaque_count = 0;
+        u64 destination = 0;
         for (u32 index = 0; index < packet.geometry_count; ++index)
-            opaque_count += transparent(packet.geometries[index].geometry) ? 0 : 1;
-        for (u32 mesh_index = 0; mesh_index < packet.mesh_count; ++mesh_index) {
-            for (Geometry* geometry : packet.meshes[mesh_index].geometries())
-                opaque_count += transparent(geometry) ? 0 : 1;
-        }
-
-        u64 opaque_index = 0;
-        u64 transparent_index = opaque_count;
-        auto append = [&](const GeometryRenderData data) {
-            m_world_draw_scratch[
-                transparent(data.geometry)
-                    ? transparent_index++
-                    : opaque_index++] = data;
-        };
-        for (u32 index = 0; index < packet.geometry_count; ++index)
-            append(packet.geometries[index]);
+            m_world_draw_scratch[destination++] = packet.geometries[index];
         for (u32 mesh_index = 0; mesh_index < packet.mesh_count; ++mesh_index) {
             const Mesh& mesh = packet.meshes[mesh_index];
             const glm::mat4 model = mesh.transform().world_matrix();
-            for (Geometry* geometry : mesh.geometries())
-                append({
+            for (Geometry* geometry : mesh.geometries()) {
+                m_world_draw_scratch[destination++] = {
                     .model = model,
                     .geometry = geometry,
                     .pick_id = mesh.pick_id(),
-                });
-        }
-
-        auto distance_squared = [this](const GeometryRenderData& data) {
-            const glm::vec3 local_center = data.geometry == nullptr
-                ? glm::vec3{0.0f}
-                : data.geometry->center;
-            const glm::vec3 center = glm::vec3{
-                data.model * glm::vec4{local_center, 1.0f}};
-            const glm::vec3 offset = center - m_view_position;
-            const f32 distance = glm::dot(offset, offset);
-            return std::isfinite(distance) ? distance : 0.0f;
-        };
-        // Stable insertion sort keeps submission order for equal distances.
-        for (u64 index = opaque_count + 1; index < total; ++index) {
-            GeometryRenderData value = m_world_draw_scratch[index];
-            const f32 value_distance = distance_squared(value);
-            u64 destination = index;
-            while (destination > opaque_count &&
-                   value_distance > distance_squared(
-                       m_world_draw_scratch[destination - 1])) {
-                m_world_draw_scratch[destination] =
-                    m_world_draw_scratch[destination - 1];
-                --destination;
+                };
             }
-            m_world_draw_scratch[destination] = value;
         }
+        return ok();
+    }
+
+    result<void, renderer_error> Renderer::prepare_world_view_draws(
+        RenderViewPacket& packet,
+        const u32 world_view_index) {
+        if (world_view_index >= RenderViewSystem::maximum_render_view_count) {
+            return err(renderer_error{
+                renderer_error_code::initialization_failed,
+                0,
+            });
+        }
+        const math::Frustum frustum = math::Frustum::from_view_projection(
+            packet.projection * packet.view);
+        auto prepared = build_world_draw_list(
+            {packet.geometries, packet.geometry_count},
+            frustum,
+            packet.view_position,
+            m_frustum_culling_enabled,
+            m_world_view_scratch[world_view_index]);
+        if (!prepared) {
+            return err(renderer_error{
+                prepared.error() == world_draw_list_error::out_of_memory
+                    ? renderer_error_code::out_of_memory
+                    : renderer_error_code::initialization_failed,
+                static_cast<i32>(prepared.error()),
+            });
+        }
+        m_frame_draw_counters.candidates += prepared->candidates;
+        m_frame_draw_counters.visible += prepared->visible;
+        m_frame_draw_counters.culled += prepared->culled;
+        packet.geometry_count = prepared->visible;
+        packet.geometries = m_world_view_scratch[world_view_index].data();
+        packet.mesh_count = 0;
+        packet.meshes = nullptr;
         return ok();
     }
 

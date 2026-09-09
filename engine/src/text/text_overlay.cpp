@@ -56,12 +56,14 @@ namespace nk {
             strbuf<255> status;
             (void)format_to(
                 status,
-                "{:.1f} ms | {:.0f} FPS | GPU {:.2f} ms | draws {}/{} | {} atlas | {} glyphs",
+                "{:.1f} ms | {:.0f} FPS | GPU {:.2f} ms | draws {} | visible {}/{} (-{}) | {} atlas | {} glyphs",
                 metrics.average_frame_ms,
                 metrics.average_fps,
                 metrics.average_gpu_ms,
                 metrics.latest.draw.draws,
+                metrics.latest.draw.visible,
                 metrics.latest.draw.candidates,
+                metrics.latest.draw.culled,
                 stats.pages,
                 stats.rasterized_glyphs);
             auto shaped = m_fonts.layout(m_font, status.view(), {.size=18, .scale=scale}, m_status);

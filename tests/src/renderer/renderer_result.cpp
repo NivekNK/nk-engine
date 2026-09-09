@@ -887,7 +887,9 @@ TEST(RendererResult, RoutesSceneLightingOnlyThroughTheWorldShader) {
     nk::Geometry world_geometry{};
     world_geometry.material = &systems.materials->default_material();
     const nk::GeometryRenderData world_data{
-        .model = glm::mat4{1.0f},
+        .model = glm::translate(
+            glm::mat4{1.0f},
+            glm::vec3{0.0f, 0.0f, -5.0f}),
         .geometry = &world_geometry,
     };
 

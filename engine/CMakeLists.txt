@@ -120,6 +120,7 @@ set(SOURCES
     src/resources/mesh.cpp
     src/resources/shader_loader.cpp
     src/renderer/renderer.cpp
+    src/renderer/world_draw_list.cpp
     src/renderer/render_target.cpp
     src/renderer/picking.cpp
     src/renderer/render_view.cpp

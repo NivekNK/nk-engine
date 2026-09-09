@@ -112,3 +112,19 @@ Las AABB locales se llevan a mundo mediante centro y extents conservadores:
 `worldExtents = abs(mat3(model)) * localExtents`. Esto preserva rotación, escala
 no uniforme y escala negativa. La tangencia cuenta como visible; matrices o
 bounds no finitos también se conservan visibles para fallar sin ocultar objetos.
+
+El renderer calcula el frustum de cada vista world y filtra sólo su lista de
+geometría. Skybox, UI y texto quedan fuera de este culling. Primero se preserva
+el orden de envío de los objetos opacos y después se ordenan únicamente los
+transparentes visibles de atrás hacia delante para la posición de esa vista.
+
+`FrameMetrics` expone candidatos, visibles, descartados y draws finales. Para
+comparar la imagen o aislar una regresión se puede desactivar temporalmente el
+culling sin cambiar la build:
+
+```bash
+NK_FRUSTUM_CULLING=0 nix run .#run -- Release
+```
+
+El valor exacto `0` lo desactiva; si la variable no existe o contiene otro
+valor, el culling permanece activo.

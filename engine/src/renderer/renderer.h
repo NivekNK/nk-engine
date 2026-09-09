@@ -258,10 +258,26 @@ namespace nk {
         [[nodiscard]] bool initialize_world_draw_scratch(
             mem::Allocator& allocator,
             u64 capacity = 256) {
-            return m_world_draw_scratch.allocator() != nullptr ||
-                   m_world_draw_scratch.dyarr_init(&allocator, capacity);
+            if (m_world_draw_scratch.allocator() == nullptr &&
+                !m_world_draw_scratch.dyarr_init(&allocator, capacity)) {
+                return false;
+            }
+            for (cl::dyarr<GeometryRenderData>& scratch :
+                 m_world_view_scratch) {
+                if (scratch.allocator() == nullptr &&
+                    !scratch.dyarr_init(&allocator, capacity)) {
+                    release_world_draw_scratch();
+                    return false;
+                }
+            }
+            return true;
         }
         void release_world_draw_scratch() noexcept {
+            for (cl::dyarr<GeometryRenderData>& scratch :
+                 m_world_view_scratch) {
+                if (scratch.allocator() != nullptr)
+                    (void)scratch.dyarr_shutdown();
+            }
             if (m_world_draw_scratch.allocator() != nullptr)
                 (void)m_world_draw_scratch.dyarr_shutdown();
         }
@@ -281,11 +297,14 @@ namespace nk {
         glm::vec3 m_view_position{};
         RenderViewSystem m_render_views;
         cl::dyarr<GeometryRenderData> m_world_draw_scratch;
+        cl::dyarr<GeometryRenderData> m_world_view_scratch[
+            RenderViewSystem::maximum_render_view_count];
         PickRegistry m_pick_registry;
         PickQueue m_pick_queue;
         PickingFrameLatency m_pick_timing{};
         bool m_pick_timing_pending = false;
         FrameDrawCounters m_frame_draw_counters{};
+        bool m_frustum_culling_enabled = true;
 
         Texture* m_default_texture = nullptr;
         RenderViewMode m_render_view_mode = RenderViewMode::default_lit;
@@ -303,6 +322,9 @@ namespace nk {
             f64 delta_time);
         [[nodiscard]] result<void, renderer_error> prepare_world_draws(
             const RenderPacket& packet);
+        [[nodiscard]] result<void, renderer_error> prepare_world_view_draws(
+            RenderViewPacket& packet,
+            u32 world_view_index);
 
     };
 }
