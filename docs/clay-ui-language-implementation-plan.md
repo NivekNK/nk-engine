@@ -1,7 +1,29 @@
 # Plan: Clay, UI compartida y lenguaje de componentes
 
 Estado: **propuesto; ninguna fase implementada por este documento**.
-Fecha de revisión: 2026-09-08.
+Fecha de revisión: 2026-09-09. Revisión del plan: **2**.
+
+## Cómo usar este plan
+
+Esta guía mantiene arquitectura, decisiones y roadmap. El trabajo verificable
+se detalla en tres documentos, sin renumerar las fases del plan anterior:
+
+- [Fases 0–3: runtime, render, input y consumidores](clay-ui-phases-runtime.md).
+- [Fases 4–6: compilador, componentes C++ y estilos](clay-ui-phases-language.md).
+- [Fases 7–10: recarga, ampliaciones y distribución](clay-ui-phases-reload.md).
+- [Contratos C01–C10](clay-ui-technical-contracts.md): ownership, secuencia de
+  frame, IDs, tipos, CSS, artefactos, ABI y fallos.
+
+La [sección 8](#8-fases-dependencias-y-seguimiento) contiene el índice de gates,
+dependencias, trazabilidad y decisiones pendientes. Cada paquete tiene un ID
+estable para registrar commits y pruebas. Todo sigue pendiente de implementar.
+Las rutas/API/CLI nuevas son propuestas, no funcionalidades disponibles.
+
+Cambios relevantes de esta revisión: subfases y dependencias reales, pruebas por
+entrega, build headless independiente del PCH del engine, validación de tipos por
+niveles y recarga de estado actualizado. Los anexos precisan los contratos de
+esta guía; cualquier modificación posterior debe actualizar ambos, no crear
+dos versiones contradictorias del mismo requisito.
 
 ## 1. Objetivo y decisiones de arquitectura
 
@@ -98,7 +120,9 @@ Referencias locales adicionales: [texto](text-rendering-implementation.md),
 - `tools/ui-language/`: librería `nk-ui-language`, parser, AST, resolución,
   estilos, diagnósticos y emisión. Sin dependencias de ventana, GPU o editor.
 - `tools/ui-compiler/`: CLI `nk-uic`, caché, manifiestos y modo watch.
-- `tests/ui/`, `tests/ui-language/`, `benchmarks/ui/`: contratos y regresiones.
+- `tests/src/ui/`, `tests/ui-language/`, `benchmarks/ui/`: contratos y regresiones.
+  Tests del lenguaje en target headless separado del target actual `tests`, que
+  enlaza engine/Vulkan; tests UI siguen la estructura existente del engine.
 - Assets de juego y editor separados; componentes visuales comunes en un
   paquete compartido. El juego no enlaza paneles ni herramientas del editor.
 
@@ -259,8 +283,7 @@ El script se conserva como C++ y se emite a nivel de translation unit después
 del preámbulo generado, antes de los adaptadores. Puede incluir headers de forma
 normal. Cada componente tiene su `.cpp`, excluido de unity builds; tipos privados
 en namespace anónimo evitan colisiones ODR. El contrato inicial exporta el alias
-`UiModel` y su tabla
-`bindings()`; sin script se genera un modelo vacío.
+`UiModel` y su tabla `bindings()`; sin script se genera un modelo vacío.
 
 Esto no depende de reflexión inexistente en nuestro C++20 ni de interpretar
 C++ con expresiones regulares. El compilador nativo verifica los tipos de los
@@ -347,8 +370,9 @@ sus capas, orígenes, selectores o excepciones.
 No traducir `flex: 1` ciegamente a `CLAY_SIZING_GROW`: deben verificarse todos los
 valores/condiciones anunciados contra la
 [semántica Flexbox](https://www.w3.org/TR/css-flexbox-1/). Si una propiedad sólo
-representa una política propia de NK, usar nombre `--nk-*` reservado o una API
-NK explícita, sin presentarla como CSS equivalente.
+representa una política propia de NK, usar propiedades `nk-*` o una API NK
+explícita, sin presentarla como CSS equivalente. `--token` almacena valores de
+autor y no ejecuta instrucciones especiales por su nombre; C07 detalla el contrato.
 
 La paridad visual de muchas UIs es alcanzable sin implementar toda la web.
 La paridad CSS completa convertiría este trabajo en un proyecto de layout mucho
@@ -372,8 +396,12 @@ bloque. El terminador real se define en la gramática. Las macros no se expanden
 para decidir el cierre; el bloque resultante se entrega al compilador C++.
 
 La IR puede contener referencias simbólicas hasta conocer la tabla del modelo.
-En AOT, el C++ generado produce verificaciones de tipos al compilar; en hot reload
-de datos, se resuelven contra la tabla del módulo ya cargado antes de publicar.
+En AOT, el compilador C++ verifica miembros/firmas registrados y usos cuyo schema
+esté disponible en compile-time. Los contratos restantes entre componentes se
+validan con las tablas compiladas **antes de montar**, también en AOT. En reload
+de datos se resuelven contra el módulo ya cargado antes de publicar. La CI nativa
+debe ejecutar ese validador headless: no prometer que el parser conoce los tipos
+de un script C++ opaco ni que toda validación ocurre al compilar.
 **No ejecutar un binario de la plataforma objetivo durante cross-compilation**
 para obtener reflexión. No embebemos Clang para entender todo el script.
 
@@ -524,176 +552,94 @@ Un componente con `lang="futuro"` tendrá script escrito en ese lenguaje; compar
 template, estilos y servicios. La composición entre lenguajes, si llega, usará
 props/eventos/handles serializables, no objetos C++ cruzando sin contrato.
 
-## 8. Fases de implementación y criterios de cierre
+## 8. Fases, dependencias y seguimiento
 
-Cada fase termina con tests, evidencia en este documento y commits semánticos
-por avance importante. El asunto describe el cambio, sin mencionar fase/capítulo.
-Los checkboxes representan trabajo pendiente, no promesas ya implementadas.
+El plan conserva las fases **0–10**. El detalle ejecutable está dividido por
+tramo para no convertir esta guía en una lista inmanejable. Cada paquete tiene
+ID estable, objetivo, archivos/targets afectados, pruebas, criterio de salida
+y rollback. Los contratos transversales están en
+[contratos C01–C10](clay-ui-technical-contracts.md).
 
-### Fase 0 — Contratos, baseline y fixtures
+### Índice y dependencias mínimas
 
-- [ ] Registrar tiempos/allocations del overlay actual, CPU/GPU y frame pacing.
-- [ ] Diseñar `UiSystem`, `UiSurface`, servicios de texto, lifecycle, límites y
-  `UiDrawList`; fijar orden visual, unidades, input y uso de memoria.
-- [ ] Crear fixtures objetivo: HUD, menú, panel de editor, superposición
-  fondo/texto/imagen, clips anidados, DPI fraccional y texto complejo.
-- [ ] Fijar presupuestos de compilación/recarga y registrar hardware/toolchain
-  reales. Definir compatibilidad UI v0, lenguaje v1 y límites no soportados.
+| Fase | Entrega | Entrada mínima | Detalle / gate de cierre | Estado |
+| --- | --- | --- | --- | --- |
+| 0 | Contratos verificables, harness y baseline. | Estado actual auditado. | [P0.1–P0.5 / G0](clay-ui-phases-runtime.md#fase-0--contratos-ejecutables-y-baseline) | Pendiente |
+| 1 | Clay C++ y render ordenado con texto compartido. | G0. | [P1.1–P1.10 / G1](clay-ui-phases-runtime.md#fase-1--clay-desde-c-y-rendering-ordenado) | Pendiente |
+| 2 | Routing, widgets y edición nativa. | G1. | [P2.1–P2.8 / G2](clay-ui-phases-runtime.md#fase-2--input-widgets-y-edición) | Pendiente |
+| 3 | Game/editor sobre el toolkit y viewport offscreen. | G1 + G2A; G2 para inspector editable. | [P3.1–P3.6 / G3](clay-ui-phases-runtime.md#fase-3--game-ui-y-editor-con-viewport) | Pendiente |
+| 4 | Gramática, parser y compilador headless. | G0; no necesita viewport/editor. | [P4.1–P4.8 / G4](clay-ui-phases-language.md#fase-4--gramática-formal-y-compilador-headless) | Pendiente |
+| 5 | Componentes, schemas y C++ AOT. | G4 + G1 + G2A. | [P5.1–P5.11 / G5](clay-ui-phases-language.md#fase-5--modelo-de-componentes-y-salida-c-aot) | Pendiente |
+| 6 | Perfil CSS, estilos locales y compartidos. | G5. | [P6.1–P6.10 / G6](clay-ui-phases-language.md#fase-6--css-local-imports-y-temas) | Pendiente |
+| 7 | Incrementalidad y recarga de UI/estilos. | G6. | [P7.1–P7.10 / G7](clay-ui-phases-reload.md#fase-7--build-incremental-y-recarga-de-datos) | Pendiente |
+| 8 | Módulos C++ y migración transaccional. | G7; loaders probados por plataforma. | [P8.1–P8.11 / G8](clay-ui-phases-reload.md#fase-8--recarga-nativa-de-c) | Pendiente |
+| 9 | Extensiones visuales acotadas y herramientas editor. | G2 + G3 + G6 + G7; no depende de G8. | [P9.1–P9.7 / G9](clay-ui-phases-reload.md#fase-9--evolución-visual-y-herramientas-propias-del-editor) | Pendiente |
+| 10 | Tooling del lenguaje, distribución y endurecimiento. | Gates obligatorios anteriores. | [P10.1–P10.6 / G10](clay-ui-phases-reload.md#fase-10--tooling-distribución-y-cierre) | Pendiente |
 
-Cierre: ADRs pequeños y tests de contratos; baseline reproducible sin alterar
-la escena ni la semántica de input existente.
+Los gates parciales G1A/G1B, G2A, G4A y G8A permiten comprobar un subsistema antes
+de integrar el siguiente. No equivalen al cierre de su fase. G2A cubre botones,
+foco y routing; G2 además exige edición/clipboard/IME del alcance definido.
 
-### Fase 1 — Clay utilizable desde C++ y render correcto
+Orden práctico: empezar 0–1; cerrar interacción básica de 2; continuar la
+integración de juego/editor y el lenguaje según sus dependencias. El camino a
+recarga rápida es 4 → 5 → 6 → 7; no esperar a docking, CSS completo o hot reload
+nativo para validar esa experiencia.
 
-- [ ] Incorporar Clay a tag mediante submódulo, CSV y Nix/CMake coherentes.
-- [ ] Adaptador privado C++ con arena, errores `result`, contextos y capacidades.
-- [ ] Extraer servicios comunes de fuentes y conectar medición/dibujo existentes.
-- [ ] Implementar lista ordenada para rectángulos, bordes, imágenes, texto y
-  clipping; batching adyacente y shaders Slang necesarios.
-- [ ] Conservar temporalmente un adaptador de UI antigua y migrar overlay demo.
+### Qué significa terminar una fase
 
-Cierre: una UI C++ con texto y controles visuales se dibuja correctamente sobre
-la escena; moderna/legacy, resize, DPI, OOM y teardown validados. Nada del lenguaje
-es necesario para ejecutar este hito.
+1. Sus entradas están disponibles y las decisiones técnicas necesarias se han
+   cerrado con evidencia; no construir sobre supuestos de una fase incompleta.
+2. Todos sus paquetes obligatorios tienen implementación y tests. Un prototipo,
+   API vacía o screenshot aislado no cierra el trabajo.
+3. Se han ejecutado las pruebas relevantes; registrar por separado Linux y
+   Win32, moderna y legacy. Sin prueba Win32, indicar gate parcial de plataforma.
+4. Correctitud, lifetimes y rollback pasan; rendimiento cumple el presupuesto
+   acordado o existe una revisión explícita del presupuesto con evidencia.
+5. Documentación/contratos reflejan lo implementado, ejemplos funcionan y quedan
+   commits semánticos por avance importante, sin fase/capítulo en el asunto.
+6. Actualizar checkboxes **en el documento del tramo**, estado de esta tabla y
+   un informe de evidencia por fase. No duplicar listas de tareas en varios sitios.
 
-### Fase 2 — Runtime interactivo y widgets esenciales
+Plantilla de evidencia a crear durante implementación:
+`docs/evidence/clay-ui/phase-N.md`, con SHA inicial/final, IDs, comandos, entornos,
+tests, capturas/métricas, limitaciones, decisiones y rollback. No se crean informes
+vacíos que parezcan resultados obtenidos.
 
-- [ ] Estado por identidad, foco, captura, navegación de teclado y eventos consumidos.
-- [ ] Label, button, toggle/checkbox, slider, scroll, tooltip y modal básicos.
-- [ ] Input monolínea: caret, selección, edición, undo limitado, clipboard e IME
-  completo para el alcance anunciado, ampliando plataforma cuando corresponda.
-- [ ] Resolver segmentación Unicode necesaria para edición: evaluar una librería
-  especializada si los componentes actuales no bastan. No implementar Unicode
-  completo a mano ni tratar HarfBuzz como algoritmo de bidi de párrafo.
-- [ ] Fixtures de wrapping/shaping y contrato de idiomas inicial. Casos todavía
-  no soportados quedan diagnosticados/documentados, no rotos silenciosamente.
+### Trazabilidad de los requisitos
 
-Cierre: escribir, navegar, seleccionar y activar controles sin mover la cámara
-accidentalmente; borrado correcto en casos Unicode cubiertos, pérdida de foco y
-composición cancelada al desmontar. Foco y scissor coinciden con lo visible.
+| Requisito | Paquetes responsables | Prueba de cierre |
+| --- | --- | --- |
+| Clay compartido entre juego y editor. | P1.1–P1.10, P3.1–P3.6. | Dos consumidores, un toolkit; game no enlaza editor. |
+| Allocators/containers/result propios y C++ con métodos. | P0.2, P1.2, P4.4, P5.1/P5.2. | OOM/lifetimes, API allocator-first, headers headless. |
+| Bloques SFC, script opcional y sólo cpp. | P4.1/P4.5/P4.8, P10.3. | Corpus acepta defaults y rechaza lang no soportado. |
+| Imports, props, eventos, slots y componentes reutilizables. | P4.7, P5.5–P5.7. | Counter/lista, keys, aislamiento de instancias y errores de contrato. |
+| Style local y estilos externos reutilizables. | P6.4/P6.5/P6.8. | Scopes, cascada y tokens sin filtración entre componentes. |
+| CSS creciente sin falsas equivalencias. | P6.1–P6.10, P9.3–P9.6. | Matriz propiedad/valor → lowering → fixture o error. |
+| Compilar a C++ sin toolchain pesado en el runtime. | P5.8–P5.10, P10.4. | AOT, no-op build, juego sin parser/watch/compiler. |
+| Recarga rápida y estado preservado. | P7.4–P7.10, P8.5–P8.9. | Latencias medidas, snapshot actual, rechazo de candidatos inválidos. |
+| Extensibilidad futura de lenguaje. | P5.1/P5.3, P10.3. | Contrato backend testeado; sólo CppBackend real. |
+| Slang y Vulkan compatible inspirado en NoGraphicsAPI. | P1.8/P1.9, P3.4, P9.5. | Moderna/legacy, sin GPU mínima nueva ni stalls globales. |
+| Submódulos a tags y CSV/Nix coherentes. | P1.1, P4.3, P2.5, P10.1/P10.4. | Pins, licencias y build limpio reproducibles. |
+| Herramientas editor propias sobre el runtime real. | P3.2, P9.1/P9.7, P10.1/P10.2. | Preview/inspector consumen las mismas instancias y diagnósticos. |
 
-### Fase 3 — Uso real en juego y editor
+### Decisiones y experimentos
 
-- [ ] HUD/menú de juego y shell de editor sobre el mismo toolkit, con servicios
-  y paquetes separados. Game build no arrastra herramientas de editor.
-- [ ] Añadir target offscreen y asociación de viewport/cámara/tamaño por vista
-  necesaria para mostrar la escena como imagen de UI; no asumir API ya existente.
-- [ ] Sincronización render-to-texture → sampling, resize transaccional y
-  retirement GPU tanto moderna como legacy.
-- [ ] Mapear input/picking a viewport; toolbar, jerarquía simple e inspector
-  mínimo de una propiedad real mediante comandos del host.
+| Decisión | Estado | Cómo/cuándo se cierra |
+| --- | --- | --- |
+| Clay, C++ primero, style local y plataformas actuales. | Requisito del proyecto; no cambiar silenciosamente. | Invariantes en todas las fases. |
+| Nombres .nkui/.nkcss/nk-uic y gramática concreta. | Propuesta de diseño. | P4.1 con corpus versionado. |
+| Propiedad de fuentes, secuencia de frame y color. | Contratos propuestos C02–C04. | P0.1/P0.2 y fixtures G1. |
+| lexy frente a parser propio. | lexy preferido, sin instalar. | Spike P4.2/P4.3: tiempo, memoria, diagnósticos y build. |
+| Segmentación Unicode adicional. | Biblioteca por determinar si hace falta. | P2.5 con corpus/version/licencia. |
+| Recarga nativa propia o utilidad externa. | SDK mínimo propio propuesto. | P8.3; no imponer RCC++ sin comparar contratos. |
+| Técnica de clipping redondeado. | Pendiente de medición. | P9.5, dos candidatos compatibles con moderna/legacy. |
+| Tree-sitter para tooling. | Opcional, no requisito de runtime. | P10.1: utilidad incremental frente a coste/dependencias. |
+| CSS completo, nuevo scripting, fork grande o nueva plataforma. | Fuera del alcance aprobado. | Consultar antes de ampliar; sección 10. |
 
-Cierre: escena visible dentro del editor con paneles, selección y menú de juego
-aislados, sin GPU stalls nuevos. Docking, multiventana y editor completo no son
-requisitos para cerrar esta fase.
-
-### Fase 4 — Especificación y librería del lenguaje
-
-- [ ] Fijar gramática v1 de bloques/imports/template/expresiones/estilos y formato
-  de diagnóstico. Publicar corpus de ejemplos válidos e inválidos.
-- [ ] Prototipo acotado de lexy; decidir con evidencia frente al fallback manual.
-  Incorporar sólo la dependencia elegida y registrar pin/CSV/Nix si procede.
-- [ ] Implementar separación fundacional mínima, librería sin engine/renderer,
-  extractor C++, parser, AST con spans y resolución del grafo de imports.
-- [ ] CLI `nk-uic check` con límites de tamaño/profundidad y recuperación de errores.
-- [ ] Fuzzing del extractor/parser, ciclos, rutas, encoding y `</script>` en strings.
-
-Cierre: parsea el ejemplo y componentes importados; rechaza `lang="js"`, bloques
-duplicados y estilos inválidos con archivo/línea/columna. La librería puede
-probarse headless sin inicializar memoria global, ventana o Vulkan.
-
-### Fase 5 — Componentes, bindings e implementación C++ AOT
-
-- [ ] IR común y API de registro C++20: props, estado, acciones, eventos y slots.
-- [ ] Emitir C++ determinista, estáticas/tablas y verificaciones de tipos; maps
-  de origen y depfiles. CMake construye las UIs como assets compilados del proyecto.
-- [ ] Implementar interpolación, bindings, condiciones, listas con claves y slots.
-- [ ] Lifecycle mount/update/unmount, límites de profundidad/expansión y errores
-  runtime. Definir ownership para strings, slices y payloads de eventos.
-- [ ] Convertir un widget compartido y una vista de juego/editor a `.nkui`.
-
-Cierre: componente funcional compilado a C++ con estilo base, error de handler/prop
-mal tipados en build, estado independiente en varias instancias y listas que
-conservan estado al reordenarse. El ejemplo con estilos externos se completa
-en fase 6.
-No parser ni JIT en el frame; API C++ manual sigue funcionando.
-
-### Fase 6 — CSS local y reutilizable
-
-- [ ] Implementar el perfil inicial de la matriz, cascada, scope, herencia,
-  imports de estilos, variables y estados interactivos.
-- [ ] Reglas preindexadas por scope/tipo/clase; resolver estáticos al compilar y
-  cachear combinaciones dinámicas con invalidación explícita.
-- [ ] Validar unidades/rangos y casos no equivalentes a Clay; no ignorar
-  propiedades desconocidas ni tratarlas como equivalentes CSS.
-- [ ] Aplicar mismo theme base a HUD/editor con overrides locales y comprobar
-  que clases iguales en componentes distintos no filtran reglas.
-
-Cierre: hojas externas reutilizadas y `<style>` encapsulado, especificidad
-correcta, tokens sin ciclos, fixtures de layout/color comparables y errores claros
-al usar Grid/wrap/propiedades aún no soportadas.
-
-### Fase 7 — Compilación incremental y recarga de UI/estilos
-
-- [ ] Paquetes `.nkuib` versionados con validación de offsets, tipos, límites,
-  referencias y compatibilidad; sin punteros crudos ni opcodes arbitrarios.
-- [ ] Ruta de datos basada en la IR común, watcher multiplataforma, grafo/caché,
-  worker y scripts Bash/PowerShell/Nix de desarrollo.
-- [ ] Recarga transaccional con errores visibles, last-good y descarte de jobs
-  obsoletos; mantener foco/scroll/estado compatible por clave.
-- [ ] Diferenciar datos y contrato nativo: pedir recompilación si un binding
-  nuevo no existe. Assets se preparan antes de publicar o usan fallback acordado.
-- [ ] Comparar ejecución AOT y recargable de todos los fixtures con mismo input.
-
-Cierre: editar layout/estilos sin reiniciar ni invocar el compilador C++ cuando
-el cambio es sólo de datos. Errores y guardados parciales no rompen la UI activa;
-latencias registradas, no estimadas.
-
-### Fase 8 — Recarga nativa de scripts C++
-
-- [ ] Prototipo aislado Linux/Win32 con ABI/versiones, compilación/link
-  incrementales y módulos de nombre único, sin hot reload del engine completo.
-- [ ] Factories, esquema de estado, migración, prepare/commit/retire y drenaje de
-  callbacks/jobs; manejar fallos sin descargar prematuramente el módulo válido.
-- [ ] Detectar cambios de ABI y ofrecer reinicio controlado cuando corresponda.
-- [ ] Integrar diagnósticos nativos mapeados a `.nkui`, cache y toolchain Nix/Windows.
-
-Cierre: cambiar un handler y agregar un campo conservando estado compatible;
-fallos de compilación/migración mantienen la versión anterior. Ciclos repetidos
-no acumulan módulos, objetos, callbacks ni GPU resources. Prueba real en ambas
-plataformas; compilar Win32 desde Linux no sustituye verificar su loader.
-
-### Fase 9 — Ampliación visual, CSS y herramientas de editor
-
-- [ ] Priorizar desde pantallas reales: unidades relativas, `calc`, tamaños de
-  superficie, object-fit, sombras/gradientes y transiciones acotadas.
-- [ ] Implementar clipping redondeado y transforms con hit testing consistente;
-  evaluar coste de máscaras/stencil/intermedios antes de fijar el backend.
-- [ ] Añadir controles compuestos, listas virtualizadas, árbol e inspector con
-  undo/redo del host; docking sólo tras definir persistencia y foco entre paneles.
-- [ ] Inspector UI propio: árbol de instancias, bounds, clip, estilos computados,
-  fuentes de reglas, memoria y coste. Preview usa el runtime real.
-- [ ] Cada propiedad nueva entra en matriz con tests; flex completo/Grid/u otro
-  solver se consideran una ampliación explícita, no requisito encubierto.
-
-Cierre: escoger y documentar un conjunto de mejoras con utilidad demostrada;
-rendimiento medido. La compatibilidad CSS no aumenta por declarar aliases.
-
-### Fase 10 — Tooling del lenguaje, empaquetado y endurecimiento
-
-- [ ] Resaltado, formato y navegación `.nkui`; evaluar Tree-sitter para edición
-  incompleta y un LSP pequeño que reutilice diagnósticos/semántica del compilador.
-- [ ] Completar autocompletado de bindings/componentes y mapas de código C++;
-  no duplicar semántica en el editor ni implementar un IDE C++ desde cero.
-- [ ] Documentar `ScriptBackend` y probar extensibilidad sin instalar otro lenguaje.
-- [ ] Targets de distribución sin watcher/compiler/editor; toolchain host separada,
-  assets/licencias y build reproducible desde checkout limpio con submódulos.
-- [ ] Cerrar matriz de regresión, presupuesto de recursos y guía de migración
-  del lenguaje. Extraer repositorio independiente sólo si aporta un beneficio real.
-
-Cierre: runtime de juego reducido, demos de editor/game y pipeline CI completos;
-especificación versionada y limitaciones visibles. No declarar acabado un editor
-profesional ni un motor CSS completo por cerrar este plan.
+Resolver detalles de implementación dentro de estos contratos no exige una nueva
+decisión del usuario en cada paso. Sí detener la parte afectada si una alternativa
+cambia alcance, plataformas, hardware mínimo, dependencia principal o confianza
+del código. Documentar el bloqueo y qué otras tareas independientes siguen viables.
 
 ## 9. Rendimiento, regresión y rollback
 
@@ -713,6 +659,48 @@ medidos ni garantías universales:
   draw calls, bytes subidos, picos de memoria y p95/p99 de frame del juego.
 - Una regresión > 10% sostenida en un escenario comparable exige investigación;
   comparar múltiples ejecuciones y dispersión, no un único FPS promedio.
+
+### Protocolo de medición
+
+Fijarlo en P0.4/P0.5 y mantenerlo en los informes de cada fase:
+
+1. Registrar CPU/GPU, driver, compilador/configuración, SHA, tag de librerías,
+   resolución/escala, modo Vulkan y opciones de benchmark. No comparar Debug con
+   Release ni medir sólo con la GPU ocupada por otro proceso sin advertirlo.
+2. Para UI estable: calentamiento y precarga declarados, después al menos 1.200
+   frames por ejecución y cinco repeticiones. Mantener misma escena e input.
+   Separar UI aislada, escena sin UI y escena con UI para atribuir costes.
+3. Para recarga: 100 cambios de datos y al menos 50 cambios nativos pequeños con
+   caché caliente; reportar los ensayos fríos aparte. Muestras insuficientes se
+   etiquetan como exploratorias, no conclusiones sobre p99.
+4. Timestamps: save detectado, dependencias leídas, parse/lower/codegen, compile,
+   link, recurso listo, commit de candidato y frame presentado. Medir desde
+   guardado real cuando el harness lo controle; no llamar «guardar→visible» a
+   una métrica que sólo empieza tras el debounce.
+5. A/B con misma secuencia y múltiples repeticiones. Correctitud/OOM/UAF/orden
+   visual son gates duros; budgets temporales son objetivos que deben fijarse o
+   revisarse explícitamente con datos, no cambiarse al final para declarar éxito.
+
+La recarga de estado no se prueba sólo guardando cuando todo está quieto:
+incrementar/editar mientras compila, mover foco, cambiar escala y eliminar un
+componente con callbacks pendientes. Contar invocaciones del compilador nativo
+para demostrar que una edición de CSS no lo activa accidentalmente.
+
+### Registro de riesgos y respuesta
+
+| Riesgo | Detección concreta | Respuesta / responsable |
+| --- | --- | --- |
+| Texto por encima de paneles que deberían taparlo. | R01 y secuencia CPU de comandos. | Bloquear G1 hasta corregir orden; P1.7/P1.8. |
+| Geometría de hits vieja o polling sin consumo. | Click tras resize y escritura con cámara activa. | Snapshot/versionado y vista de input enrutada; P2.1/P2.2. |
+| Cache Clay devuelve medidas obsoletas. | Cambio de idioma/font/scale en dos superficies. | Invalidación de ambas caches; P1.5/P1.6. |
+| Herramienta arrastra Vulkan/PCH/engine. | Configuración sólo-herramientas limpia. | Frontera C01 y headers propios; P4.4. |
+| Falso soporte de CSS o tipos C++ mágicos. | Fixtures negativos, matrices y errores por nivel. | Limitar perfil y validar schema real; P5.10/P6.1. |
+| Mezcla de dependencias o job atrasado. | Ediciones multiarquivo durante build. | Revalidación de snapshot y generación; P7.6/P7.9. |
+| Estado retrocede tras recompilar. | Incrementar mientras compila. | Snapshot actual/revisión y migración; P8.6. |
+| Unload con código todavía referenciado. | Jobs/callbacks pendientes, test de cierre. | Rechazar swap inseguro, drenar/destruir antes de unload; P8.8. |
+| Ampliación CSS/editor sin final definido. | Tarea fuera de P9.1–P9.7. | Backlog explícito y nueva decisión de alcance. |
+
+### Matriz de validación transversal
 
 Pruebas en cada fase, no sólo al final:
 
