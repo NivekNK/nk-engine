@@ -1,6 +1,6 @@
 # NK UI: fases 7–10, recarga, evolución y distribución
 
-Revisión: 2026-09-09. Todas las tareas están pendientes.
+Revisión: 2026-09-10. Todas las tareas están pendientes.
 [Plan principal](clay-ui-language-implementation-plan.md) ·
 [Contratos](clay-ui-technical-contracts.md) ·
 [Tramo anterior](clay-ui-phases-language.md).
@@ -35,8 +35,9 @@ ventana. Integrar CMake/Nix y scripts `.sh`/`.ps1` de igual comportamiento.
 ### P7.B — Invalidación y herramientas
 
 - [ ] **P7.4 — Grafo incremental.** Claves de C08 por bloque y dependencia;
-  interfaces/compilador/configuración forman parte de caché. No-op sin writes.
-  Registrar motivo exacto de invalidación y cuántos componentes se recompilaron.
+  interfaces/schema/Clang/toolchain/configuración forman parte de caché. No-op
+  sin writes ni proceso Clang. Registrar motivo exacto de invalidación, si exige
+  reflect/native compile y cuántos componentes se recompilaron.
 - [ ] **P7.5 — File watcher.** Watch de directorios para guardado mediante rename;
   altas/bajas, paths con espacios/UTF-8, cambio de symlink y overflow de eventos.
   Debounce configurable, rescan/reconciliación y cancelación de jobs obsoletos.
@@ -48,7 +49,8 @@ ventana. Integrar CMake/Nix y scripts `.sh`/`.ps1` de igual comportamiento.
 - [ ] **P7.7 — Flujo de desarrollo.** Comandos propuestos `nk-uic build/watch`
   con mismo manifiesto; scripts Bash/PowerShell equivalentes. Artefactos en build
   mutable; tool host empaquetado por Nix, outputs nunca en el store. Build nativo
-  no se invoca ante cambios exclusivamente UI/CSS, y se prueba contando invocaciones.
+  ni `nk-ui-reflect` se invocan ante cambios exclusivamente UI/CSS, y se prueba
+  contando ambos procesos.
 
 ### P7.C — Publicación y conservación de estado
 
@@ -90,8 +92,9 @@ loader permisivo que ignore campos desconocidos.
 **Salida:** hot reload bajo contrato de scripts UI, no de cualquier C++ del engine.
 
 Nuevas piezas: SDK de bindings/host API de desarrollo, loader `.so`/DLL,
-compilación/link incrementales y coordinador de migración. Mantener privados los
-tipos dinámicos del módulo y los hooks de plataforma fuera del renderer.
+reflexión Clang + compilación/link incrementales y coordinador de migración.
+Mantener privados los tipos dinámicos del módulo y los hooks de plataforma fuera
+del renderer; `UiSchema` acompaña siempre a la generación nativa que describe.
 
 ### P8.A — Spike de ABI y loaders
 
@@ -100,8 +103,9 @@ tipos dinámicos del módulo y los hooks de plataforma fuera del renderer.
   cruzar exceptions/RTTI. Factory allocator-first usa wrapper de callbacks de
   allocation host; nunca hacer free en un CRT distinto.
 - [ ] **P8.2 — Compatibilidad.** Fingerprint de plataforma, arquitectura,
-  toolchain/runtime, configuración, defines de tracking, ABI y schema. Rechazar
-  antes de llamar factories. Diferenciar formato UI vs schema vs ABI nativo.
+  frontend Clang/plugin, toolchain target/runtime, configuración, defines de
+  tracking, ABI y schema. Rechazar antes de llamar factories. Diferenciar formato
+  UI vs schema vs ABI nativo; metadata de otro Clang no se reutiliza en silencio.
 - [ ] **P8.3 — Spike mínimo.** Un componente contador en módulo independiente,
   cambio de handler y campo, carga de generación única y unload limpio. Comparar
   implementación pequeña con contratos de RCC++ como referencia; no instalar una
@@ -116,9 +120,11 @@ módulo mínimo en cada plataforma; no habilitar módulos de gameplay arbitrario
 
 ### P8.B — Estado y transacción
 
-- [ ] **P8.5 — Schema de estado.** IDs/tipos/versiones y serialización de campos
-  registrados. Defaults para nuevos, descarte explícito de eliminados, adaptador
-  para incompatibles; strings/listas reconstruidos con allocator del destino.
+- [ ] **P8.5 — Schema de estado.** IDs/tipos/versiones de campos
+  `[[nkui::state]]` extraídos por Clang y serialización de tipos soportados.
+  Defaults para nuevos, descarte explícito de eliminados, adaptador para
+  incompatibles; strings/listas reconstruidos con allocator del destino. Un
+  rename sin ID estable se reporta como remove+add, no se adivina por posición.
 - [ ] **P8.6 — Snapshot actual.** Capturar en frontera segura después del build,
   no guardar el contador de hace dos segundos cuando empezó a compilar. Si se
   migra fuera del hilo propietario, revalidar revisión antes de commit.
@@ -133,8 +139,11 @@ módulo mínimo en cada plataforma; no habilitar módulos de gameplay arbitrario
 ### P8.C — Flujo y límites del usuario
 
 - [ ] **P8.9 — Build de scripts.** Objetos/módulos afectados según depfiles del
-  compilador, flags iguales al host SDK, caché y maps a `.nkui`. No reconstruir
-  engine/FreeType/Clay al cambiar un handler pequeño.
+  frontend Clang y compilador, flags equivalentes al target/host SDK, caché y maps
+  a `.nkui`. Pipeline reflect → validate → generate → compile/link publica schema
+  y módulo como candidato indivisible. No reconstruir engine/FreeType/Clay al
+  cambiar un handler pequeño; un cambio sólo de body puede reutilizar schema si
+  AST público y dependencias semánticas producen exactamente el mismo hash.
 - [ ] **P8.10 — UX de desarrollo.** Rejected/needs-restart con razón, última
   versión válida visible y opción de reinicio controlado. Compilar módulos sólo
   de proyectos locales confiables; sin ejecución automática de código descargado.
@@ -148,10 +157,14 @@ módulo mínimo en cada plataforma; no habilitar módulos de gameplay arbitrario
   una copia tomada al inicio. Campo incompatible no se copia con `memcpy`.
 - Un error de compile/link/migrate no cambia el módulo activo; un cambio del
   engine/ABI informa reinicio, no intenta hacerlo pasar como hot reload compatible.
+- Un schema generado desde otra versión de script/plugin o un módulo cuyo export
+  no coincide se rechaza antes de construir instancias; nunca hay handlers nuevos
+  operando sobre la descripción anterior.
 - Cien ciclos y cierre durante compilación: sin callbacks a librerías descargadas,
   módulos filtrados, memoria viva de CRT incorrecto ni resources GPU retenidos.
-- Evidencia real de loader Linux y Win32. Medir compile/link/load/migrate/retire
-  por separado; objetivo de latencia no equivale a prometer C++ instantáneo.
+- Evidencia real de loader Linux y Win32. Medir reflect/schema, codegen, compile,
+  link, load, migrate y retire por separado; objetivo de latencia no equivale a
+  prometer C++ instantáneo.
 
 **Rollback:** deshabilitar native reload; conservar data reload de G7 y scripts
 compilados al arrancar. Mantener restart controlado como camino soportado.
@@ -231,23 +244,30 @@ no aceptar silenciosamente propiedades cuya implementación se desactivó.
 ### Paquetes de trabajo
 
 - [ ] **P10.1 — Editor de fuentes.** Resaltado y formato sin alterar script C++
-  ni whitespace significativo. Evaluar Tree-sitter para edición incompleta; la
-  gramática de tooling no sustituye al compilador autoritativo. Si se adopta,
-  registrar tag/CSV y documentar generación de parser como herramienta de dev.
+  ni whitespace significativo, incluidos atributos `nkui`. Evaluar Tree-sitter
+  para edición incompleta; su gramática no sustituye a Clang. clangd puede tratar
+  los custom attributes como desconocidos si no carga nuestro frontend: suprimir
+  sólo ese warning y superponer información desde `UiSchema`, sin fingir soporte
+  semántico. Si se adopta Tree-sitter, registrar tag/CSV y generación de parser.
 - [ ] **P10.2 — Servicio de lenguaje mínimo.** Diagnósticos, go-to import/componente,
   hover de props/estilos y completado de bindings conocidos. Versionar documentos
-  y descartar resultados viejos. Mapear C++ al tooling existente, no implementar
-  semántica completa de C++ otra vez; no es requisito un IDE visual completo.
+  y descartar resultados viejos. Combinar diagnósticos/spans de `nk-ui-reflect`
+  con tooling C++ existente; no implementar semántica C++ otra vez ni exigir
+  cargar un plugin binario no confiable dentro del proceso del editor.
 - [ ] **P10.3 — Backend extensible.** Cerrar interfaz `ScriptBackend` con
-  `CppBackend`, contratos de error/migración y dobles de test. `lang` desconocido
-  sigue rechazado; no instalar otro lenguaje para demostrar extensibilidad.
+  `CppBackend` dueño de extracción Clang, schema, saneado, compilación y migración;
+  contratos de error y dobles de test. Otros backends producirán el mismo
+  `UiSchema` mediante mecanismos propios. `lang` desconocido sigue rechazado;
+  no instalar otro lenguaje para demostrar extensibilidad.
 - [ ] **P10.4 — Artefactos de producto.** Targets/options separan game, editor,
   compilador host, data reload y native reload. Assets C++/binarios versionados,
-  licencias y pins coherentes. Build empaquetado funciona sin fuentes, SDK de
-  compilación, watcher, parser, `.so`/DLL de desarrollo o red.
+  licencias y pins coherentes. Build empaquetado funciona sin fuentes, Clang/LLVM,
+  SDK de compilación, watcher, parser, `.so`/DLL de desarrollo o red. El paquete
+  de desarrollo sí verifica versión exacta de `nk-ui-reflect` antes de usar caché.
 - [ ] **P10.5 — CI y matriz real.** Headless tests, corpus/fuzz, AOT/data diff,
   GPU smoke moderna/legacy, input/plataforma, sanitizers y tracking según soporte.
-  Verificar target nativo en Windows además de Linux; un cross-build no basta.
+  Verificar reflexión y target nativos en Windows además de Linux, incluyendo
+  paths/response files de clang-cl o Clang/MinGW; un cross-build no basta.
 - [ ] **P10.6 — Evidencia y mantenimiento.** Revisar cada gate/tarea, registrar
   pendientes, límites y guía de cambios de versión. Dejar instrucciones de
   build/run/watch/recovery iguales en Bash y PowerShell, con ejemplos ejecutados.
