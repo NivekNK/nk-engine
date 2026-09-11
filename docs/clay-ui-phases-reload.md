@@ -1,6 +1,6 @@
 # NK UI: fases 7–10, recarga, evolución y distribución
 
-Revisión: 2026-09-10. Todas las tareas están pendientes.
+Revisión: 2026-09-11. Todas las tareas están pendientes.
 [Plan principal](clay-ui-language-implementation-plan.md) ·
 [Contratos](clay-ui-technical-contracts.md) ·
 [Tramo anterior](clay-ui-phases-language.md).
@@ -35,9 +35,9 @@ ventana. Integrar CMake/Nix y scripts `.sh`/`.ps1` de igual comportamiento.
 ### P7.B — Invalidación y herramientas
 
 - [ ] **P7.4 — Grafo incremental.** Claves de C08 por bloque y dependencia;
-  interfaces/schema/Clang/toolchain/configuración forman parte de caché. No-op
-  sin writes ni proceso Clang. Registrar motivo exacto de invalidación, si exige
-  reflect/native compile y cuántos componentes se recompilaron.
+  interfaces/schema/GCC/plugin/configuración forman parte de caché. No-op sin
+  writes ni procesos GCC. Registrar motivo exacto de invalidación, si exige
+  schema/compile nativo y cuántos componentes se recompilaron.
 - [ ] **P7.5 — File watcher.** Watch de directorios para guardado mediante rename;
   altas/bajas, paths con espacios/UTF-8, cambio de symlink y overflow de eventos.
   Debounce configurable, rescan/reconciliación y cancelación de jobs obsoletos.
@@ -49,8 +49,8 @@ ventana. Integrar CMake/Nix y scripts `.sh`/`.ps1` de igual comportamiento.
 - [ ] **P7.7 — Flujo de desarrollo.** Comandos propuestos `nk-uic build/watch`
   con mismo manifiesto; scripts Bash/PowerShell equivalentes. Artefactos en build
   mutable; tool host empaquetado por Nix, outputs nunca en el store. Build nativo
-  ni `nk-ui-reflect` se invocan ante cambios exclusivamente UI/CSS, y se prueba
-  contando ambos procesos.
+  ni la pasada GCC de schema se invocan ante cambios exclusivamente UI/CSS, y se
+  prueba contando ambos procesos.
 
 ### P7.C — Publicación y conservación de estado
 
@@ -92,7 +92,7 @@ loader permisivo que ignore campos desconocidos.
 **Salida:** hot reload bajo contrato de scripts UI, no de cualquier C++ del engine.
 
 Nuevas piezas: SDK de bindings/host API de desarrollo, loader `.so`/DLL,
-reflexión Clang + compilación/link incrementales y coordinador de migración.
+schema mediante plugin GCC + compilación/link incrementales y coordinador de migración.
 Mantener privados los tipos dinámicos del módulo y los hooks de plataforma fuera
 del renderer; `UiSchema` acompaña siempre a la generación nativa que describe.
 
@@ -103,9 +103,9 @@ del renderer; `UiSchema` acompaña siempre a la generación nativa que describe.
   cruzar exceptions/RTTI. Factory allocator-first usa wrapper de callbacks de
   allocation host; nunca hacer free en un CRT distinto.
 - [ ] **P8.2 — Compatibilidad.** Fingerprint de plataforma, arquitectura,
-  frontend Clang/plugin, toolchain target/runtime, configuración, defines de
+  build GCC/plugin, toolchain target/runtime, configuración, defines de
   tracking, ABI y schema. Rechazar antes de llamar factories. Diferenciar formato
-  UI vs schema vs ABI nativo; metadata de otro Clang no se reutiliza en silencio.
+  UI vs schema vs ABI nativo; metadata de otro GCC no se reutiliza en silencio.
 - [ ] **P8.3 — Spike mínimo.** Un componente contador en módulo independiente,
   cambio de handler y campo, carga de generación única y unload limpio. Comparar
   implementación pequeña con contratos de RCC++ como referencia; no instalar una
@@ -121,7 +121,7 @@ módulo mínimo en cada plataforma; no habilitar módulos de gameplay arbitrario
 ### P8.B — Estado y transacción
 
 - [ ] **P8.5 — Schema de estado.** IDs/tipos/versiones de campos
-  `[[nkui::state]]` extraídos por Clang y serialización de tipos soportados.
+  `[[nkui::state]]` extraídos por GCC y serialización de tipos soportados.
   Defaults para nuevos, descarte explícito de eliminados, adaptador para
   incompatibles; strings/listas reconstruidos con allocator del destino. Un
   rename sin ID estable se reporta como remove+add, no se adivina por posición.
@@ -139,8 +139,8 @@ módulo mínimo en cada plataforma; no habilitar módulos de gameplay arbitrario
 ### P8.C — Flujo y límites del usuario
 
 - [ ] **P8.9 — Build de scripts.** Objetos/módulos afectados según depfiles del
-  frontend Clang y compilador, flags equivalentes al target/host SDK, caché y maps
-  a `.nkui`. Pipeline reflect → validate → generate → compile/link publica schema
+  paso GCC de schema y compilación, flags equivalentes al target/host SDK, caché y maps
+  a `.nkui`. Pipeline GCC/schema → validate → generate → compile/link publica schema
   y módulo como candidato indivisible. No reconstruir engine/FreeType/Clay al
   cambiar un handler pequeño; un cambio sólo de body puede reutilizar schema si
   AST público y dependencias semánticas producen exactamente el mismo hash.
@@ -162,7 +162,7 @@ módulo mínimo en cada plataforma; no habilitar módulos de gameplay arbitrario
   operando sobre la descripción anterior.
 - Cien ciclos y cierre durante compilación: sin callbacks a librerías descargadas,
   módulos filtrados, memoria viva de CRT incorrecto ni resources GPU retenidos.
-- Evidencia real de loader Linux y Win32. Medir reflect/schema, codegen, compile,
+- Evidencia real de loader Linux y Win32. Medir GCC/schema, codegen, compile,
   link, load, migrate y retire por separado; objetivo de latencia no equivale a
   prometer C++ instantáneo.
 
@@ -245,29 +245,29 @@ no aceptar silenciosamente propiedades cuya implementación se desactivó.
 
 - [ ] **P10.1 — Editor de fuentes.** Resaltado y formato sin alterar script C++
   ni whitespace significativo, incluidos atributos `nkui`. Evaluar Tree-sitter
-  para edición incompleta; su gramática no sustituye a Clang. clangd puede tratar
-  los custom attributes como desconocidos si no carga nuestro frontend: suprimir
-  sólo ese warning y superponer información desde `UiSchema`, sin fingir soporte
-  semántico. Si se adopta Tree-sitter, registrar tag/CSV y generación de parser.
+  para edición incompleta; su gramática no sustituye a GCC. El servicio NK usa
+  la pasada `g++ -fsyntax-only` para semántica/atributos y mantiene el último
+  `UiSchema` válido mientras el archivo está incompleto. Si se adopta Tree-sitter,
+  registrar tag/CSV y generación de parser.
 - [ ] **P10.2 — Servicio de lenguaje mínimo.** Diagnósticos, go-to import/componente,
   hover de props/estilos y completado de bindings conocidos. Versionar documentos
-  y descartar resultados viejos. Combinar diagnósticos/spans de `nk-ui-reflect`
-  con tooling C++ existente; no implementar semántica C++ otra vez ni exigir
-  cargar un plugin binario no confiable dentro del proceso del editor.
+  y descartar resultados viejos. Combinar diagnósticos/spans del proceso GCC/plugin
+  con tooling C++ existente; no implementar semántica C++ otra vez ni cargar el
+  plugin dentro del proceso del editor.
 - [ ] **P10.3 — Backend extensible.** Cerrar interfaz `ScriptBackend` con
-  `CppBackend` dueño de extracción Clang, schema, saneado, compilación y migración;
+  `CppBackend` dueño de extracción GCC, schema, compilación y migración;
   contratos de error y dobles de test. Otros backends producirán el mismo
   `UiSchema` mediante mecanismos propios. `lang` desconocido sigue rechazado;
   no instalar otro lenguaje para demostrar extensibilidad.
 - [ ] **P10.4 — Artefactos de producto.** Targets/options separan game, editor,
   compilador host, data reload y native reload. Assets C++/binarios versionados,
-  licencias y pins coherentes. Build empaquetado funciona sin fuentes, Clang/LLVM,
+  licencias y pins coherentes. El paquete resultante funciona sin fuentes, GCC/plugin,
   SDK de compilación, watcher, parser, `.so`/DLL de desarrollo o red. El paquete
-  de desarrollo sí verifica versión exacta de `nk-ui-reflect` antes de usar caché.
+  de desarrollo sí verifica la build GCC/plugin exacta antes de usar caché.
 - [ ] **P10.5 — CI y matriz real.** Headless tests, corpus/fuzz, AOT/data diff,
   GPU smoke moderna/legacy, input/plataforma, sanitizers y tracking según soporte.
-  Verificar reflexión y target nativos en Windows además de Linux, incluyendo
-  paths/response files de clang-cl o Clang/MinGW; un cross-build no basta.
+  Verificar plugin y target nativos en Windows además de Linux, incluyendo
+  paths/response files y carga DLL en GCC/MinGW; un cross-build no basta.
 - [ ] **P10.6 — Evidencia y mantenimiento.** Revisar cada gate/tarea, registrar
   pendientes, límites y guía de cambios de versión. Dejar instrucciones de
   build/run/watch/recovery iguales en Bash y PowerShell, con ejemplos ejecutados.

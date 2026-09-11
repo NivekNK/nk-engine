@@ -1,7 +1,7 @@
 # Plan: Clay, UI compartida y lenguaje de componentes
 
 Estado: **propuesto; ninguna fase implementada por este documento**.
-Fecha de revisión: 2026-09-10. Revisión del plan: **3**.
+Fecha de revisión: 2026-09-11. Revisión del plan: **4**.
 
 ## Cómo usar este plan
 
@@ -20,11 +20,12 @@ estable para registrar commits y pruebas. Todo sigue pendiente de implementar.
 Las rutas/API/CLI nuevas son propuestas, no funcionalidades disponibles.
 
 Cambios relevantes de esta revisión: el modelo C++ se describe con atributos
-`[[nkui::...]]` procesados por un frontend Clang dedicado, no mediante tablas
-manuales, macros ni un parser C++ propio. Se añade el pipeline de extracción AST,
-schema, sanitización portable, caché y compatibilidad de toolchain. Los anexos
-precisan los contratos de esta guía; cualquier modificación posterior debe
-actualizar ambos, no crear dos versiones contradictorias del mismo requisito.
+`[[nkui::...]]` procesados por un plugin del mismo GCC que compila el proyecto,
+no mediante Clang, tablas manuales, macros ni un parser C++ propio. Se elimina
+la doble semántica Clang/GCC y se añade el pipeline de registro de atributos,
+extracción GENERIC, schema, versionado del plugin y caché. Los anexos precisan
+los contratos de esta guía; cualquier modificación posterior debe actualizar
+ambos, no crear dos versiones contradictorias del mismo requisito.
 
 ## 1. Objetivo y decisiones de arquitectura
 
@@ -43,8 +44,11 @@ Decisiones propuestas:
   defecto; si aparece `lang`, su único valor válido inicialmente será `cpp`.
 - El contrato C++ se marca con atributos limpios `[[nkui::component]]`,
   `[[nkui::prop]]`, `[[nkui::state]]`, `[[nkui::computed]]`,
-  `[[nkui::action]]` y `[[nkui::event]]`. Clang es el frontend semántico
-  autoritativo para esos atributos; `nk-uic` no intenta parsear C++.
+  `[[nkui::action]]` y `[[nkui::event]]`. GCC es el frontend semántico
+  autoritativo mediante `nk-ui-gcc-plugin`; `nk-uic` no intenta parsear C++.
+- `CppBackend` v1 soporta GCC nativo en Linux y GCC/MinGW en Windows. El resto
+  del motor puede conservar compatibilidad incidental con otros compiladores,
+  pero los componentes anotados no prometen otro frontend en este hito.
 - El `<style>` siempre tiene alcance local. Los estilos externos se importan y
   reutilizan sin convertirlos accidentalmente en reglas globales.
 - Una representación intermedia común, `UiProgram`, alimentará tanto la ruta
@@ -101,7 +105,7 @@ Referencias locales adicionales: [texto](text-rendering-implementation.md),
                             │
              ┌──────────────┴──────────────────┐
              │                                 │
-     script → nk-ui-reflect/Clang     paquete UI de desarrollo
+      script → GCC + plugin NK        paquete UI de desarrollo
       schema + C++ generado           validado, sin código nativo
              │                                 │
              └──────────────┬──────────────────┘
@@ -125,9 +129,9 @@ Referencias locales adicionales: [texto](text-rendering-implementation.md),
 - `tools/ui-language/`: librería `nk-ui-language`, parser, AST, resolución,
   estilos, diagnósticos y emisión. Sin dependencias de ventana, GPU o editor.
 - `tools/ui-compiler/`: CLI `nk-uic`, caché, manifiestos y modo watch.
-- `tools/ui-reflect/`: frontend host `nk-ui-reflect`, registro de atributos y
-  extracción de AST. Es el único target que enlaza Clang/LLVM; ni runtime ni
-  juego distribuido dependen de esas librerías.
+- `tools/ui-gcc-plugin/`: plugin host `nk-ui-gcc-plugin`, registro de atributos,
+  validación y extracción de árboles GCC a `UiSchema`. Se carga sólo durante
+  build; ni runtime ni juego/editor distribuidos dependen del plugin.
 - `tests/src/ui/`, `tests/ui-language/`, `benchmarks/ui/`: contratos y regresiones.
   Tests del lenguaje en target headless separado del target actual `tests`, que
   enlaza engine/Vulkan; tests UI siguen la estructura existente del engine.
@@ -288,11 +292,12 @@ struct [[nkui::component("game.counter")]] Counter {
 ```
 
 El script sigue siendo C++ normal y se conserva byte por byte en un artefacto
-intermedio con mapa de origen. `nk-ui-reflect`, construido sobre Clang, registra
-los atributos `nkui`, analiza el AST completo y emite un `UiSchema` independiente
-del lenguaje más una copia donde sólo los rangos de esos atributos se reemplazan
-por espacios. Esa copia conserva líneas/columnas y puede compilarse con el
-toolchain C++ del target sin obligarlo a entender atributos privados de NK.
+intermedio con mapa de origen. `nk-uic` ejecuta una primera pasada
+`g++ -fsyntax-only` cargando `nk-ui-gcc-plugin`; el plugin registra los atributos
+scoped `nkui`, inspecciona los árboles del frontend y emite un `UiSchema`
+independiente del lenguaje. Tras validar template/schema, el C++ generado se
+compila con el mismo GCC y el mismo plugin en modo de aceptación, sin neutralizar
+atributos ni introducir un segundo compilador.
 
 Debe existir exactamente un `struct` o `class` **definido dentro del bloque** y
 marcado `[[nkui::component]]`; los tipos anotados que lleguen desde headers no
@@ -308,20 +313,21 @@ Semántica inicial de atributos:
 | `[[nkui::component("id")]]` | Una definición de clase/struct | Marca el modelo; el ID estable es opcional pero recomendado para mover/renombrar. |
 | `[[nkui::prop]]` | Campo público no estático | Entrada inmutable durante el frame; inicializador = default, sin él = required. |
 | `[[nkui::state("id")]]` | Campo público no estático | Estado persistente y migrable; ID opcional, recomendado si sobrevivirá a renames. |
-| `[[nkui::computed]]` | Método público `const` | Getter sin argumentos; la ausencia de efectos es un contrato validable sólo parcialmente, no una garantía automática de Clang. |
+| `[[nkui::computed]]` | Método público `const` | Getter sin argumentos; la ausencia de efectos es un contrato validable sólo parcialmente, no una garantía automática de GCC. |
 | `[[nkui::action]]` | Método público | Handler tipado ejecutado fuera de measure/layout. |
 | `[[nkui::event]]` | Campo público del tipo de evento NK | Emisión tipada hacia el padre; el host controla ownership de payload. |
 | `[[nkui::factory]]` | Método estático público | Construcción fallible/custom opcional; si falta se usa el contrato allocator-first soportado. |
 
 El namespace de atributo es `nkui`, no `nk::ui`: la sintaxis C++ de atributos
-scoped admite un namespace de atributo y un nombre. La forma portable de respaldo
-`[[clang::annotate("nkui.state")]]` sirve para aislar fallos del plugin, pero no
-es la sintaxis pública del lenguaje. No se usan macros para ocultar anotaciones.
+scoped admite un namespace de atributo y un nombre. Como diagnóstico del plugin
+se admite temporalmente un spelling GNU interno como
+`__attribute__((nkui_state))`, pero no es sintaxis pública. No se usan macros para
+ocultar anotaciones.
 
 No dependemos de reflexión estándar ausente en C++20 ni de expresiones regulares.
-Sí aceptamos deliberadamente una dependencia de tooling en Clang: es quien
-resuelve declaraciones, aliases, templates y tipos. La salida del AST se reduce
-inmediatamente a nuestro schema versionado; ningún tipo Clang cruza a runtime.
+El mismo GCC del proyecto resuelve declaraciones, aliases, templates y tipos. La
+salida de sus árboles internos se reduce inmediatamente al schema versionado;
+ningún `tree` ni header privado de GCC cruza al runtime o a `nk-ui-model`.
 
 ### Imports y componentes
 
@@ -421,49 +427,45 @@ Pipeline:
 2. Tokenizar y parsear imports, template, expresiones y estilos a AST propios.
 3. Escribir el fragmento C++ exacto y un wrapper temporal con `#line`; obtener
    del contexto de build target, includes, defines, estándar y flags semánticos.
-4. Ejecutar `nk-ui-reflect` con el frontend Clang y sus atributos registrados;
-   emitir schema, depfile C++ y fragmento saneado con posiciones preservadas.
+4. Ejecutar el mismo `g++` del target con `-fsyntax-only` y
+   `-fplugin=nk-ui-gcc-plugin`; emitir schema y depfile C++ con posiciones de origen.
 5. Resolver el grafo de imports/símbolos y validar el template contra el schema;
    normalizar estilos y bajar a la IR común.
 6. Emitir C++/paquete de datos, manifiesto, depfile agregado y mapa de origen.
-7. Compilar el C++ generado con el toolchain configurado y validar el programa
-   contra capacidades del runtime antes de montarlo.
+7. Compilar el C++ generado con ese mismo GCC y el plugin en modo de aceptación;
+   validar el programa contra capacidades del runtime antes de montarlo.
 
 El extractor del bloque C++ debe reconocer comentarios, strings escapados, raw
 strings y continuaciones léxicas: un `"</script>"` dentro de C++ no cierra el
 bloque. El terminador real se define en la gramática. Las macros no se expanden
-para decidir el cierre; el fragmento resultante se entrega intacto a Clang. No
+para decidir el cierre; el fragmento resultante se entrega intacto a GCC. No
 se permite generar atributos `nkui` mediante macros: deben existir físicamente
 en el source para que spans, diagnósticos e invalidación sean deterministas.
 
-La IR puede contener referencias simbólicas hasta recibir el `UiSchema` de Clang.
+La IR puede contener referencias simbólicas hasta recibir el `UiSchema` de GCC.
 El frontend verifica sujetos, visibilidad, firmas, tipos y argumentos de atributos;
 el validador NK comprueba props/eventos entre componentes. Los contratos se
 validan **antes de montar**, también en AOT y en reload de datos. La CI nativa
 ejecuta el mismo pipeline headless. No se ejecuta un binario target durante
-cross-compilation: la reflexión es análisis AST del host configurado para el
-target y produce datos, no introspección de un ejecutable.
+cross-compilation: el cross-`g++` se ejecuta en host, carga un plugin binario de
+host construido contra sus headers exactos y analiza semántica del target.
 
-`nk-ui-reflect` será una herramienta separada basada en LibTooling y compartirá
-la implementación de los atributos con un plugin de frontend de prueba. La ruta
-de producción preferida ejecuta la herramienta como proceso, de modo que un
-crash o incompatibilidad de Clang no corrompa `nk-uic`. Lee argumentos como argv
-estructurado desde un contexto/compilation database generado por CMake, nunca
-reconstruyendo un comando mediante concatenación de shell. Su salida no será un
-AST serializado de Clang —formato/API inestable— sino `UiSchema` propio, pequeño,
-versionado y validado.
+`nk-ui-gcc-plugin` registra los atributos durante `PLUGIN_ATTRIBUTES`, recoge
+declaraciones en eventos del frontend y publica el schema al finalizar la unidad.
+Se ejecuta dentro de un proceso `g++` hijo de `nk-uic`: un crash no corrompe el
+compilador SFC ni el motor activo. Los argumentos se pasan como argv/response
+file desde CMake, nunca concatenando shell. La salida no será un dump de árboles
+GCC —API interna inestable— sino `UiSchema` propio, pequeño y versionado.
 
-El saneado sustituye únicamente los bytes de `[[nkui::...]]` por espacios,
-conservando saltos de línea. No cambia bodies, nombres, includes ni formato. El
-C++ final vuelve a comprobarse con el compilador target; si Clang y dicho
-compilador discrepan, falla el build con ambos diagnósticos. Para reducir esa
-doble semántica, el flujo soportado preferido compila las unidades UI con el
-mismo Clang fijado; usar GCC/MinGW/MSVC para ellas exige una prueba de
-compatibilidad y no habilita hot reload nativo automáticamente.
+La primera pasada semántica y la compilación final parsean el C++ dos veces, pero
+con idéntico frontend, target y flags. Es el diseño inicial más simple y seguro;
+se mide antes de intentar que el plugin inyecte thunks o código en GCC. Cachear
+schema evita la primera pasada al editar sólo `<ui>`/`<style>`, pero cualquier
+cambio C++ la invalida aunque finalmente conserve la misma interfaz.
 
 | Alternativa | Utilidad real | Decisión propuesta |
 | --- | --- | --- |
-| [Clang LibTooling](https://clang.llvm.org/docs/LibTooling.html) + [atributos de plugin](https://clang.llvm.org/docs/ClangPlugins.html#defining-attributes) | AST C++ autoritativo, atributos propios y diagnósticos nativos. | **Decidido para `CppBackend`**; aislado en `nk-ui-reflect`, con versión exacta y schema NK como frontera. |
+| [Plugins de GCC](https://gcc.gnu.org/onlinedocs/gccint/Plugin-API.html) + atributos custom | Árbol C++ autoritativo, atributos propios y exactamente el frontend usado por el motor. | **Decidido para `CppBackend`**; `nk-ui-gcc-plugin` fijado al GCC exacto y `UiSchema` como frontera. |
 | [lexy](https://lexy.foonathan.net/) | DSL C++ de parsing, control explícito, diagnósticos y resultados en estructuras propias. | Candidato preferido para un prototipo acotado del parser; aislar en `.cpp` de herramientas y medir. |
 | [PEGTL](https://github.com/taocpp/PEGTL) | Combinadores PEG en C++, sin generador externo obligatorio. | Alternativa si el prototipo con lexy no cumple; no instalar ambas. |
 | Lexer + descenso recursivo/Pratt propios | Gramática pequeña, control de memoria y sin dependencia adicional. | Fallback viable; requiere mantener recuperación de errores, fuzzing y diagnósticos. No regex para todo. |
@@ -475,10 +477,9 @@ e inválido, calidad de diagnósticos, allocations, tiempo de análisis y coste 
 compilar **la herramienta**. Este último no es el tiempo de recompilar cada UI:
 las plantillas de lexy/PEGTL no deben entrar en los `.cpp` generados.
 
-No se propone JIT ni un motor CSS externo en la primera versión. Clang sí forma
-parte del tooling aprobado para C++, pero no del runtime: se usa como frontend
-completo en build/desarrollo y no se intenta replicar su parser. Añadir un JIT
-no eliminaría las obligaciones de estado, lifecycle y compatibilidad del módulo.
+No se propone Clang, LLVM/JIT ni un motor CSS externo en la primera versión. El
+plugin reutiliza el GCC ya requerido por el proyecto y no replica su parser.
+Añadir un JIT no eliminaría las obligaciones de estado, lifecycle y compatibilidad.
 
 ### Dependencias y reproducibilidad
 
@@ -488,14 +489,19 @@ publicada y es el tag candidato revisado; confirmar tag/SHA al implementarlo.
 Su API difiere de ejemplos de `main`: los tests deben basarse en el tag elegido,
 no mezclar versiones. No asumir APIs futuras de animación o imágenes.
 
-Clang/LLVM es una dependencia de **toolchain host** decidida para `CppBackend`,
-no una librería del juego. Se fija una única versión exacta compatible entre
-headers/librerías de `nk-ui-reflect` y el ejecutable/frontend usado: Nix mediante
-el mismo paquete bloqueado por `flake.lock`; Windows mediante distribución y
-SHA documentados. `llvm-project` no se añade como submódulo gigante sólo para
-compilar el compilador: la política de submódulo a tag continúa para librerías
-vendorizadas. Clang se registra en `libraries.csv` como tooling con versión y
-procedencia, y CMake falla en configure si detecta mezcla de majors/ABI.
+GCC ya es el toolchain principal del proyecto, no una librería nueva. El plugin
+requiere `gcc-plugin.h` y headers internos de la **misma build exacta** de `g++`.
+Nix debe obtener compilador, headers de plugin y plugin desde el mismo paquete
+bloqueado por `flake.lock`; Windows/MinGW debe fijar distribución, versión y SHA,
+y comprobar que fue construida con soporte de plugins. `plugin_default_version_check`
+rechaza ABI/versiones distintas antes de analizar una unidad.
+
+No se añade GCC como submódulo ni a `libraries.csv`: es toolchain, no código
+vendorizado dentro del engine. Su versión y procedencia se registran en el
+manifiesto/toolchain y en evidencia de build. Las librerías nuevas siguen
+exigiendo submódulo a tag y entrada CSV. Si una distribución MinGW no incluye
+plugins o sus headers, esa configuración no puede cerrar G5 hasta reemplazarla
+por una distribución GCC equivalente; no se reintroduce Clang silenciosamente.
 
 Para cada librería realmente incorporada:
 
@@ -517,7 +523,7 @@ Para cada librería realmente incorporada:
 | Color, padding, reglas/import de estilos | Parse/style resolve + nuevo programa de datos. | Propiedad soportada y recursos resolubles. |
 | Texto literal, estructura, instancias, bindings existentes | Recompilar datos UI y reconciliar instancias por clave. | Modelo, componentes y callbacks ya registrados en el módulo activo. |
 | Nueva imagen/fuente | Datos + carga del recurso + upload asíncrono cuando proceda. | No prometer recarga inmediata si depende de I/O/rasterización. |
-| Atributo, campo, handler, tipo, script o header C++ | Reejecutar Clang/schema, validar, compilar/linkear módulo(s) afectados y migrar estado. | Toolchain y ABI compatibles; el schema nuevo no se publica separado de su módulo. |
+| Atributo, campo, handler, tipo, script o header C++ | Reejecutar GCC/plugin para schema, validar, compilar/linkear módulo(s) afectados y migrar estado. | Toolchain y ABI compatibles; el schema nuevo no se publica separado de su módulo. |
 | Cambio del ABI/runtime/compilador de paquetes | Rebuild compatible o reinicio controlado. | No hot reload arbitrario del engine completo. |
 
 En desarrollo, `.nkuib` será un paquete versionado y validado de UI/estilos,
@@ -525,7 +531,7 @@ no código máquina. El motor no parsea CSS/SFC por frame. La evaluación de sus
 bindings y nodos usa la misma semántica que la emisión C++ AOT.
 
 En distribución, el generador emite código/tablas C++ enlazados al juego y
-compila el fragmento saneado y los adaptadores generados. `nk-ui-reflect` se usa
+compila el script y los adaptadores generados con el plugin GCC. El plugin se usa
 en build, pero no se incluye en el producto. Tampoco se incluyen watcher ni carga
 arbitraria de módulos. La ruta de datos recargables es una optimización del flujo
 de desarrollo, no un lenguaje de scripting nuevo.
@@ -539,15 +545,15 @@ de desarrollo, no un lenguaje de scripting nuevo.
 - Separar artefactos de script/bindings de layout/style en desarrollo. No
   reescribir C++ sin cambios ni forzar a Ninja a recompilar por timestamps.
 - Cachear `UiSchema` por hash de script + headers/depfile + argumentos semánticos
-  + versión exacta de Clang/plugin. Editar sólo `<ui>` o `<style>` no invoca
-  Clang; editar una anotación siempre invalida schema y código nativo juntos.
+  + build exacta de GCC/plugin. Editar sólo `<ui>` o `<style>` no invoca GCC;
+  editar una anotación siempre invalida schema y código nativo juntos.
 - Caché identificada por contenido, transitive deps, versión de lenguaje/IR,
   target, compilador, ABI, defines y opciones. No sólo por nombre/mtime.
 - `#line` y mapas de origen para que errores C++ y UI apunten al `.nkui` correcto;
   paths virtuales portables y mapeo de includes en diagnósticos.
-- CMake/Ninja con dependencias explícitas y depfiles. `nk-uic` y
-  `nk-ui-reflect` son herramientas **host**, separadas de las librerías del target
-  en builds cruzadas; Clang recibe explícitamente el triple/sysroot del target.
+- CMake/Ninja con dependencias explícitas y depfiles. `nk-uic` y el plugin se
+  construyen para **host**; el cross-`g++` ejecutable en host analiza el target
+  con sus flags/sysroot y carga un plugin construido contra esa misma build GCC.
 - Watcher nativo para Linux/Windows detrás de una interfaz; coalescer eventos,
   soportar guardado por rename, recovery tras overflow y borrados/renombrados.
 - Worker de compilación separado del hilo de frame. Mantener opción one-shot
@@ -616,7 +622,7 @@ nuestros contenedores o una vtable del engine; no transforma toda la API en C.
 
 `ScriptBackend` separa identificación de lenguaje, delimitación del bloque,
 extracción semántica, compilación, schema, instancia, eventos, diagnóstico y
-migración. Implementar sólo `CppBackend`, cuyo extractor es Clang; probar el
+migración. Implementar sólo `CppBackend`, cuyo extractor es el plugin GCC; probar el
 contrato con dobles de test sin añadir Lua/JS/etc.
 
 La UI y estilos pueden bajar a cualquier backend que implemente esos contratos.
@@ -625,7 +631,7 @@ Un componente con `lang="futuro"` tendrá script escrito en ese lenguaje; compar
 template, estilos y servicios. La composición entre lenguajes, si llega, usará
 props/eventos/handles serializables, no objetos C++ cruzando sin contrato.
 Cada backend podrá usar las anotaciones/reflexión naturales de su lenguaje y
-deberá producir el mismo `UiSchema`; no se impondrán atributos C++ ni Clang a
+deberá producir el mismo `UiSchema`; no se impondrán atributos C++ ni GCC a
 scripts futuros.
 
 ## 8. Fases, dependencias y seguimiento
@@ -645,7 +651,7 @@ y rollback. Los contratos transversales están en
 | 2 | Routing, widgets y edición nativa. | G1. | [P2.1–P2.8 / G2](clay-ui-phases-runtime.md#fase-2--input-widgets-y-edición) | Pendiente |
 | 3 | Game/editor sobre el toolkit y viewport offscreen. | G1 + G2A; G2 para inspector editable. | [P3.1–P3.6 / G3](clay-ui-phases-runtime.md#fase-3--game-ui-y-editor-con-viewport) | Pendiente |
 | 4 | Gramática, parser y compilador headless. | G0; no necesita viewport/editor. | [P4.1–P4.8 / G4](clay-ui-phases-language.md#fase-4--gramática-formal-y-compilador-headless) | Pendiente |
-| 5 | Atributos Clang, schemas, componentes y C++ AOT. | G4 + G1 + G2A. | [P5.1–P5.11 / G5](clay-ui-phases-language.md#fase-5--modelo-de-componentes-y-salida-c-aot) | Pendiente |
+| 5 | Atributos GCC, schemas, componentes y C++ AOT. | G4 + G1 + G2A. | [P5.1–P5.11 / G5](clay-ui-phases-language.md#fase-5--modelo-de-componentes-y-salida-c-aot) | Pendiente |
 | 6 | Perfil CSS, estilos locales y compartidos. | G5. | [P6.1–P6.10 / G6](clay-ui-phases-language.md#fase-6--css-local-imports-y-temas) | Pendiente |
 | 7 | Incrementalidad y recarga de UI/estilos. | G6. | [P7.1–P7.10 / G7](clay-ui-phases-reload.md#fase-7--build-incremental-y-recarga-de-datos) | Pendiente |
 | 8 | Módulos C++ y migración transaccional. | G7; loaders probados por plataforma. | [P8.1–P8.11 / G8](clay-ui-phases-reload.md#fase-8--recarga-nativa-de-c) | Pendiente |
@@ -687,15 +693,15 @@ vacíos que parezcan resultados obtenidos.
 | --- | --- | --- |
 | Clay compartido entre juego y editor. | P1.1–P1.10, P3.1–P3.6. | Dos consumidores, un toolkit; game no enlaza editor. |
 | Allocators/containers/result propios y C++ con métodos. | P0.2, P1.2, P4.4, P5.1/P5.2. | OOM/lifetimes, API allocator-first, headers headless. |
-| Bloques SFC, script opcional, sólo cpp y atributos `nkui`. | P4.1/P4.5/P4.8, P5.2/P5.8, P10.3. | Corpus acepta defaults, valida atributos con Clang y rechaza lang no soportado. |
+| Bloques SFC, script opcional, sólo cpp y atributos `nkui`. | P4.1/P4.5/P4.8, P5.2/P5.8, P10.3. | Corpus acepta defaults, valida atributos con GCC y rechaza lang no soportado. |
 | Imports, props, eventos, slots y componentes reutilizables. | P4.7, P5.5–P5.7. | Counter/lista, keys, aislamiento de instancias y errores de contrato. |
 | Style local y estilos externos reutilizables. | P6.4/P6.5/P6.8. | Scopes, cascada y tokens sin filtración entre componentes. |
 | CSS creciente sin falsas equivalencias. | P6.1–P6.10, P9.3–P9.6. | Matriz propiedad/valor → lowering → fixture o error. |
-| Compilar a C++ sin toolchain pesado en el runtime. | P5.2/P5.8–P5.10, P10.4. | Schema Clang + AOT, no-op build, juego sin parser/watch/Clang. |
+| Compilar a C++ sin toolchain pesado en el runtime. | P5.2/P5.8–P5.10, P10.4. | Schema GCC + AOT, no-op build, juego sin parser/watch/plugin. |
 | Recarga rápida y estado preservado. | P7.4–P7.10, P8.5–P8.9. | Latencias medidas, snapshot actual, rechazo de candidatos inválidos. |
-| Extensibilidad futura de lenguaje. | P5.1–P5.3, P10.2/P10.3. | `UiSchema` independiente del lenguaje como frontera; sólo CppBackend/Clang real. |
+| Extensibilidad futura de lenguaje. | P5.1–P5.3, P10.2/P10.3. | `UiSchema` independiente del lenguaje como frontera; sólo CppBackend/GCC real. |
 | Slang y Vulkan compatible inspirado en NoGraphicsAPI. | P1.8/P1.9, P3.4, P9.5. | Moderna/legacy, sin GPU mínima nueva ni stalls globales. |
-| Submódulos a tags y CSV/Nix/toolchains coherentes. | P1.1, P4.3, P5.2/P5.9, P2.5, P10.1/P10.4. | Librerías con gitlink; Clang host fijado por separado; pins, licencias y build limpio reproducibles. |
+| Submódulos a tags y CSV/Nix/toolchains coherentes. | P1.1, P4.3, P5.2/P5.9, P2.5, P10.1/P10.4. | Librerías con gitlink; GCC/plugin de la misma build; pins, licencias y build limpio reproducibles. |
 | Herramientas editor propias sobre el runtime real. | P3.2, P9.1/P9.7, P10.1/P10.2. | Preview/inspector consumen las mismas instancias y diagnósticos. |
 
 ### Decisiones y experimentos
@@ -703,7 +709,7 @@ vacíos que parezcan resultados obtenidos.
 | Decisión | Estado | Cómo/cuándo se cierra |
 | --- | --- | --- |
 | Clay, C++ primero, style local y plataformas actuales. | Requisito del proyecto; no cambiar silenciosamente. | Invariantes en todas las fases. |
-| Clang para descubrir bindings mediante atributos C++. | Decidido; `nkui` y argumentos exactos son propuesta v1. | P5.2 fija versión, frontend, corpus y compatibilidad de toolchains. |
+| GCC para descubrir bindings mediante atributos C++. | Decidido; spike temporal en GCC 16.2.1 aceptó `[[nkui::...]]` incluso con `-Werror=attributes`. No es implementación del engine. | P5.2 fija versión, plugin, corpus y soporte Linux/MinGW reproducible. |
 | Nombres .nkui/.nkcss/nk-uic y gramática concreta. | Propuesta de diseño. | P4.1 con corpus versionado. |
 | Propiedad de fuentes, secuencia de frame y color. | Contratos propuestos C02–C04. | P0.1/P0.2 y fixtures G1. |
 | lexy frente a parser propio. | lexy preferido, sin instalar. | Spike P4.2/P4.3: tiempo, memoria, diagnósticos y build. |
@@ -726,9 +732,9 @@ medidos ni garantías universales:
 - Registrar p50/p95 de guardar→visible. Objetivo orientativo p95 < 150 ms para
   estilos y templates pequeños calientes, incluyendo debounce; excluir/medir
   por separado cargas de assets fríos. Si no se alcanza, desglosar el coste.
-- Para scripts pequeños, medir extract, Clang AST/schema, generación, compile,
-  link y migrate por separado; perseguir iteraciones cercanas a 1–2 s calientes,
-  sin prometerlas antes del prototipo ni esconder doble parseo de C++.
+- Para scripts pequeños, medir extract, primera pasada GCC/schema, generación,
+  segunda compilación, link y migrate por separado; perseguir iteraciones cercanas
+  a 1–2 s calientes sin prometerlas ni esconder el doble parseo de C++.
 - Medir 100, 1.000 y 5.000 nodos, texto multilenguaje y scroll. Objetivo inicial
   CPU UI p95 ≤ 1 ms para 1.000 nodos simples calientes, sujeto a baseline real.
 - Cero heap allocations en frames estables dentro de capacidades precalentadas;
@@ -751,8 +757,9 @@ Fijarlo en P0.4/P0.5 y mantenerlo en los informes de cada fase:
 3. Para recarga: 100 cambios de datos y al menos 50 cambios nativos pequeños con
    caché caliente; reportar los ensayos fríos aparte. Muestras insuficientes se
    etiquetan como exploratorias, no conclusiones sobre p99.
-4. Timestamps: save detectado, dependencias leídas, parse, Clang/schema,
-   lower/codegen, compile, link, recurso listo, commit de candidato y frame presentado. Medir desde
+4. Timestamps: save detectado, dependencias leídas, parse, GCC/schema,
+   lower/codegen, compile, link, recurso listo, commit de candidato y frame
+   presentado. Medir desde
    guardado real cuando el harness lo controle; no llamar «guardar→visible» a
    una métrica que sólo empieza tras el debounce.
 5. A/B con misma secuencia y múltiples repeticiones. Correctitud/OOM/UAF/orden
@@ -761,8 +768,8 @@ Fijarlo en P0.4/P0.5 y mantenerlo en los informes de cada fase:
 
 La recarga de estado no se prueba sólo guardando cuando todo está quieto:
 incrementar/editar mientras compila, mover foco, cambiar escala y eliminar un
-componente con callbacks pendientes. Contar invocaciones de `nk-ui-reflect` y
-del compilador nativo para demostrar que una edición de CSS no los activa.
+componente con callbacks pendientes. Contar pasadas GCC de schema y compilación
+para demostrar que una edición de CSS no las activa.
 
 ### Registro de riesgos y respuesta
 
@@ -772,7 +779,7 @@ del compilador nativo para demostrar que una edición de CSS no los activa.
 | Geometría de hits vieja o polling sin consumo. | Click tras resize y escritura con cámara activa. | Snapshot/versionado y vista de input enrutada; P2.1/P2.2. |
 | Cache Clay devuelve medidas obsoletas. | Cambio de idioma/font/scale en dos superficies. | Invalidación de ambas caches; P1.5/P1.6. |
 | Herramienta arrastra Vulkan/PCH/engine. | Configuración sólo-herramientas limpia. | Frontera C01 y headers propios; P4.4. |
-| Plugin/LibTooling no coincide con versión o flags de Clang. | Configure, fingerprint y corpus Linux/Windows. | Rechazar temprano; pin único y fallback `clang::annotate`; P5.2/P5.9. |
+| Plugin no coincide exactamente con GCC o MinGW no lo soporta. | Configure, version check y corpus Linux/Windows. | Rechazar temprano; misma distribución/headers y fallback GNU sólo diagnóstico; P5.2/P5.9. |
 | Falso soporte de CSS o tipos C++ mágicos. | Fixtures negativos, matrices y errores por nivel. | Limitar perfil y validar schema real; P5.10/P6.1. |
 | Mezcla de dependencias o job atrasado. | Ediciones multiarquivo durante build. | Revalidación de snapshot y generación; P7.6/P7.9. |
 | Estado retrocede tras recompilar. | Incrementar mientras compila. | Snapshot actual/revisión y migración; P8.6. |

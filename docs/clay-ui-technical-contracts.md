@@ -1,6 +1,6 @@
 # NK UI: contratos técnicos propuestos
 
-Revisión: 2026-09-10. Estado: diseño, no API implementada.
+Revisión: 2026-09-11. Estado: diseño, no API implementada.
 Documento complementario al [plan principal](clay-ui-language-implementation-plan.md).
 Las firmas y formatos se concretan en los paquetes de trabajo que los citan;
 los invariantes de este documento son sus criterios de diseño y prueba.
@@ -14,7 +14,7 @@ nk-ui-model         IDs, valores, esquema de bindings y formato lógico de progr
       ↑                                ↑
 nk-ui-runtime                    nk-ui-language → nk-uic [host]
                                           ↑
-                              nk-ui-reflect + Clang [host]
+                               GCC + nk-ui-gcc-plugin [host]
       ↑
 adaptador Clay + renderer NK
       ↑
@@ -25,8 +25,13 @@ Las flechas indican «utilizado por». Son targets propuestos, no un traslado
 masivo de directorios. `nk-ui-model` no incluye AST de herramientas, Clay,
 Vulkan, ventanas ni el editor. El compilador no enlaza `nk-ui-runtime` para
 resolver layout: emite descripciones, no posiciones dependientes de una pantalla.
-`nk-ui-reflect` es la única pieza que enlaza LibTooling/LLVM; reduce el AST a
-`UiSchema` y nunca se enlaza al runtime, juego ni editor distribuido.
+`nk-ui-gcc-plugin` incluye headers internos del GCC exacto y reduce sus árboles
+a `UiSchema`; nunca se enlaza al runtime, juego ni editor distribuido.
+Se carga mediante `-fplugin=<ruta>` dentro de un proceso GCC separado. Declara
+licencia compatible como exige la API, ejecuta `plugin_default_version_check` y
+rechaza basever/datestamp/devphase/revision/configuración diferentes. En cross
+build el plugin es binario host construido contra los headers del cross-GCC que
+lo cargará, no contra los del GCC target inexistente en la máquina de build.
 
 La auditoría debe atender tres dependencias actuales: PCH público de
 `engine/CMakeLists.txt`, inicialización de logging/memoria y configuración raíz
@@ -36,8 +41,8 @@ headless no lo es si CMake exige Vulkan o necesita `nkpch.h` para sus tipos.
 Entregable: configuración sólo-herramientas, headers autocontenidos y tests del
 lenguaje sin inicializar `Engine`. Reutilizar nuestros contenedores y allocators,
 no copiarlos a otra librería ni crear una segunda implementación fundacional.
-El frontend Clang usa su propio modelo de memoria internamente; toda salida que
-cruza a NK se copia y valida con allocator explícito y tipos fundacionales propios.
+GCC usa su propio garbage collector y árboles internamente; toda salida que
+cruza a NK se serializa y valida con límites y tipos fundacionales propios.
 
 ## C02 — Ownership y API C++
 
@@ -163,19 +168,19 @@ snapshot. No usar `std::any`, boxing con heap por valor ni reflexión C++ implí
 Conversiones numéricas comprobadas; bool no acepta truthiness de un string.
 
 Sólo las declaraciones marcadas con atributos `[[nkui::...]]` forman la interfaz.
-`nk-ui-reflect` registra esos atributos en Clang, valida su destino y firma, y
+`nk-ui-gcc-plugin` registra esos atributos en GCC, valida su destino y firma, y
 reduce tipos canónicos a un `UiSchema` NK versionado. No existe una tabla manual
 `bindings()`, no se expanden macros para descubrir miembros y no se refleja la
 clase completa por aparecer en el AST. Campos/métodos v1 deben ser públicos;
 privados/protected son error hasta tener un mecanismo explícito que no dependa
 de inyección frágil de `friend`.
 
-El parser SFC ve nombres simbólicos y delega C++ a Clang. AOT comprueba el schema
-antes de emitir adaptadores; el compilador target vuelve a verificar el C++
-saneado. Contratos restantes entre componentes se validan con tablas compiladas
+El parser SFC ve nombres simbólicos y delega C++ a GCC. AOT comprueba el schema
+antes de emitir adaptadores; una segunda pasada del mismo GCC compila el script
+intacto. Contratos restantes entre componentes se validan con tablas compiladas
 antes del mount, igual que datos recargados. La CI nativa ejecuta validación
 headless adicional. No se obtiene información ejecutando un binario target
-durante cross-build: el frontend host se configura para ese target.
+durante cross-build: el cross-`g++` corre en host y analiza ese target.
 Enumerar/validar schemas no instancia modelos ni llama getters, factories o
 servicios del juego: debe poder hacerlo antes de crear ventana/renderer.
 Cambiar un schema exige compilación nativa aunque el error se descubra en `<ui>`.
@@ -194,7 +199,7 @@ se mantiene. El parser formalizará estas reglas, no inventará semántica al pa
 - Si existe `<script>`, exactamente una definición ubicada físicamente en ese
   bloque lleva `[[nkui::component]]`. `component`, `prop`, `state`, `computed`,
   `action`, `event` y `factory` son los únicos atributos v1; spelling, número de
-  argumentos, sujeto, acceso y duplicados incorrectos son errores de Clang/NK.
+  argumentos, sujeto, acceso y duplicados incorrectos son errores de GCC/NK.
 - Los IDs opcionales de component/state son literales UTF-8 no vacíos y únicos
   dentro de su dominio. Omitirlos deriva identidad de package/ruta/nombre y hace
   explícito que un rename puede perder migración. Macros que materialicen u
@@ -271,24 +276,23 @@ personales, URLs ejecutables ni postinstall. Su parser no justifica incorporar
 otra librería de configuración si bastan las herramientas ya elegidas.
 
 Artefactos por componente: fragmento C++ exacto, wrapper temporal, `UiSchema`,
-fragmento saneado, adaptadores C++, programa de layout/estilos, depfile agregado
-y mapa de origen. Nombres/versiones estables; writes atómicos y sólo si cambió
-contenido. Temporales viven en build y no se instalan. No unity build para
-scripts privados.
+adaptadores C++, programa de layout/estilos, depfile agregado y mapa de origen.
+Nombres/versiones estables; writes atómicos y sólo si cambió contenido. Temporales
+viven en build y no se instalan. No unity build para scripts privados.
 
 | Entrada cambiada | Invalidación |
 | --- | --- |
-| Style compartido | Programas de scopes importadores; no Clang, schema ni compilación C++. |
-| UI que usa bindings/componentes registrados | Datos + validación contra schema cacheado; no Clang ni compilador C++. |
+| Style compartido | Programas de scopes importadores; no GCC, schema ni compilación C++. |
+| UI que usa bindings/componentes registrados | Datos + validación contra schema cacheado; no GCC ni compilación C++. |
 | UI que requiere un binding o tipo nativo nuevo | Error de contrato hasta anotar/cambiar script y hacer rebuild nativo. |
-| Script/header/dependencia C++ | Reejecutar Clang, schema/adaptadores y objetos/módulos afectados; depfiles del frontend y compilador. |
+| Script/header/dependencia C++ | Reejecutar GCC/plugin, schema/adaptadores y objetos/módulos afectados; depfiles de ambas pasadas. |
 | Fuente/imagen | Recurso/generación, cachés de medida/layout pertinentes y programas dependientes. |
-| Clang/plugin/schema, toolchain target, ABI o paquete incompatible | Invalidación completa correspondiente, rebuild o reinicio; no reutilizar caché obsoleta. |
+| GCC/plugin/schema, toolchain target, ABI o paquete incompatible | Invalidación completa correspondiente, rebuild o reinicio; no reutilizar caché obsoleta. |
 
 La clave de reflexión incluye bytes del script, dependencias C++ transitivas,
 target triple, estándar, defines/includes semánticos, versión exacta de
-Clang/plugin y versión de `UiSchema`. No incluye mtime como autoridad. El depfile
-de Clang y el del compilador target se unen sin perder dependencias exclusivas.
+GCC/plugin y versión de `UiSchema`. No incluye mtime como autoridad. Los depfiles
+de la pasada de schema y compilación se unen sin perder dependencias exclusivas.
 
 AOT primero emite tablas y adaptadores C++ que usan el evaluador común; no
 mantener dos intérpretes con reglas distintas. Especializar nodos/expresiones en
@@ -324,14 +328,14 @@ Revisar manifest/fingerprint antes de cargar y confirmar tabla exportada despué
 El loader nativo puede ejecutar inicializadores durante la carga: scripts
 recargables no pueden tener inicialización estática con efectos, allocations
 globales, TLS con destructor o registros `atexit` que escapen. Llevar ese trabajo
-a factories/unmount. El checker AST rechaza patrones estructurales evidentes,
-pero Clang no puede demostrar ausencia total de efectos, aliasing peligroso o UB;
+a factories/unmount. El checker de árboles rechaza patrones estructurales evidentes,
+pero GCC no puede demostrar ausencia total de efectos, aliasing peligroso o UB;
 sigue siendo un contrato de código confiable con revisión y tests.
 
-El formato de `.nkuib`, versión de schema, versión de atributos/frontend y ABI
+El formato de `.nkuib`, versión de schema, versión de atributos/plugin GCC y ABI
 del módulo son independientes. C++ compilado debe compartir target/compiler/
 runtime/flags relevantes; comprobar también macros de tracking que hoy cambian
-layouts NK. Un cambio sólo en Clang/plugin invalida metadata aunque no cambie ABI.
+layouts NK. Un cambio sólo en GCC/plugin invalida metadata aunque no cambie ABI.
 
 Reload nativo:
 

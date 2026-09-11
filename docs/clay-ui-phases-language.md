@@ -1,6 +1,6 @@
 # NK UI: fases 4–6, lenguaje, componentes y estilos
 
-Revisión: 2026-09-10. Todas las tareas están pendientes.
+Revisión: 2026-09-11. Todas las tareas están pendientes.
 [Plan principal](clay-ui-language-implementation-plan.md) ·
 [Contratos](clay-ui-technical-contracts.md) ·
 [Fases nativas](clay-ui-phases-runtime.md) ·
@@ -21,9 +21,9 @@ Directorios nuevos: `tools/ui-language/`, `tools/ui-compiler/`,
 engine y Vulkan sin separar su configuración. Ajustar CMake raíz y PCH sólo en
 la medida necesaria; no refactorizar todo el repositorio de una vez.
 
-Esta fase no necesita Clang todavía: delimita el `<script>` como texto C++ pero
-no interpreta su semántica. El target `nk-ui-reflect` y la dependencia host de
-Clang entran en fase 5, una vez estable el formato fuente que consumirán.
+Esta fase no carga todavía el plugin GCC: delimita el `<script>` como texto C++
+pero no interpreta su semántica. `nk-ui-gcc-plugin` entra en fase 5, una vez
+estable el formato fuente que consumirá.
 
 ### P4.A — Especificación y prototipo del parser
 
@@ -31,7 +31,7 @@ Clang entran en fase 5, una vez estable el formato fuente que consumirán.
   expresiones y estructura CSS. Definir comentarios, BOM, CRLF/LF, UTF-8 inválido,
   escapes y límites. Semántica de C06 con ejemplos positivos/negativos por regla.
   El script se conserva opaco para este parser salvo su delimitación léxica;
-  documentar que `CppBackend` lo analizará posteriormente con Clang.
+  documentar que `CppBackend` lo analizará posteriormente con GCC.
 - [ ] **P4.2 — Spike de parser.** Implementar en prototipo la misma muestra con
   lexy y un lexer/descenso recursivo mínimo: SFC con raw string, imports, expresión
   y error recuperable. Medir parse frío/caliente, allocations, tamaño binario,
@@ -91,11 +91,11 @@ misma API si el spike falla; no filtrar tipos lexy a AST ni runtime.
 **Entrada:** G4 + G1 + G2A; C05/C08. **Riesgo:** alto por tipos, scopes y estado.
 **Salida:** componentes del lenguaje ejecutados sobre la API C++ existente.
 
-Añadir schema/IR a `nk-ui-model`, `nk-ui-reflect` en `tools/ui-reflect/`,
-lowering/codegen en `tools/ui-language/` y ejecución/instancias en
+Añadir schema/IR a `nk-ui-model`, `nk-ui-gcc-plugin` en
+`tools/ui-gcc-plugin/`, lowering/codegen en `tools/ui-language/` y ejecución/instancias en
 `engine/src/ui/`. Ejemplos `.nkui` con assets conocidos; CMake añade custom
-commands y unidades generadas fuera del árbol de fuentes. `nk-ui-reflect` enlaza
-la versión fijada de Clang/LLVM; ningún otro target de producto la hereda.
+commands y unidades generadas fuera del árbol de fuentes. El plugin incluye
+headers privados de la misma build GCC; ningún target de producto los hereda.
 
 ### P5.A — Contrato nativo e IR
 
@@ -103,16 +103,21 @@ la versión fijada de Clang/LLVM; ningún otro target de producto la hereda.
   props/state/computed/actions/events/slots, IDs estables, tipos canónicos y
   conversión comprobada. String y payload explican ownership; records/listas
   usan adaptadores de tipo explícitos, no `std::any`. Reader valida versión,
-  límites y duplicados sin depender de clases AST de Clang.
-- [ ] **P5.2 — Frontend Clang y atributos.** Construir `nk-ui-reflect` con
-  LibTooling y registrar spellings `nkui::component/prop/state/computed/action/
-  event/factory` mediante la API de plugins. Probar primero `clang::annotate`
-  como control técnico y después la sintaxis pública `[[nkui::...]]`, sin macros.
+  límites y duplicados sin depender de `tree` ni headers internos de GCC.
+- [ ] **P5.2 — Plugin GCC y atributos.** Construir `nk-ui-gcc-plugin`, registrar
+  el namespace scoped `nkui` y los atributos component/prop/state/computed/action/
+  event/factory mediante `PLUGIN_ATTRIBUTES`. Probar primero un atributo GNU
+  interno como control técnico y después la sintaxis pública `[[nkui::...]]`,
+  sin macros. Recoger declaraciones mediante callbacks del frontend y emitir
+  sólo al completar correctamente la unidad. Definir modos explícitos
+  `schema` —valida y escribe sidecar— y `accept` —valida sin reescribir sidecar—
+  mediante argumentos `-fplugin-arg-*`, con defaults que fallen de forma segura.
   Validar número/tipo de argumentos, sujeto, acceso público, una sola clase
   `component` localizada en el bloque y firmas/constructibilidad allocator-first.
-  Emitir `UiSchema`, diagnósticos estructurados, depfile y fragmento con sólo
-  atributos NK sustituidos por espacios. Un archivo sin script usa modelo vacío;
-  error de frontend u OOM no deja outputs nuevos publicados parcialmente.
+  Emitir `UiSchema`, diagnósticos estructurados y depfile. Un archivo sin script
+  usa modelo vacío; `plugin_default_version_check` y un fingerprint completo
+  rechazan cualquier build GCC distinta. Error de frontend u OOM no deja outputs
+  nuevos publicados parcialmente.
 - [ ] **P5.3 — IR versionada.** Tablas de nodos, slots, referencias a bindings,
   expresiones, styles base y source map. IDs e índices separados; no posiciones
   de pantalla baked-in. Validador compartido con el futuro loader de datos.
@@ -135,26 +140,29 @@ la versión fijada de Clang/LLVM; ningún otro target de producto la hereda.
 
 ### P5.C — Generación y build
 
-- [ ] **P5.8 — Emisor C++.** Incorporar el fragmento saneado una sola vez a nivel
-  de translation unit, fuera de unity builds; adaptadores usan únicamente
-  declaraciones del `UiSchema`, con nombres escapados, includes mínimos y `#line`.
+- [ ] **P5.8 — Emisor C++.** Incorporar el fragmento original una sola vez a nivel
+  de translation unit, fuera de unity builds y compilado con el plugin; los
+  adaptadores usan únicamente declaraciones del `UiSchema`, con nombres escapados,
+  includes mínimos y `#line`.
   Preservar namespace/tipos del autor y rechazar símbolos generados que colisionen.
   Programa inicial como tablas C++ + evaluador común; especializar sólo al medir.
 - [ ] **P5.9 — Integración CMake/toolchain.** Pipeline explícito
-  extract → reflect → validate/codegen → compile, con outputs y depfiles por
-  componente, paths con espacios, response files/argv sin shell, no-op sin
-  reescritura y build paralelo sin carreras. `nk-uic`/`nk-ui-reflect` son tools
-  host configuradas para el target. Fijar Clang/LLVM compatible en Nix y Windows,
-  registrar versión/procedencia en CSV y fallar temprano ante headers/librerías
-  mezclados. No generar en configure ni filtrar Clang al target del juego.
+  extract → `g++ -fsyntax-only -fplugin` → validate/codegen → `g++ -fplugin`,
+  con outputs y depfiles por componente, paths con espacios, response files/argv
+  sin shell, no-op sin
+  reescritura y build paralelo sin carreras. `nk-uic` y plugin se construyen para
+  host; el `g++`/cross-`g++` ejecutable en host aporta la semántica target. Fijar
+  una build GCC con headers de plugin en Nix y una distribución MinGW equivalente
+  en Windows; fallar temprano ante versiones/configuraciones mezcladas. No
+  registrar GCC como librería CSV ni filtrar headers del plugin al juego.
   Usar los contratos de outputs/depfiles de
   [CMake 3.24](https://cmake.org/cmake/help/v3.24/command/add_custom_command.html),
   que es el mínimo actual, y no depender silenciosamente de una versión superior.
-- [ ] **P5.10 — Validación de tipos por nivel.** Clang comprueba atributos,
+- [ ] **P5.10 — Validación de tipos por nivel.** GCC/plugin comprueba atributos,
   declaraciones y firmas; NK valida template/imports contra `UiSchema`; el
-  compilador target verifica el fragmento saneado y adaptadores. El grafo completo
-  se verifica antes del mount, también en AOT. Comparar diagnósticos y layout de
-  tipos en Linux Clang/GCC y Windows clang-cl/MSVC o Clang/MinGW según preset.
+  segundo paso del mismo GCC verifica script y adaptadores. El grafo completo se
+  verifica antes del mount, también en AOT. Comparar diagnósticos y layout de
+  tipos en GCC Linux y GCC/MinGW Windows según los presets oficiales del motor.
   En cross-build no ejecutar binarios target ni afirmar validación no realizada.
 - [ ] **P5.11 — Ejemplos funcionales.** Counter anotado, Button con slot/evento
   y lista de inventario con key; una vista de juego y una del editor, aún con
@@ -166,25 +174,26 @@ la versión fijada de Clang/LLVM; ningún otro target de producto la hereda.
 - Instanciar Counter dos veces no comparte estado; `increment` funciona una vez
   por acción tanto con C++ manual como con archivo compilado.
 - El corpus rechaza atributo desconocido/mal ubicado/duplicado, miembro privado,
-  dos clases `component`, firma incorrecta, ID duplicado y atributo producido por macro;
-  el diagnóstico conserva archivo, línea y columna del `.nkui`.
+  dos clases `component`, firma incorrecta, ID duplicado y atributo producido por
+  macro; el diagnóstico conserva archivo, línea y columna del `.nkui`.
 - Prop faltante/tipo incorrecto, handler inexistente y payload inválido tienen
   diagnóstico. Indicar si se detecta en build C++ o validación previa al mount.
 - Reordenar inventario conserva estado por key; removerlo ejecuta unmount una vez.
   Slots del hijo no capturan memoria temporal del caller.
 - C++ generado produce el mismo `UiDrawList` y secuencia de eventos que fixtures
   equivalentes de builder manual. No hay parsing de fuentes durante el frame.
-- Error C++ apunta al `.nkui` original; el fragmento saneado difiere sólo en
-  atributos y conserva posiciones. No-op evita Clang/compile y deja objetos intactos.
-- Build sólo-tools demuestra que `nk-ui-reflect` enlaza Clang; paquete final y
-  runtime no lo enlazan. La versión incorrecta falla en configure, no al cargar.
+- Error C++ apunta al `.nkui` original; el fragmento permanece intacto y conserva
+  posiciones. No-op evita la pasada GCC de schema y deja objetos intactos.
+- Build sólo-tools demuestra que el plugin se carga en GCC Linux y MinGW sin
+  enlazarse al runtime. Una build GCC incorrecta falla por version check antes
+  de recorrer árboles o publicar metadata.
 
 **Rollback:** habilitar la pantalla equivalente C++ sin retirar runtime/servicios.
-Para aislar un fallo del registro custom se permite temporalmente, por atributo,
-un spelling como `[[clang::annotate("nkui.state")]]`; no se convierte en API
-pública ni se vuelve a tablas manuales/macros. Si el frontend sigue siendo
-inviable, G5 queda abierto.
-**Commits sugeridos:** `build(ui): add pinned Clang reflection tooling`,
+Para aislar un fallo del registro scoped se permite temporalmente un atributo
+GNU interno como `__attribute__((nkui_state))`; no se convierte en API pública
+ni se vuelve a tablas manuales/macros. Si la distribución GCC/MinGW no soporta
+el plugin, G5 queda abierto.
+**Commits sugeridos:** `build(ui): add versioned GCC metadata plugin`,
 `feat(ui-compiler): extract annotated component schemas`,
 `feat(ui-compiler): generate native component programs`,
 `feat(ui): reconcile keyed component instances`.
