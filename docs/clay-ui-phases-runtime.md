@@ -1,8 +1,8 @@
 # NK UI: fases 0–3, integración nativa y consumidores
 
-Revisión: 2026-09-09. Todas las tareas están pendientes.
+Revisión: 2026-09-12. Todas las tareas están pendientes.
 [Plan principal](clay-ui-language-implementation-plan.md) ·
-[Contratos C01–C10](clay-ui-technical-contracts.md) ·
+[Contratos C01–C11](clay-ui-technical-contracts.md) ·
 [Siguiente tramo: lenguaje](clay-ui-phases-language.md).
 
 Los IDs `P0.1`, etc. identifican paquetes de trabajo y evidencia, no commits

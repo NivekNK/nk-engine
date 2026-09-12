@@ -1,6 +1,6 @@
 # NK UI: fases 4–6, lenguaje, componentes y estilos
 
-Revisión: 2026-09-11. Todas las tareas están pendientes.
+Revisión: 2026-09-12. Todas las tareas están pendientes.
 [Plan principal](clay-ui-language-implementation-plan.md) ·
 [Contratos](clay-ui-technical-contracts.md) ·
 [Fases nativas](clay-ui-phases-runtime.md) ·
@@ -54,7 +54,9 @@ que el compilador de producción está implementado.
 - [ ] **P4.5 — Source manager y extractor.** File IDs, contenido persistente,
   spans de bytes y conversión a línea/columna; raw strings con delimitador,
   comentarios, strings, continuaciones y terminador reservado C06. Preservar
-  líneas/includes C++ para la posterior emisión, sin macroexpansión.
+  líneas/includes C++ para la posterior emisión, sin macroexpansión. Diseñar sus
+  snapshots y mapas segmentados con versión/hash para C11: conversiones UTF-8,
+  UTF-16/UTF-32 y CRLF, regiones sintéticas no editables y mapping bidireccional.
 - [ ] **P4.6 — AST y diagnósticos.** AST en arena con índices, no árbol de punteros
   sueltos entre candidatos. Recuperación por bloque/elemento/declaración; límite
   de errores y mensajes con ubicaciones relacionadas. Capacidad/OOM son errores
@@ -114,7 +116,8 @@ headers privados de la misma build GCC; ningún target de producto los hereda.
   mediante argumentos `-fplugin-arg-*`, con defaults que fallen de forma segura.
   Validar número/tipo de argumentos, sujeto, acceso público, una sola clase
   `component` localizada en el bloque y firmas/constructibilidad allocator-first.
-  Emitir `UiSchema`, diagnósticos estructurados y depfile. Un archivo sin script
+  Emitir `UiSchema`, diagnósticos estructurados, spans exactos de atributos y
+  depfile reutilizables por C11. Un archivo sin script
   usa modelo vacío; `plugin_default_version_check` y un fingerprint completo
   rechazan cualquier build GCC distinta. Error de frontend u OOM no deja outputs
   nuevos publicados parcialmente.

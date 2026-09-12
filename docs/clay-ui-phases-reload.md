@@ -1,6 +1,6 @@
 # NK UI: fases 7–10, recarga, evolución y distribución
 
-Revisión: 2026-09-11. Todas las tareas están pendientes.
+Revisión: 2026-09-12. Todas las tareas están pendientes.
 [Plan principal](clay-ui-language-implementation-plan.md) ·
 [Contratos](clay-ui-technical-contracts.md) ·
 [Tramo anterior](clay-ui-phases-language.md).
@@ -243,34 +243,53 @@ no aceptar silenciosamente propiedades cuya implementación se desactivó.
 
 ### Paquetes de trabajo
 
-- [ ] **P10.1 — Editor de fuentes.** Resaltado y formato sin alterar script C++
-  ni whitespace significativo, incluidos atributos `nkui`. Evaluar Tree-sitter
-  para edición incompleta; su gramática no sustituye a GCC. El servicio NK usa
-  la pasada `g++ -fsyntax-only` para semántica/atributos y mantiene el último
-  `UiSchema` válido mientras el archivo está incompleto. Si se adopta Tree-sitter,
-  registrar tag/CSV y generación de parser.
-- [ ] **P10.2 — Servicio de lenguaje mínimo.** Diagnósticos, go-to import/componente,
-  hover de props/estilos y completado de bindings conocidos. Versionar documentos
-  y descartar resultados viejos. Combinar diagnósticos/spans del proceso GCC/plugin
-  con tooling C++ existente; no implementar semántica C++ otra vez ni cargar el
-  plugin dentro del proceso del editor.
+- [ ] **P10.1 — Editor y clientes delgados.** Registrar `.nkui`, bloques y tokens
+  básicos sin alterar script C++ ni whitespace significativo. Crear una extensión
+  VSCode mínima y configuración/plugin Neovim que arranquen el mismo `nk-ui-lsp`,
+  expongan estado/configuración y no contengan semántica duplicada. Evaluar
+  Tree-sitter para edición incompleta; su gramática no sustituye a GCC ni al parser
+  headless. Si se adopta, registrar tag/CSV y generación reproducible del parser.
+- [ ] **P10.2 — Servicio de lenguaje compuesto.** Implementar C11: servidor NK
+  dueño de import/UI/style/bindings y broker LSP de un `clangd` hijo opcional para
+  `<script>`. Generar `.cpp` sombra y compile command por target; filtrar sólo
+  atributos `[[nkui::...]]` conservando offsets; source maps versionados y
+  conversión explícita UTF-8/encoding LSP/CRLF. Traducir IDs, cancelación, URI,
+  diagnostics, locations, tokens y edits; descartar resultados atrasados y
+  reiniciar el hijo con backoff sin derribar el servidor.
+
+  Entregar primero diagnóstico, completion, hover, signature y go-to dentro de
+  cada bloque; después fusionar document symbols, references y semantic tokens.
+  Formato queda confinado al bloque y rename cross-block es una transacción única,
+  nunca dos edits parciales. La pasada `g++ -fsyntax-only` + plugin se ejecuta con
+  debounce/save, produce el `UiSchema` autoritativo y conserva el último válido
+  marcado como stale durante edición incompleta. `clangd` no carga el plugin GCC,
+  no decide el build y `--query-driver` sólo permite rutas absolutas allowlisted.
+  Sin clangd, mantener todas las capacidades NK y GCC con degradación C++ visible.
 - [ ] **P10.3 — Backend extensible.** Cerrar interfaz `ScriptBackend` con
   `CppBackend` dueño de extracción GCC, schema, compilación y migración;
   contratos de error y dobles de test. Otros backends producirán el mismo
-  `UiSchema` mediante mecanismos propios. `lang` desconocido sigue rechazado;
-  no instalar otro lenguaje para demostrar extensibilidad.
+  `UiSchema` mediante mecanismos propios y podrán adjuntar otro servidor hijo al
+  LSP compuesto. `lang` desconocido sigue rechazado; no instalar otro lenguaje
+  para demostrar extensibilidad.
 - [ ] **P10.4 — Artefactos de producto.** Targets/options separan game, editor,
-  compilador host, data reload y native reload. Assets C++/binarios versionados,
+  compilador host, LSP, data reload y native reload. Assets C++/binarios versionados,
   licencias y pins coherentes. El paquete resultante funciona sin fuentes, GCC/plugin,
-  SDK de compilación, watcher, parser, `.so`/DLL de desarrollo o red. El paquete
-  de desarrollo sí verifica la build GCC/plugin exacta antes de usar caché.
+  clangd, LSP, caches/sombras, SDK de compilación, watcher, parser, `.so`/DLL de
+  desarrollo o red. El paquete de desarrollo fija una versión soportada de clangd
+  y verifica la build GCC/plugin exacta antes de usar caché; clangd no entra al CSV.
 - [ ] **P10.5 — CI y matriz real.** Headless tests, corpus/fuzz, AOT/data diff,
   GPU smoke moderna/legacy, input/plataforma, sanitizers y tracking según soporte.
   Verificar plugin y target nativos en Windows además de Linux, incluyendo
-  paths/response files y carga DLL en GCC/MinGW; un cross-build no basta.
+  paths/response files y carga DLL en GCC/MinGW; un cross-build no basta. Para LSP,
+  usar un child falso determinista y smoke con clangd real; probar versiones/IDs,
+  cancelación, crash/restart, mapping Unicode/CRLF, atributos/raw strings, edits
+  cruzados, rename atómico, tokens fusionados y arranque sin clangd. Ejecutar
+  clientes VSCode y Neovim contra el mismo servidor, sin lógica especial divergente.
 - [ ] **P10.6 — Evidencia y mantenimiento.** Revisar cada gate/tarea, registrar
   pendientes, límites y guía de cambios de versión. Dejar instrucciones de
   build/run/watch/recovery iguales en Bash y PowerShell, con ejemplos ejecutados.
+  Documentar configuración de `clangd`, allowlist de `--query-driver`, logs/origen
+  de diagnósticos, limpieza de caches y cómo reconocer el modo degradado.
 
 ### Aceptación y cierre G10
 
@@ -280,6 +299,9 @@ no aceptar silenciosamente propiedades cuya implementación se desactivó.
   preview/reload sólo en configuración de desarrollo.
 - Fuente inválida mantiene diagnóstico útil; código generado permite navegar
   a `.nkui`; formatter no cambia semántica de fixtures.
+- VSCode y Neovim verifican el mismo fixture `.nkui`; C++ ofrece semántica clangd
+  cuando está disponible y el resto del lenguaje sigue funcionando sin él. Ningún
+  edit remapeado escapa de su bloque ni se aplica sobre una versión vieja.
 - Matriz de gates aprobada con evidencia o pendientes explícitos: no hay cierre
   completo mientras falte una plataforma/feature obligatoria sin acuerdo de alcance.
 

@@ -1,7 +1,7 @@
 # Plan: Clay, UI compartida y lenguaje de componentes
 
 Estado: **propuesto; ninguna fase implementada por este documento**.
-Fecha de revisión: 2026-09-11. Revisión del plan: **4**.
+Fecha de revisión: 2026-09-12. Revisión del plan: **5**.
 
 ## Cómo usar este plan
 
@@ -11,21 +11,22 @@ se detalla en tres documentos, sin renumerar las fases del plan anterior:
 - [Fases 0–3: runtime, render, input y consumidores](clay-ui-phases-runtime.md).
 - [Fases 4–6: compilador, componentes C++ y estilos](clay-ui-phases-language.md).
 - [Fases 7–10: recarga, ampliaciones y distribución](clay-ui-phases-reload.md).
-- [Contratos C01–C10](clay-ui-technical-contracts.md): ownership, secuencia de
-  frame, IDs, tipos, CSS, artefactos, ABI y fallos.
+- [Contratos C01–C11](clay-ui-technical-contracts.md): ownership, secuencia de
+  frame, IDs, tipos, CSS, artefactos, ABI, fallos y servicio de lenguaje.
 
 La [sección 8](#8-fases-dependencias-y-seguimiento) contiene el índice de gates,
 dependencias, trazabilidad y decisiones pendientes. Cada paquete tiene un ID
 estable para registrar commits y pruebas. Todo sigue pendiente de implementar.
 Las rutas/API/CLI nuevas son propuestas, no funcionalidades disponibles.
 
-Cambios relevantes de esta revisión: el modelo C++ se describe con atributos
-`[[nkui::...]]` procesados por un plugin del mismo GCC que compila el proyecto,
-no mediante Clang, tablas manuales, macros ni un parser C++ propio. Se elimina
-la doble semántica Clang/GCC y se añade el pipeline de registro de atributos,
-extracción GENERIC, schema, versionado del plugin y caché. Los anexos precisan
-los contratos de esta guía; cualquier modificación posterior debe actualizar
-ambos, no crear dos versiones contradictorias del mismo requisito.
+Cambios relevantes de esta revisión: se conserva GCC como frontend autoritativo
+del build y se diseña `nk-ui-lsp` como servidor compuesto para VSCode y Neovim.
+El servidor resuelve el lenguaje NK UI y delega la semántica del bloque C++ a un
+proceso `clangd` opcional mediante documentos sombra y mapas de origen; no enlaza
+las librerías internas de Clang ni convierte a Clang en compilador del proyecto.
+Se especifican routing, diagnósticos, posiciones Unicode, modo degradado y pruebas.
+Los anexos precisan los contratos de esta guía; cualquier modificación posterior
+debe actualizar ambos, no crear dos versiones contradictorias del requisito.
 
 ## 1. Objetivo y decisiones de arquitectura
 
@@ -49,6 +50,10 @@ Decisiones propuestas:
 - `CppBackend` v1 soporta GCC nativo en Linux y GCC/MinGW en Windows. El resto
   del motor puede conservar compatibilidad incidental con otros compiladores,
   pero los componentes anotados no prometen otro frontend en este hito.
+- `nk-ui-lsp` será el único servidor que registra `.nkui` en el editor. Resolverá
+  `<import>`, `<ui>`, `<style>` y relaciones entre bloques; para `<script>` podrá
+  ejecutar `clangd` como proceso hijo. `clangd` es tooling opcional, no frontend
+  de build, fuente de `UiSchema` ni dependencia del runtime o del juego distribuido.
 - El `<style>` siempre tiene alcance local. Los estilos externos se importan y
   reutilizan sin convertirlos accidentalmente en reglas globales.
 - Una representación intermedia común, `UiProgram`, alimentará tanto la ruta
@@ -477,9 +482,12 @@ e inválido, calidad de diagnósticos, allocations, tiempo de análisis y coste 
 compilar **la herramienta**. Este último no es el tiempo de recompilar cada UI:
 las plantillas de lexy/PEGTL no deben entrar en los `.cpp` generados.
 
-No se propone Clang, LLVM/JIT ni un motor CSS externo en la primera versión. El
-plugin reutiliza el GCC ya requerido por el proyecto y no replica su parser.
-Añadir un JIT no eliminaría las obligaciones de estado, lifecycle y compatibilidad.
+No se propone Clang como frontend de build/reflexión, LLVM/JIT ni un motor CSS
+externo en la primera versión. El plugin reutiliza el GCC ya requerido por el
+proyecto y no replica su parser. `clangd` sólo se contempla como proceso LSP
+opcional y aislado para reutilizar semántica C++ en el editor; nunca decide si un
+componente compila con GCC. Añadir un JIT no eliminaría las obligaciones de
+estado, lifecycle y compatibilidad.
 
 ### Dependencias y reproducibilidad
 
@@ -501,7 +509,8 @@ vendorizado dentro del engine. Su versión y procedencia se registran en el
 manifiesto/toolchain y en evidencia de build. Las librerías nuevas siguen
 exigiendo submódulo a tag y entrada CSV. Si una distribución MinGW no incluye
 plugins o sus headers, esa configuración no puede cerrar G5 hasta reemplazarla
-por una distribución GCC equivalente; no se reintroduce Clang silenciosamente.
+por una distribución GCC equivalente; no se reemplaza el frontend de build por
+Clang silenciosamente. La disponibilidad de clangd no cambia este requisito.
 
 Para cada librería realmente incorporada:
 
@@ -513,6 +522,10 @@ Para cada librería realmente incorporada:
 - Reutilizar FreeType, HarfBuzz y rapidhash ya registrados; no reinstalarlos.
 - Tree-sitter, parser o librerías Unicode sólo se registran cuando se aprueba su
   uso y se incorporan, no como dependencias ficticias del plan.
+- `clangd` se obtiene como herramienta opcional del entorno Nix/toolchain o de
+  la instalación del usuario. No es código vendorizado, submódulo ni entrada de
+  `libraries.csv`; se fija una versión soportada en el entorno de desarrollo y
+  se permite configurar su ruta explícita.
 
 ## 7. Compilación rápida y recarga
 
@@ -634,13 +647,58 @@ Cada backend podrá usar las anotaciones/reflexión naturales de su lenguaje y
 deberá producir el mismo `UiSchema`; no se impondrán atributos C++ ni GCC a
 scripts futuros.
 
+### Servicio de lenguaje compuesto
+
+VSCode y Neovim registran sólo `nk-ui-lsp` para `.nkui`. El servidor mantiene el
+AST tolerante del contenedor y atiende imports, UI, estilos, bindings, símbolos,
+diagnósticos y navegación entre bloques. Para un cursor dentro de `<script>`, el
+backend C++ puede delegar completion, hover, signature help, definición,
+referencias, acciones y formato a un proceso
+[`clangd`](https://clangd.llvm.org/design/) hijo por workspace/toolchain.
+No se enlazan APIs internas de clangd: el aislamiento por proceso permite
+cancelar, reiniciar y actualizar la herramienta sin fijar su ABI al motor.
+
+Por cada documento abierto se crea bajo el directorio de build/cache un `.cpp`
+sombra de ruta determinista. Contiene el preámbulo/wrapper requerido y una copia
+del script; sólo los spans `[[nkui::...]]` se reemplazan por espacios de igual
+longitud para que clangd no diagnostique atributos que pertenecen al plugin GCC.
+Este filtro léxico acotado no interpreta C++ ni toca otros atributos. Un mapa de
+origen bidireccional transforma posiciones, diagnósticos y edits entre el archivo
+sombra y `.nkui`; los cambios sin guardar se transmiten con `didOpen/didChange`.
+
+`nk-ui-lsp` genera para esos archivos una
+[base de compilación](https://clangd.llvm.org/design/compile-commands) derivada del
+target real: estándar, includes, defines, directorio y triple. Elimina flags
+exclusivos del driver/plugin GCC que clangd no entiende. Consultar el GCC con `--query-driver`
+será opt-in y sólo para rutas absolutas allowlisted, nunca un glob amplio, porque
+clangd ejecuta el driver coincidente. GCC/plugin sigue ejecutándose por separado
+para producir el `UiSchema` y sus diagnósticos son autoritativos para atributos y
+build; clangd sólo ofrece feedback C++ rápido y puede diferir del resultado final.
+
+El servidor negocia el encoding según
+[LSP](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/)
+y convierte explícitamente offsets UTF-8, UTF-16/UTF-32, CRLF y líneas añadidas
+por el wrapper. Funcionalidades globales
+fusionan resultados no solapados: diagnósticos etiquetados por origen, símbolos,
+folding y semantic tokens. Rename cross-block combina de forma atómica el
+`WorkspaceEdit` de clangd con usos `{{binding}}`, props y handlers resueltos por
+NK; si cambió la versión o hay edits incompatibles, no aplica una mitad. El
+formato de script tampoco puede editar delimitadores ni bloques vecinos.
+
+Sin `clangd`, el mismo servidor conserva parse, UI/style/imports, bindings y la
+validación autoritativa vía GCC/plugin, e informa que completion/navegación C++
+está degradada. Las extensiones de VSCode y la configuración de Neovim serán
+clientes delgados: arrancan el mismo binario y no duplican semántica. Un backend
+de scripting futuro puede adjuntar su propio servidor hijo detrás de esta misma
+frontera sin obligar a todos los lenguajes a usar clangd.
+
 ## 8. Fases, dependencias y seguimiento
 
 El plan conserva las fases **0–10**. El detalle ejecutable está dividido por
 tramo para no convertir esta guía en una lista inmanejable. Cada paquete tiene
 ID estable, objetivo, archivos/targets afectados, pruebas, criterio de salida
 y rollback. Los contratos transversales están en
-[contratos C01–C10](clay-ui-technical-contracts.md).
+[contratos C01–C11](clay-ui-technical-contracts.md).
 
 ### Índice y dependencias mínimas
 
@@ -700,6 +758,7 @@ vacíos que parezcan resultados obtenidos.
 | Compilar a C++ sin toolchain pesado en el runtime. | P5.2/P5.8–P5.10, P10.4. | Schema GCC + AOT, no-op build, juego sin parser/watch/plugin. |
 | Recarga rápida y estado preservado. | P7.4–P7.10, P8.5–P8.9. | Latencias medidas, snapshot actual, rechazo de candidatos inválidos. |
 | Extensibilidad futura de lenguaje. | P5.1–P5.3, P10.2/P10.3. | `UiSchema` independiente del lenguaje como frontera; sólo CppBackend/GCC real. |
+| `.nkui` verificable en VSCode y Neovim sin reimplementar C++. | P4.5, P5.2, P10.1/P10.2/P10.5/P10.6; C11. | Un `nk-ui-lsp` compuesto, `clangd` hijo opcional, mapas de origen y modo degradado probado. |
 | Slang y Vulkan compatible inspirado en NoGraphicsAPI. | P1.8/P1.9, P3.4, P9.5. | Moderna/legacy, sin GPU mínima nueva ni stalls globales. |
 | Submódulos a tags y CSV/Nix/toolchains coherentes. | P1.1, P4.3, P5.2/P5.9, P2.5, P10.1/P10.4. | Librerías con gitlink; GCC/plugin de la misma build; pins, licencias y build limpio reproducibles. |
 | Herramientas editor propias sobre el runtime real. | P3.2, P9.1/P9.7, P10.1/P10.2. | Preview/inspector consumen las mismas instancias y diagnósticos. |
@@ -717,6 +776,7 @@ vacíos que parezcan resultados obtenidos.
 | Recarga nativa propia o utilidad externa. | SDK mínimo propio propuesto. | P8.3; no imponer RCC++ sin comparar contratos. |
 | Técnica de clipping redondeado. | Pendiente de medición. | P9.5, dos candidatos compatibles con moderna/legacy. |
 | Tree-sitter para tooling. | Opcional, no requisito de runtime. | P10.1: utilidad incremental frente a coste/dependencias. |
+| LSP de `.nkui` y semántica C++. | Servidor compuesto decidido; `clangd` opcional como proceso, GCC autoritativo. | P10.2/C11: spike de mapping, routing, latencia, restart y paridad VSCode/Neovim. |
 | CSS completo, nuevo scripting, fork grande o nueva plataforma. | Fuera del alcance aprobado. | Consultar antes de ampliar; sección 10. |
 
 Resolver detalles de implementación dentro de estos contratos no exige una nueva
@@ -780,6 +840,8 @@ para demostrar que una edición de CSS no las activa.
 | Cache Clay devuelve medidas obsoletas. | Cambio de idioma/font/scale en dos superficies. | Invalidación de ambas caches; P1.5/P1.6. |
 | Herramienta arrastra Vulkan/PCH/engine. | Configuración sólo-herramientas limpia. | Frontera C01 y headers propios; P4.4. |
 | Plugin no coincide exactamente con GCC o MinGW no lo soporta. | Configure, version check y corpus Linux/Windows. | Rechazar temprano; misma distribución/headers y fallback GNU sólo diagnóstico; P5.2/P5.9. |
+| Respuesta de clangd apunta a otro bloque, versión o columna Unicode. | Corpus UTF-8/UTF-16, CRLF, edits antes del script y respuestas atrasadas. | Source map versionado, negociar encoding, descartar resultados viejos/solapados; C11/P10.2. |
+| clangd no está disponible, diverge de GCC o se cae. | Inicio sin binario, fixture con flags GCC y proceso terminado durante una request. | Modo degradado explícito, GCC/plugin autoritativo y reinicio aislado con backoff; C11/P10.2. |
 | Falso soporte de CSS o tipos C++ mágicos. | Fixtures negativos, matrices y errores por nivel. | Limitar perfil y validar schema real; P5.10/P6.1. |
 | Mezcla de dependencias o job atrasado. | Ediciones multiarquivo durante build. | Revalidación de snapshot y generación; P7.6/P7.9. |
 | Estado retrocede tras recompilar. | Incrementar mientras compila. | Snapshot actual/revisión y migración; P8.6. |
@@ -801,6 +863,9 @@ Pruebas en cada fase, no sólo al final:
 - Recarga: errores de sintaxis/tipo, OOM, import borrado, rename, eventos watcher
   perdidos, múltiples guardados y resultado viejo. Cien ciclos repetidos con
   memoria/módulos/referencias estables; pruebas prolongadas antes de release.
+- LSP: clientes VSCode y Neovim contra el mismo servidor; fake clangd para
+  mapping/cancelación determinista y smoke con clangd real. Cubrir Unicode, CRLF,
+  archivos incompletos, rename atómico, semantic tokens fusionados y crash hijo.
 - Sanitizers y tracker propio; no dar por válida una plataforma no ejecutada.
 - Build limpio local/Nix y juego empaquetado sin herramientas ni compilador.
 

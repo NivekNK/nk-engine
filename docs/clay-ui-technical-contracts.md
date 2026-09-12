@@ -1,6 +1,6 @@
 # NK UI: contratos técnicos propuestos
 
-Revisión: 2026-09-11. Estado: diseño, no API implementada.
+Revisión: 2026-09-12. Estado: diseño, no API implementada.
 Documento complementario al [plan principal](clay-ui-language-implementation-plan.md).
 Las firmas y formatos se concretan en los paquetes de trabajo que los citan;
 los invariantes de este documento son sus criterios de diseño y prueba.
@@ -13,7 +13,7 @@ nk-foundation       tipos/allocators/result mínimos, sin engine ni GPU
 nk-ui-model         IDs, valores, esquema de bindings y formato lógico de programa
       ↑                                ↑
 nk-ui-runtime                    nk-ui-language → nk-uic [host]
-                                          ↑
+                                      ↑       ↘ nk-ui-lsp [host] ↔ clangd opcional
                                GCC + nk-ui-gcc-plugin [host]
       ↑
 adaptador Clay + renderer NK
@@ -32,6 +32,9 @@ licencia compatible como exige la API, ejecuta `plugin_default_version_check` y
 rechaza basever/datestamp/devphase/revision/configuración diferentes. En cross
 build el plugin es binario host construido contra los headers del cross-GCC que
 lo cargará, no contra los del GCC target inexistente en la máquina de build.
+`nk-ui-lsp` depende de modelo/lenguaje, pero no de runtime, Clay, renderer o
+ventanas. Arranca `clangd` como proceso hijo opcional; no enlaza Clang ni carga
+el plugin GCC en su propio proceso. Ninguno de ambos se incluye en el juego.
 
 La auditoría debe atender tres dependencias actuales: PCH público de
 `engine/CMakeLists.txt`, inicialización de logging/memoria y configuración raíz
@@ -382,3 +385,99 @@ glyph missing y fuentes corruptas tienen política explícita.
 Permisos nativos de clipboard/IME y seriales Wayland se resuelven en plataforma.
 No bloquear el frame esperando clipboard. Preedit no se inserta como committed;
 cancelar/reemplazar composición no debe duplicar texto.
+
+## C11 — LSP compuesto y documentos C++ sombra
+
+### Autoridad y procesos
+
+El editor registra un único servidor, `nk-ui-lsp`, para `.nkui`. Éste es dueño de
+la versión del documento, parser SFC tolerante, imports, UI, estilos, símbolos y
+resolución de bindings. Para C++, mantiene como máximo un proceso
+[`clangd`](https://clangd.llvm.org/design/) por
+workspace y configuración de toolchain compatibles; se comunica por LSP sobre
+stdio usando argv, nunca mediante shell. No se enlazan APIs internas de clangd.
+
+Las autoridades no son intercambiables:
+
+| Fuente | Responsabilidad | Autoridad |
+| --- | --- | --- |
+| `nk-ui-lsp` | Estructura `.nkui`, UI/style/imports y referencias cruzadas. | Inmediata para el lenguaje NK UI. |
+| `clangd` hijo | Completion, hover, navegación, referencias, firma, acciones y formato del C++ proyectado. | Feedback de editor; no certifica el build. |
+| GCC + `nk-ui-gcc-plugin` | Semántica target real, atributos `nkui`, `UiSchema` y compilación. | Definitiva para schema y build. |
+
+La pasada GCC se agenda con debounce/cancelación al quedar idle o guardar, no en
+cada tecla. Mientras un documento esté incompleto se conserva el último schema
+válido, marcado con su hash/generación; nunca se presenta como schema de la versión
+actual. Un diagnóstico indica si procede de `nkui`, `clangd` o `gcc` y se deduplica
+sin ocultar una discrepancia entre frontends.
+
+### Proyección y mapa de origen
+
+Para cada `<script>` abierto, el servidor escribe en un cache de build controlado
+un `.cpp` sombra de nombre determinista por workspace/documento/backend. Se crea
+una [entrada de compilación](https://clangd.llvm.org/design/compile-commands)
+específica con directorio, `-std`, includes, defines y target derivados de la
+configuración GCC real; flags de plugin, link o driver
+incompatibles se filtran explícitamente. La consulta `--query-driver` sólo admite
+rutas absolutas allowlisted configuradas por el proyecto, porque habilita la
+ejecución del compilador indicado en la base de compilación.
+
+El archivo sombra combina preámbulo/wrapper generado y bytes del script. Un filtro
+léxico consciente de strings, raw strings, comentarios y atributos reconoce sólo
+`[[nkui::...]]` y sustituye esos bytes por espacios, conservando saltos de línea y
+longitud; no interpreta C++ ni elimina atributos estándar o de terceros. Nuestro
+servidor valida las anotaciones contra el `UiSchema`/GCC. Si la proyección no puede
+preservar un segmento, lo marca como generado y no inventa una posición editable.
+
+Cada snapshot posee mapa bidireccional segmentado, versión del documento, hash del
+script y generación del proceso hijo. Las conversiones cubren:
+
+- URI sombra ↔ URI `.nkui`; las definiciones en headers C++ reales conservan su URI.
+- offsets internos UTF-8 ↔ líneas/columnas del encoding negociado con cada cliente
+  según [LSP 3.17](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/),
+  incluido UTF-16 por defecto, Unicode no BMP y CRLF.
+- rangos, `relatedInformation`, locations, diagnostic fixes, semantic tokens y
+  todos los `TextEdit`/`WorkspaceEdit` que vuelvan desde clangd.
+
+Un resultado de una versión/generación anterior se descarta. Un edit que cruza un
+delimitador, bloque no-script o región sintética se rechaza completo. Los cambios
+sin guardar se envían al hijo mediante `didOpen`/`didChange`; el archivo en disco
+es sólo soporte para URI y descubrimiento de comandos, no la fuente autoritativa.
+
+### Routing y composición
+
+| Operación LSP | Resolución inicial |
+| --- | --- |
+| Completion/hover/signature dentro de script | clangd, remapeado; NK añade atributos/bindings cuando proceda. |
+| Definición/referencias dentro de script | clangd para C++; NK fusiona usos en UI/style/imports. |
+| Operación dentro de import/UI/style | Sólo NK, sin mandar C++ inválido al hijo. |
+| Diagnósticos | NK + clangd rápido + GCC autoritativo, etiquetados y versionados. |
+| Document symbols/folding/semantic tokens | Fusionar listas ordenadas, no solapadas; tokens C++ sólo en script. |
+| Formato | Por bloque; clangd sólo puede editar el contenido de script. |
+| Rename cross-block | Preparar edits clangd y NK, validar versión/solapes y aplicar una sola operación atómica. |
+
+Cancellation se propaga mediante IDs traducidos al proceso hijo. Al cerrar un
+documento se cierra también su sombra. Si clangd termina, el servidor cancela sus
+requests, informa capacidad degradada y puede reiniciarlo con backoff; nunca cae
+el host del editor ni se pierde la validación NK/GCC por ello.
+
+### Clientes, distribución y pruebas
+
+La extensión VSCode sólo registra lenguaje/filetype, arranca el binario y ofrece
+configuración/comandos de estado. Neovim usa el mismo protocolo con una definición
+de filetype y cliente LSP; un plugin de resaltado o Tree-sitter será opcional. La
+semántica no vive en ninguno de los dos clientes.
+
+`clangd` pertenece únicamente al entorno de desarrollo. Si no se encuentra, el
+servidor arranca en modo degradado y conserva diagnóstico/completion/navegación de
+NK UI más la validación GCC configurada; explica qué capacidades C++ faltan. El
+paquete del juego excluye `nk-ui-lsp`, clangd, archivos sombra, bases de compilación
+auxiliares y caches de índice.
+
+Pruebas obligatorias: child LSP falso para routing, request IDs, cancelación,
+crash y respuestas viejas; goldens de source map con UTF-8/UTF-16/UTF-32 y CRLF;
+edits antes/dentro/después de script; atributos, raw strings y comentarios;
+rename atómico y rechazo de edits cruzados; merge de diagnósticos/tokens; smoke
+con una versión soportada de clangd; y clientes VSCode/Neovim contra el mismo
+servidor. La CI prueba también ausencia de clangd y confirma que el shipping game
+no adquiere una dependencia transitiva de las herramientas.
