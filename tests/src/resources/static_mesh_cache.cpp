@@ -107,6 +107,34 @@ TEST_F(StaticMeshCache, ImportsOnMissThenLoadsEquivalentBinaryAndWritesDetermini
     EXPECT_EQ(std::memcmp(original->data(), regenerated->data(), original->length()), 0);
 }
 
+TEST_F(StaticMeshCache, PreservesObjTextureCoordinatesAcrossCacheReload) {
+    ASSERT_TRUE(write("models/tri.obj",
+        "mtllib tri.mtl\n"
+        "v 0 0 0\nv 1 0 0\nv 0 1 0\n"
+        "vt 0.125 0.25\nvt 0.875 0.75\nvt 0.5 0.625\n"
+        "usemtl paint\nf 1/1 2/2 3/3\n"));
+
+    ASSERT_TRUE(load());
+    ASSERT_FALSE(binary());
+    ASSERT_EQ(mesh().geometries.length(), 1);
+    ASSERT_EQ(mesh().geometries[0].vertices.length(), 3);
+    EXPECT_EQ(mesh().geometries[0].vertices[0].texcoord,
+        glm::vec2(0.125f, 0.25f));
+    EXPECT_EQ(mesh().geometries[0].vertices[1].texcoord,
+        glm::vec2(0.875f, 0.75f));
+    EXPECT_EQ(mesh().geometries[0].vertices[2].texcoord,
+        glm::vec2(0.5f, 0.625f));
+
+    ASSERT_TRUE(load());
+    ASSERT_TRUE(binary());
+    EXPECT_EQ(mesh().geometries[0].vertices[0].texcoord,
+        glm::vec2(0.125f, 0.25f));
+    EXPECT_EQ(mesh().geometries[0].vertices[1].texcoord,
+        glm::vec2(0.875f, 0.75f));
+    EXPECT_EQ(mesh().geometries[0].vertices[2].texcoord,
+        glm::vec2(0.5f, 0.625f));
+}
+
 TEST_F(StaticMeshCache, DetectsSameSizeSourceEditsEvenWithPreservedTimestamp) {
     ASSERT_TRUE(load());
     struct stat before{};

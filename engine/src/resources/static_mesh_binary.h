@@ -5,7 +5,7 @@
 
 namespace nk::mesh_binary {
     inline constexpr u32 version = 3;
-    inline constexpr u32 importer_revision = 1;
+    inline constexpr u32 importer_revision = 2;
     inline constexpr u32 header_bytes = 64;
     inline constexpr u32 vertex_bytes = 48;
     inline constexpr u64 max_file_bytes = 128ull * 1024 * 1024;

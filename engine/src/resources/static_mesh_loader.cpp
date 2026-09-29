@@ -348,7 +348,9 @@ namespace nk {
                 }
                 vertex.texcoord = {
                     attributes.texcoords[texcoord_offset],
-                    1.0f - attributes.texcoords[texcoord_offset + 1],
+                    // ImageLoader already flips 2D image rows. OBJ UVs must
+                    // keep their original V or the atlas is inverted twice.
+                    attributes.texcoords[texcoord_offset + 1],
                 };
                 if (!finite(vertex.texcoord)) {
                     return err(mesh_error(
