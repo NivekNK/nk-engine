@@ -143,6 +143,10 @@ for measurements, hardware requirements, design decisions and regression checks.
 
 The current demo renders shaped UTF-8 through FreeType, HarfBuzz, an R8 atlas
 and Slang shaders. Disable its diagnostic overlay with `NK_TEXT_OVERLAY=0`.
+The Sponza demo opens at Kohi's initial camera position without the large
+diagnostic UI quad. Set `NK_UI_DEMO=1` to show that quad; `NK_SAMPLER_DEMO=1`
+also enables it for sampler comparisons. Existing `.nkmesh` caches are
+automatically rebuilt after OBJ UV-import changes.
 Wayland/Niri uses native fractional scaling, compose/repeat and text-input-v3;
 Win32 uses per-monitor-v2 DPI and IMM32. The renderer, ownership contracts,
 input lifetime and the future Clay adapter boundary are described in

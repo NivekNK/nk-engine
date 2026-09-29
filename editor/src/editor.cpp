@@ -111,6 +111,9 @@ public:
         const nk::cstr sampler_demo = std::getenv("NK_SAMPLER_DEMO");
         m_sampler_demo = sampler_demo != nullptr &&
             std::strcmp(sampler_demo, "1") == 0;
+        const nk::cstr ui_demo = std::getenv("NK_UI_DEMO");
+        m_ui_demo = m_sampler_demo ||
+            (ui_demo != nullptr && std::strcmp(ui_demo, "1") == 0);
         if (m_sampler_demo) {
             if (!ui_config.vertices.dyarr_resize(8) ||
                 !ui_config.indices.dyarr_resize(12)) {
@@ -170,7 +173,7 @@ public:
                 return initialization_error(static_cast<nk::i32>(initialized.error()));
         }
 
-        m_lighting.directional.color = {0.6f, 0.6f, 0.6f, 1.0f};
+        m_lighting.directional.color = {0.4f, 0.4f, 0.2f, 1.0f};
         m_lighting.point_lights[0] = {
             .position = {-5.5f, 0.0f, -5.5f},
             .color = {0.0f, 1.0f, 0.0f, 1.0f},
@@ -206,7 +209,7 @@ public:
         if (camera == nullptr)
             return nk::err(nk::app_error{nk::app_error_code::update_failed});
         if (!m_camera_initialized) {
-            camera->set_position({0.0f, 0.0f, 30.0f});
+            camera->set_position({10.5f, 5.0f, 9.5f});
             m_camera_initialized = true;
         }
 
@@ -310,7 +313,9 @@ public:
             },
             .mesh_count = static_cast<nk::u32>(m_meshes.length()),
             .meshes = m_meshes.data(),
-            .ui_geometry_count = m_ui_geometry == nullptr ? 0u : 1u,
+            .ui_geometry_count = m_ui_demo && m_ui_geometry != nullptr
+                ? 1u
+                : 0u,
             .ui_geometries = &m_ui_render_data,
             .text = text_frame,
         };
@@ -739,6 +744,7 @@ private:
     bool m_services_valid = false;
     bool m_initialized = false;
     bool m_camera_initialized = false;
+    bool m_ui_demo = false;
     bool m_sampler_demo = false;
     bool m_cycle_samplers = false;
     bool m_accept_mesh_publication = false;
